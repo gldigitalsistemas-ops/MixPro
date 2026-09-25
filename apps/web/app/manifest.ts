@@ -21,7 +21,6 @@ export default function manifest(): MetadataRoute.Manifest {
         src: "/og-image.jpg",
         sizes: "1200x630",
         type: "image/jpeg",
-        // @ts-expect-error – form_factor is valid but not yet in Next.js types
         form_factor: "wide",
       },
     ],

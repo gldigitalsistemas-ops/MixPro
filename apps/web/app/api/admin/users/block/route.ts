@@ -17,10 +17,10 @@ export async function POST(req: Request) {
 
     const admin = supabaseAdmin();
     if (block) {
-      await admin.auth.admin.updateUser(user_id, { ban_duration: "876600h" });
+      await admin.auth.admin.updateUserById(user_id, { ban_duration: "876600h" });
       await admin.from("profiles").update({ blocked_at: new Date().toISOString() }).eq("id", user_id);
     } else {
-      await admin.auth.admin.updateUser(user_id, { ban_duration: "none" });
+      await admin.auth.admin.updateUserById(user_id, { ban_duration: "none" });
       await admin.from("profiles").update({ blocked_at: null }).eq("id", user_id);
     }
     return Response.json({ ok: true });
