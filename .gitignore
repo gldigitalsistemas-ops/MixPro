@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+worker-data/
+
+infra/e2e/.env
+apps/web/.env.local

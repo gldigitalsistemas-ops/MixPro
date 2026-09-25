@@ -1,0 +1,614 @@
+{
+  "gain": {
+    "label": "Ganho",
+    "description": "Ajusta o volume.",
+    "params": {
+      "gain_db": {
+        "kind": "number",
+        "label": "Ganho",
+        "unit": "dB",
+        "min": -24,
+        "max": 24,
+        "step": 0.1,
+        "default": 0,
+        "interpolable": true,
+        "neutral": 0
+      }
+    }
+  },
+  "highpass": {
+    "label": "Filtro passa-altas",
+    "description": "Remove graves indesejados.",
+    "params": {
+      "frequency_hz": {
+        "kind": "number",
+        "label": "Frequência",
+        "unit": "Hz",
+        "min": 10,
+        "max": 2000,
+        "step": 1,
+        "default": 80,
+        "interpolable": false
+      },
+      "slope_db_oct": {
+        "kind": "enum",
+        "label": "Inclinação",
+        "options": [
+          {
+            "value": "6",
+            "label": "6 dB/oct"
+          },
+          {
+            "value": "12",
+            "label": "12 dB/oct"
+          },
+          {
+            "value": "18",
+            "label": "18 dB/oct"
+          },
+          {
+            "value": "24",
+            "label": "24 dB/oct"
+          }
+        ],
+        "default": "12"
+      }
+    }
+  },
+  "lowpass": {
+    "label": "Filtro passa-baixas",
+    "description": "Suaviza agudos excessivos.",
+    "params": {
+      "frequency_hz": {
+        "kind": "number",
+        "label": "Frequência",
+        "unit": "Hz",
+        "min": 500,
+        "max": 20000,
+        "step": 1,
+        "default": 16000,
+        "interpolable": false
+      },
+      "slope_db_oct": {
+        "kind": "enum",
+        "label": "Inclinação",
+        "options": [
+          {
+            "value": "6",
+            "label": "6 dB/oct"
+          },
+          {
+            "value": "12",
+            "label": "12 dB/oct"
+          },
+          {
+            "value": "18",
+            "label": "18 dB/oct"
+          },
+          {
+            "value": "24",
+            "label": "24 dB/oct"
+          }
+        ],
+        "default": "12"
+      }
+    }
+  },
+  "eq_peak": {
+    "label": "EQ paramétrico",
+    "description": "Realça ou atenua uma região do som.",
+    "params": {
+      "frequency_hz": {
+        "kind": "number",
+        "label": "Frequência",
+        "unit": "Hz",
+        "min": 20,
+        "max": 20000,
+        "step": 1,
+        "default": 1000,
+        "interpolable": false
+      },
+      "gain_db": {
+        "kind": "number",
+        "label": "Ganho",
+        "unit": "dB",
+        "min": -18,
+        "max": 18,
+        "step": 0.1,
+        "default": 0,
+        "interpolable": true,
+        "neutral": 0
+      },
+      "q": {
+        "kind": "number",
+        "label": "Q",
+        "min": 0.1,
+        "max": 18,
+        "step": 0.01,
+        "default": 1,
+        "interpolable": false
+      }
+    }
+  },
+  "eq_shelf": {
+    "label": "EQ shelving",
+    "description": "Ajusta graves ou agudos de forma ampla.",
+    "params": {
+      "position": {
+        "kind": "enum",
+        "label": "Tipo",
+        "options": [
+          {
+            "value": "low",
+            "label": "Graves (low shelf)"
+          },
+          {
+            "value": "high",
+            "label": "Agudos (high shelf)"
+          }
+        ],
+        "default": "high"
+      },
+      "frequency_hz": {
+        "kind": "number",
+        "label": "Frequência",
+        "unit": "Hz",
+        "min": 20,
+        "max": 20000,
+        "step": 1,
+        "default": 8000,
+        "interpolable": false
+      },
+      "gain_db": {
+        "kind": "number",
+        "label": "Ganho",
+        "unit": "dB",
+        "min": -18,
+        "max": 18,
+        "step": 0.1,
+        "default": 0,
+        "interpolable": true,
+        "neutral": 0
+      },
+      "q": {
+        "kind": "number",
+        "label": "Q",
+        "min": 0.3,
+        "max": 2,
+        "step": 0.01,
+        "default": 0.707,
+        "interpolable": false
+      }
+    }
+  },
+  "compressor": {
+    "label": "Compressor",
+    "description": "Controla a dinâmica.",
+    "params": {
+      "threshold_db": {
+        "kind": "number",
+        "label": "Threshold",
+        "unit": "dB",
+        "min": -60,
+        "max": 0,
+        "step": 0.1,
+        "default": -18,
+        "interpolable": true,
+        "neutral": 0
+      },
+      "ratio": {
+        "kind": "number",
+        "label": "Ratio",
+        "unit": ":1",
+        "min": 1,
+        "max": 20,
+        "step": 0.1,
+        "default": 3,
+        "interpolable": true,
+        "neutral": 1
+      },
+      "attack_ms": {
+        "kind": "number",
+        "label": "Attack",
+        "unit": "ms",
+        "min": 0.1,
+        "max": 300,
+        "step": 0.1,
+        "default": 10,
+        "interpolable": false
+      },
+      "release_ms": {
+        "kind": "number",
+        "label": "Release",
+        "unit": "ms",
+        "min": 5,
+        "max": 2000,
+        "step": 1,
+        "default": 120,
+        "interpolable": false
+      },
+      "knee_db": {
+        "kind": "number",
+        "label": "Knee",
+        "unit": "dB",
+        "min": 0,
+        "max": 24,
+        "step": 0.5,
+        "default": 6,
+        "interpolable": false
+      },
+      "makeup_db": {
+        "kind": "number",
+        "label": "Makeup",
+        "unit": "dB",
+        "min": -12,
+        "max": 24,
+        "step": 0.1,
+        "default": 0,
+        "interpolable": true,
+        "neutral": 0
+      }
+    }
+  },
+  "limiter": {
+    "label": "Limiter",
+    "description": "Evita picos e aumenta o volume percebido.",
+    "params": {
+      "ceiling_db": {
+        "kind": "number",
+        "label": "Teto",
+        "unit": "dBFS",
+        "min": -12,
+        "max": 0,
+        "step": 0.1,
+        "default": -1,
+        "interpolable": false
+      },
+      "input_gain_db": {
+        "kind": "number",
+        "label": "Ganho de entrada",
+        "unit": "dB",
+        "min": 0,
+        "max": 24,
+        "step": 0.1,
+        "default": 0,
+        "interpolable": true,
+        "neutral": 0
+      },
+      "release_ms": {
+        "kind": "number",
+        "label": "Release",
+        "unit": "ms",
+        "min": 1,
+        "max": 1000,
+        "step": 1,
+        "default": 60,
+        "interpolable": false
+      },
+      "lookahead_ms": {
+        "kind": "number",
+        "label": "Lookahead",
+        "unit": "ms",
+        "min": 0,
+        "max": 10,
+        "step": 0.1,
+        "default": 5,
+        "interpolable": false
+      }
+    }
+  },
+  "gate": {
+    "label": "Gate / Expander",
+    "description": "Reduz ruído e vazamento entre as notas.",
+    "params": {
+      "threshold_db": {
+        "kind": "number",
+        "label": "Threshold",
+        "unit": "dB",
+        "min": -90,
+        "max": 0,
+        "step": 0.1,
+        "default": -50,
+        "interpolable": true,
+        "neutral": -90
+      },
+      "range_db": {
+        "kind": "number",
+        "label": "Atenuação máxima",
+        "unit": "dB",
+        "min": 0,
+        "max": 90,
+        "step": 0.5,
+        "default": 30,
+        "interpolable": true,
+        "neutral": 0
+      },
+      "ratio": {
+        "kind": "number",
+        "label": "Ratio (expander)",
+        "unit": ":1",
+        "min": 1,
+        "max": 20,
+        "step": 0.1,
+        "default": 4,
+        "interpolable": false
+      },
+      "attack_ms": {
+        "kind": "number",
+        "label": "Attack",
+        "unit": "ms",
+        "min": 0.1,
+        "max": 100,
+        "step": 0.1,
+        "default": 1,
+        "interpolable": false
+      },
+      "hold_ms": {
+        "kind": "number",
+        "label": "Hold",
+        "unit": "ms",
+        "min": 0,
+        "max": 500,
+        "step": 1,
+        "default": 20,
+        "interpolable": false
+      },
+      "release_ms": {
+        "kind": "number",
+        "label": "Release",
+        "unit": "ms",
+        "min": 5,
+        "max": 2000,
+        "step": 1,
+        "default": 100,
+        "interpolable": false
+      }
+    }
+  },
+  "saturation": {
+    "label": "Saturação",
+    "description": "Adiciona calor e harmônicos.",
+    "params": {
+      "mode": {
+        "kind": "enum",
+        "label": "Caráter",
+        "options": [
+          {
+            "value": "tape",
+            "label": "Fita (suave)"
+          },
+          {
+            "value": "tube",
+            "label": "Válvula (assimétrica)"
+          },
+          {
+            "value": "hard",
+            "label": "Dura"
+          }
+        ],
+        "default": "tape"
+      },
+      "drive_db": {
+        "kind": "number",
+        "label": "Drive",
+        "unit": "dB",
+        "min": 0,
+        "max": 36,
+        "step": 0.1,
+        "default": 6,
+        "interpolable": true,
+        "neutral": 0
+      },
+      "mix": {
+        "kind": "number",
+        "label": "Mix",
+        "unit": "%",
+        "min": 0,
+        "max": 100,
+        "step": 1,
+        "default": 100,
+        "interpolable": true,
+        "neutral": 0
+      },
+      "output_db": {
+        "kind": "number",
+        "label": "Saída",
+        "unit": "dB",
+        "min": -24,
+        "max": 12,
+        "step": 0.1,
+        "default": 0,
+        "interpolable": false
+      }
+    }
+  },
+  "soft_clip": {
+    "label": "Soft clipper",
+    "description": "Arredonda os picos mais altos.",
+    "params": {
+      "ceiling_db": {
+        "kind": "number",
+        "label": "Teto",
+        "unit": "dBFS",
+        "min": -12,
+        "max": 0,
+        "step": 0.1,
+        "default": -0.3,
+        "interpolable": false
+      },
+      "input_gain_db": {
+        "kind": "number",
+        "label": "Ganho de entrada",
+        "unit": "dB",
+        "min": 0,
+        "max": 18,
+        "step": 0.1,
+        "default": 0,
+        "interpolable": true,
+        "neutral": 0
+      }
+    }
+  },
+  "stereo_width": {
+    "label": "Largura estéreo",
+    "description": "Abre ou fecha a imagem estéreo.",
+    "params": {
+      "width": {
+        "kind": "number",
+        "label": "Largura",
+        "unit": "%",
+        "min": 0,
+        "max": 200,
+        "step": 1,
+        "default": 100,
+        "interpolable": true,
+        "neutral": 100
+      },
+      "bass_mono_hz": {
+        "kind": "number",
+        "label": "Graves em mono abaixo de",
+        "unit": "Hz",
+        "min": 0,
+        "max": 300,
+        "step": 1,
+        "default": 0,
+        "interpolable": false
+      }
+    }
+  },
+  "delay": {
+    "label": "Delay",
+    "description": "Adiciona repetições.",
+    "params": {
+      "time_ms": {
+        "kind": "number",
+        "label": "Tempo",
+        "unit": "ms",
+        "min": 1,
+        "max": 2000,
+        "step": 1,
+        "default": 250,
+        "interpolable": false
+      },
+      "feedback": {
+        "kind": "number",
+        "label": "Feedback",
+        "unit": "%",
+        "min": 0,
+        "max": 95,
+        "step": 1,
+        "default": 25,
+        "interpolable": false
+      },
+      "lowpass_hz": {
+        "kind": "number",
+        "label": "Filtro das repetições",
+        "unit": "Hz",
+        "min": 500,
+        "max": 20000,
+        "step": 1,
+        "default": 8000,
+        "interpolable": false
+      },
+      "mix": {
+        "kind": "number",
+        "label": "Mix",
+        "unit": "%",
+        "min": 0,
+        "max": 100,
+        "step": 1,
+        "default": 15,
+        "interpolable": true,
+        "neutral": 0
+      }
+    }
+  },
+  "reverb": {
+    "label": "Reverb",
+    "description": "Adiciona ambiência.",
+    "params": {
+      "room_size": {
+        "kind": "number",
+        "label": "Tamanho",
+        "unit": "%",
+        "min": 0,
+        "max": 100,
+        "step": 1,
+        "default": 50,
+        "interpolable": false
+      },
+      "damping": {
+        "kind": "number",
+        "label": "Amortecimento",
+        "unit": "%",
+        "min": 0,
+        "max": 100,
+        "step": 1,
+        "default": 50,
+        "interpolable": false
+      },
+      "width": {
+        "kind": "number",
+        "label": "Largura",
+        "unit": "%",
+        "min": 0,
+        "max": 100,
+        "step": 1,
+        "default": 100,
+        "interpolable": false
+      },
+      "predelay_ms": {
+        "kind": "number",
+        "label": "Pré-delay",
+        "unit": "ms",
+        "min": 0,
+        "max": 200,
+        "step": 1,
+        "default": 10,
+        "interpolable": false
+      },
+      "mix": {
+        "kind": "number",
+        "label": "Mix",
+        "unit": "%",
+        "min": 0,
+        "max": 100,
+        "step": 1,
+        "default": 15,
+        "interpolable": true,
+        "neutral": 0
+      }
+    }
+  },
+  "normalize": {
+    "label": "Normalização",
+    "description": "Ajusta o volume para um alvo.",
+    "params": {
+      "mode": {
+        "kind": "enum",
+        "label": "Modo",
+        "options": [
+          {
+            "value": "peak",
+            "label": "Pico (dBFS)"
+          },
+          {
+            "value": "lufs",
+            "label": "Loudness (LUFS integrado)"
+          }
+        ],
+        "default": "lufs"
+      },
+      "target_db": {
+        "kind": "number",
+        "label": "Alvo",
+        "unit": "dB",
+        "min": -40,
+        "max": 0,
+        "step": 0.1,
+        "default": -14,
+        "interpolable": false
+      }
+    }
+  }
+}

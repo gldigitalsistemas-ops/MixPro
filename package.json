@@ -1,0 +1,13 @@
+{
+  "name": "mixpro",
+  "private": true,
+  "packageManager": "pnpm@11.18.0",
+  "scripts": {
+    "dev": "pnpm --filter @mixpro/web dev",
+    "build": "pnpm --filter @mixpro/web build",
+    "lint": "pnpm --filter @mixpro/web lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "contracts:gen": "pnpm --filter @mixpro/contracts gen"
+  }
+}

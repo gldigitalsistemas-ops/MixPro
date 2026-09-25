@@ -1,0 +1,21 @@
+# Worker de produção (PC local com Docker Desktop, ou VPS Linux).
+#   1. copie .env.example para .env e preencha
+#   2. docker compose up -d --build
+#   3. logs: docker compose logs -f
+# Para mais capacidade: docker compose up -d --scale worker=2
+services:
+  worker:
+    build:
+      context: .
+      target: runtime
+    env_file: .env
+    restart: unless-stopped
+    volumes:
+      - worker-cache:/var/lib/mixpro
+    deploy:
+      resources:
+        limits:
+          memory: 3g
+
+volumes:
+  worker-cache:

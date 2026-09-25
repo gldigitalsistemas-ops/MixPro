@@ -1,0 +1,102 @@
+@import "tailwindcss";
+
+/* ===========================================================================
+   Mix Pro — tokens do design system (derivados do layout de referência)
+   Interface escura por padrão; estúdio + tecnologia + waveform.
+   =========================================================================== */
+:root {
+  --bg: #06061a;
+  --bg-elev: #0b0b22;
+  --surface: #10102a;
+  --surface-2: #171738;
+  --surface-3: #202048;
+  --border: rgb(255 255 255 / 0.08);
+  --border-strong: rgb(255 255 255 / 0.16);
+  --text: #f3f3ff;
+  --text-muted: #a3a3c8;
+  --text-subtle: #6f6f98;
+  --primary: #7c3aed;
+  --primary-2: #4f46e5;
+  --accent-blue: #3b82f6;
+  --accent-pink: #d946ef;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --ring: #a78bfa;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-elev: var(--bg-elev);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-muted: var(--text-muted);
+  --color-subtle: var(--text-subtle);
+  --color-primary: var(--primary);
+  --color-primary-2: var(--primary-2);
+  --color-blue: var(--accent-blue);
+  --color-pink: var(--accent-pink);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-ring: var(--ring);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-sora), var(--font-inter), ui-sans-serif, sans-serif;
+  --radius-card: 1.25rem;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100dvh;
+  background-image:
+    radial-gradient(1200px 600px at 85% -10%, rgb(124 58 237 / 0.16), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgb(59 130 246 / 0.10), transparent 60%);
+  background-attachment: fixed;
+}
+
+::selection {
+  background: rgb(124 58 237 / 0.5);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@layer components {
+  .glass {
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.045), rgb(255 255 255 / 0.015));
+    border: 1px solid var(--border);
+    backdrop-filter: blur(12px);
+  }
+  .text-gradient {
+    background: linear-gradient(90deg, #c4b5fd, #818cf8 45%, #60a5fa);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .bg-brand {
+    background-image: linear-gradient(90deg, var(--primary), var(--primary-2) 55%, var(--accent-blue));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

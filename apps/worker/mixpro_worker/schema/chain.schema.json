@@ -1,0 +1,996 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "number",
+      "const": 1
+    },
+    "chain": {
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "gain"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "bypass": {
+                "type": "boolean"
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "gain_db": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": -24,
+                        "maximum": 24
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "number",
+                            "minimum": -24,
+                            "maximum": 24
+                          },
+                          "neutral": {
+                            "type": "number",
+                            "minimum": -24,
+                            "maximum": 24
+                          }
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "params"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "highpass"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "bypass": {
+                "type": "boolean"
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "frequency_hz": {
+                    "type": "number",
+                    "minimum": 10,
+                    "maximum": 2000
+                  },
+                  "slope_db_oct": {
+                    "type": "string",
+                    "enum": [
+                      "6",
+                      "12",
+                      "18",
+                      "24"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "params"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "lowpass"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "bypass": {
+                "type": "boolean"
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "frequency_hz": {
+                    "type": "number",
+                    "minimum": 500,
+                    "maximum": 20000
+                  },
+                  "slope_db_oct": {
+                    "type": "string",
+                    "enum": [
+                      "6",
+                      "12",
+                      "18",
+                      "24"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "params"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "eq_peak"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "bypass": {
+                "type": "boolean"
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "frequency_hz": {
+                    "type": "number",
+                    "minimum": 20,
+                    "maximum": 20000
+                  },
+                  "gain_db": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": -18,
+                        "maximum": 18
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "number",
+                            "minimum": -18,
+                            "maximum": 18
+                          },
+                          "neutral": {
+                            "type": "number",
+                            "minimum": -18,
+                            "maximum": 18
+                          }
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "q": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 18
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "params"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "eq_shelf"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "bypass": {
+                "type": "boolean"
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "position": {
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "high"
+                    ]
+                  },
+                  "frequency_hz": {
+                    "type": "number",
+                    "minimum": 20,
+                    "maximum": 20000
+                  },
+                  "gain_db": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": -18,
+                        "maximum": 18
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "number",
+                            "minimum": -18,
+                            "maximum": 18
+                          },
+                          "neutral": {
+                            "type": "number",
+                            "minimum": -18,
+                            "maximum": 18
+                          }
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "q": {
+                    "type": "number",
+                    "minimum": 0.3,
+                    "maximum": 2
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "params"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "compressor"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "bypass": {
+                "type": "boolean"
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "threshold_db": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": -60,
+                        "maximum": 0
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "number",
+                            "minimum": -60,
+                            "maximum": 0
+                          },
+                          "neutral": {
+                            "type": "number",
+                            "minimum": -60,
+                            "maximum": 0
+                          }
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "ratio": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 20
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "number",
+                            "minimum": 1,
+                            "maximum": 20
+                          },
+                          "neutral": {
+                            "type": "number",
+                            "minimum": 1,
+                            "maximum": 20
+                          }
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "attack_ms": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 300
+                  },
+                  "release_ms": {
+                    "type": "number",
+                    "minimum": 5,
+                    "maximum": 2000
+                  },
+                  "knee_db": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 24
+                  },
+                  "makeup_db": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": -12,
+                        "maximum": 24
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "number",
+                            "minimum": -12,
+                            "maximum": 24
+                          },
+                          "neutral": {
+                            "type": "number",
+                            "minimum": -12,
+                            "maximum": 24
+                          }
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "params"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "limiter"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "bypass": {
+                "type": "boolean"
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "ceiling_db": {
+                    "type": "number",
+                    "minimum": -12,
+                    "maximum": 0
+                  },
+                  "input_gain_db": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 24
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 24
+                          },
+                          "neutral": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 24
+                          }
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "release_ms": {
+                    "type": "number",
+                    "minimum": 1,
+                    "maximum": 1000
+                  },
+                  "lookahead_ms": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 10
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "params"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "gate"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "bypass": {
+                "type": "boolean"
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "threshold_db": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": -90,
+                        "maximum": 0
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "number",
+                            "minimum": -90,
+                            "maximum": 0
+                          },
+                          "neutral": {
+                            "type": "number",
+                            "minimum": -90,
+                            "maximum": 0
+                          }
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "range_db": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 90
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 90
+                          },
+                          "neutral": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 90
+                          }
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "ratio": {
+                    "type": "number",
+                    "minimum": 1,
+                    "maximum": 20
+                  },
+                  "attack_ms": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 100
+                  },
+                  "hold_ms": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 500
+                  },
+                  "release_ms": {
+                    "type": "number",
+                    "minimum": 5,
+                    "maximum": 2000
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "params"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "saturation"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "bypass": {
+                "type": "boolean"
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "tape",
+                      "tube",
+                      "hard"
+                    ]
+                  },
+                  "drive_db": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 36
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 36
+                          },
+                          "neutral": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 36
+                          }
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "mix": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "neutral": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          }
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "output_db": {
+                    "type": "number",
+                    "minimum": -24,
+                    "maximum": 12
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "params"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "soft_clip"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "bypass": {
+                "type": "boolean"
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "ceiling_db": {
+                    "type": "number",
+                    "minimum": -12,
+                    "maximum": 0
+                  },
+                  "input_gain_db": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 18
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 18
+                          },
+                          "neutral": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 18
+                          }
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "params"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "stereo_width"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "bypass": {
+                "type": "boolean"
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "width": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 200
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 200
+                          },
+                          "neutral": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 200
+                          }
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "bass_mono_hz": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 300
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "params"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "delay"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "bypass": {
+                "type": "boolean"
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "time_ms": {
+                    "type": "number",
+                    "minimum": 1,
+                    "maximum": 2000
+                  },
+                  "feedback": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 95
+                  },
+                  "lowpass_hz": {
+                    "type": "number",
+                    "minimum": 500,
+                    "maximum": 20000
+                  },
+                  "mix": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "neutral": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          }
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "params"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "reverb"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "bypass": {
+                "type": "boolean"
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "room_size": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "damping": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "width": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "predelay_ms": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 200
+                  },
+                  "mix": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "neutral": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          }
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "params"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "normalize"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "bypass": {
+                "type": "boolean"
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "peak",
+                      "lufs"
+                    ]
+                  },
+                  "target_db": {
+                    "type": "number",
+                    "minimum": -40,
+                    "maximum": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "params"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "chain"
+  ],
+  "additionalProperties": false
+}
