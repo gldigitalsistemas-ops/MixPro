@@ -100,3 +100,13 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* iPhone com notch/Dynamic Island: o app ocupa a tela toda (viewport-fit=cover),
+   então o conteúdo do topo precisa descer a altura da barra de status. */
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+.safe-x {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}

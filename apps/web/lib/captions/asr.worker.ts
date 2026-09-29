@@ -3,7 +3,7 @@ import { env, pipeline, type AutomaticSpeechRecognitionPipeline } from "@hugging
 import type { Word } from "./model";
 
 export type AsrModel = "rapida" | "precisa";
-export type AsrRequest = { audio: Float32Array; model: AsrModel; language: string };
+export type AsrRequest = { audio: Float32Array; model: AsrModel; language: string; translate: boolean };
 export type AsrResponse =
   | { type: "download"; progress: number }
   | { type: "progress"; value: number }
@@ -69,7 +69,7 @@ function load(model: AsrModel) {
 }
 
 self.onmessage = async (e: MessageEvent<AsrRequest>) => {
-  const { audio, model, language } = e.data;
+  const { audio, model, language, translate } = e.data;
   try {
     const asr = await load(model);
     const parts = splitAtSilence(audio);
@@ -79,7 +79,8 @@ self.onmessage = async (e: MessageEvent<AsrRequest>) => {
       const { offset, data } = parts[i];
       const r = await asr(data, {
         language: language === "auto" ? undefined : language,
-        task: "transcribe",
+        // "translate" do Whisper: legenda em inglês, qualquer que seja o idioma falado
+        task: translate ? "translate" : "transcribe",
         return_timestamps: "word",
       });
       for (const c of r.chunks ?? []) {

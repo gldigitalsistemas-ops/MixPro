@@ -14,7 +14,7 @@ let worker: Worker | null = null;
 export function transcribe(
   channels: Signal,
   sampleRate: number,
-  opts: { model: AsrModel; language: string },
+  opts: { model: AsrModel; language: string; translate?: boolean },
   onProgress: (p: TranscribeProgress) => void,
 ): Promise<Word[]> {
   worker ??= new Worker(new URL("./asr.worker.ts", import.meta.url), { type: "module" });
@@ -42,7 +42,7 @@ export function transcribe(
       worker = null;
       reject(new Error(e.message || "Falha ao carregar o reconhecimento de fala"));
     };
-    const req: AsrRequest = { audio, model: opts.model, language: opts.language };
+    const req: AsrRequest = { audio, model: opts.model, language: opts.language, translate: Boolean(opts.translate) };
     w.postMessage(req, [audio.buffer]);
   });
 }

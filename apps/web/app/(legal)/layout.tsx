@@ -3,7 +3,7 @@ import { Logo } from "@/components/ui/misc";
 
 export default function LegalLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mx-auto max-w-3xl px-4 py-10 md:px-8">
+    <div className="safe-top safe-x mx-auto max-w-3xl px-4 py-10 md:px-8">
       <Link href="/" aria-label="Início">
         <Logo />
       </Link>

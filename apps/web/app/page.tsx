@@ -90,7 +90,7 @@ function PhoneMock() {
 
 export default function Landing() {
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className="safe-top safe-x flex min-h-dvh flex-col">
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-5 md:px-8">
         <Logo />
         <nav className="flex items-center gap-2">

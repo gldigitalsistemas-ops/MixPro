@@ -130,7 +130,7 @@ export function Studio() {
   const preset = useMemo(() => {
     if (chosenPreset || !media || !catalog) return chosenPreset;
     const byCat = (id: string) => catalog.presets.find((p) => p.categoryId === id);
-    return (media.kind === "video" ? byCat("vocal-podcast") : null) ?? byCat("vocal-pop") ?? catalog.presets[0] ?? null;
+    return (media.kind === "video" ? (byCat("vocal-criador") ?? byCat("vocal-podcast")) : null) ?? byCat("vocal-pop") ?? catalog.presets[0] ?? null;
   }, [chosenPreset, media, catalog]);
   // Vídeos quase sempre têm ruído de ambiente; áudios de estúdio não
   const noise: NoiseLevel = chosenNoise ?? (media?.kind === "video" ? "light" : "off");
@@ -377,7 +377,7 @@ export function Studio() {
         </section>
       ) : (
         <section className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
-          <div className="flex flex-col gap-4 lg:sticky lg:top-20">
+          <div className="flex flex-col gap-4 lg:sticky lg:top-[calc(5rem+env(safe-area-inset-top))]">
             <Card className="flex items-center gap-3 p-3">
               <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white/5">
                 {media.kind === "video" ? <FileVideo className="size-5" /> : <FileAudio className="size-5" />}
@@ -406,7 +406,7 @@ export function Studio() {
           </div>
 
           <div className="flex flex-col gap-4">
-            <div className="sticky top-16 z-30 -mx-4 bg-bg/90 px-4 py-2 backdrop-blur-xl md:static md:mx-0 md:bg-transparent md:p-0 md:backdrop-blur-none">
+            <div className="sticky top-[calc(4rem+env(safe-area-inset-top))] z-30 -mx-4 bg-bg/90 px-4 py-2 backdrop-blur-xl md:static md:mx-0 md:bg-transparent md:p-0 md:backdrop-blur-none">
               <div className="grid grid-cols-4 gap-1 rounded-2xl border border-border bg-surface/60 p-1" role="tablist" aria-label="Ferramentas">
                 {TABS.map(({ id, label, audioLabel, icon: Icon }) => (
                   <button

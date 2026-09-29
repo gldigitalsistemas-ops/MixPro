@@ -36,7 +36,7 @@ export default async function ReferralLandingPage(props: PageProps<"/r/[code]">)
   if (!info) redirect("/");
 
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center bg-bg px-4 py-12">
+    <div className="safe-top safe-x flex min-h-dvh flex-col items-center justify-center bg-bg px-4 py-12">
       <SaveReferral code={code} />
       <div className="w-full max-w-md">
         <div className="mb-8 flex justify-center">

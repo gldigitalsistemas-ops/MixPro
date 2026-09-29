@@ -63,12 +63,13 @@ export function CaptionsPanel({
   const toast = useToast();
   const [language, setLanguage] = useState("portuguese");
   const [model, setModel] = useState<AsrModel>("rapida");
+  const [translate, setTranslate] = useState(false);
   const [progress, setProgress] = useState<TranscribeProgress | null>(null);
 
   async function generate() {
     setProgress({ stage: "download", value: 0 });
     try {
-      const words = await transcribe(media.channels, media.sampleRate, { model, language }, setProgress);
+      const words = await transcribe(media.channels, media.sampleRate, { model, language, translate }, setProgress);
       if (!words.length) {
         toast.info("Não encontramos fala neste arquivo.");
         return;
@@ -155,6 +156,15 @@ export function CaptionsPanel({
             <span className="text-[11px] text-subtle">{MODELS.find((m) => m.value === model)?.hint}</span>
           </div>
         </div>
+        <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-border p-3 text-sm">
+          <input type="checkbox" checked={translate} onChange={(e) => setTranslate(e.target.checked)} className="size-4 accent-violet-500" />
+          <span>
+            Legenda em inglês
+            <span className="block text-xs text-muted">
+              Traduz automaticamente a sua fala para alcançar público de fora do Brasil. A qualidade “Mais precisa” traduz melhor.
+            </span>
+          </span>
+        </label>
         <Button onClick={generate} className="w-full">
           <Captions className="size-4" /> Gerar legendas automáticas
         </Button>

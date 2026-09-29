@@ -26,7 +26,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-dvh flex-col pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">
-      <header className="sticky top-0 z-40 border-b border-border bg-bg/85 backdrop-blur-xl">
+      <header className="safe-top safe-x sticky top-0 z-40 border-b border-border bg-bg/85 backdrop-blur-xl">
         <div className="mx-auto flex h-16 w-full max-w-6xl items-center gap-6 px-4 md:px-8">
           <Link href="/" aria-label="Mix Pro — início">
             <Logo />
@@ -95,7 +95,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </footer>
 
       <nav
-        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden"
+        className="safe-x fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden"
         aria-label="Navegação"
       >
         {NAV.map(({ href, label, short, icon: Icon }) => (

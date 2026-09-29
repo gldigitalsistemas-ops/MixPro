@@ -3,7 +3,7 @@ import { Logo } from "@/components/ui/misc";
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative flex min-h-dvh flex-col items-center justify-center overflow-hidden px-4 py-10">
+    <div className="safe-top safe-x relative flex min-h-dvh flex-col items-center justify-center overflow-hidden px-4 py-10">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 bottom-0 h-72 opacity-60"
