@@ -86,11 +86,11 @@ test("Ajuste para redes chega perto de -14 LUFS com pico ≤ -1 dBFS", () => {
 });
 
 test("Todos os presets do seed são válidos e produzem áudio finito", () => {
-  const sql = ["20260924000011_presets_seed.sql", "20260930000002_creator_presets.sql"]
+  const sql = ["20260924000011_presets_seed.sql", "20260930000002_creator_presets.sql", "20261001000002_drum_studio.sql"]
     .map((f) => readFileSync(fileURLToPath(new URL(`../../../../supabase/migrations/${f}`, import.meta.url)), "utf8"))
     .join(" ");
   const chains = [...sql.matchAll(/'(\{"schema_version":1,"chain":\[[\s\S]*?\]\})'/g)].map((m) => JSON.parse(m[1]));
-  assert.equal(chains.length, 44 + 7);
+  assert.equal(chains.length, 44 + 7 + 7);
   for (const doc of chains) {
     presetChainSchema.parse(doc);
     for (const intensity of [25, 100]) {

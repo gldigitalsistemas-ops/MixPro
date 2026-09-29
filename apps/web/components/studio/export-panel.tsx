@@ -17,6 +17,7 @@ import { mixMusic, safeCeiling } from "@/lib/media/music";
 import type { MusicState } from "./music-picker";
 import type { Signal } from "@/lib/dsp/types";
 import type { StudioPreset } from "@/lib/presets";
+import type { ChainDoc } from "@/lib/dsp/chain";
 import { cn, formatDuration } from "@/lib/cn";
 
 export type Target = "video" | AudioFormat;
@@ -26,6 +27,8 @@ type Result = { url: string; blob: Blob; filename: string; target: Target; key: 
 type Props = {
   media: LoadedMedia;
   preset: StudioPreset | null;
+  /** Cadeia efetiva (preset + ajustes finos, ex.: bateria). */
+  chain: ChainDoc | null;
   intensity: number;
   denoise: number;
   social: boolean;
@@ -68,7 +71,7 @@ function triggerDownload(url: string, filename: string) {
 }
 
 export function ExportPanel(props: Props) {
-  const { media, preset, intensity, denoise, social, onSocialChange, segments, cutting, look, audiogram, music } = props;
+  const { media, preset, chain, intensity, denoise, social, onSocialChange, segments, cutting, look, audiogram, music } = props;
   const { balance, spend, onNeedCredits, signedIn, requireLogin } = props;
   const toast = useToast();
   const [phase, setPhase] = useState<Phase>(null);
@@ -77,7 +80,7 @@ export function ExportPanel(props: Props) {
 
   // o áudio tratado (cache) só depende do som; o arquivo final depende também de cortes, formato e legendas
   const audioKey = preset
-    ? `${fileKey(media.file)}_${preset.slug}_${intensity}_${social ? 1 : 0}_n${Math.round(denoise * 100)}`
+    ? `${fileKey(media.file)}_${preset.slug}_${intensity}_${social ? 1 : 0}_n${Math.round(denoise * 100)}_x${fnv(JSON.stringify(chain))}`
     : null;
   const editKey = fnv(
     JSON.stringify([
@@ -100,7 +103,7 @@ export function ExportPanel(props: Props) {
   async function processFull(): Promise<DspResult> {
     if (cache.current?.key === audioKey) return cache.current.value;
     const value = await runDsp(
-      { channels: media.channels, sampleRate: media.sampleRate, chain: preset!.chain, intensity, social, denoise },
+      { channels: media.channels, sampleRate: media.sampleRate, chain: chain ?? preset!.chain, intensity, social, denoise },
       (p) =>
         setPhase({
           label: denoise > 0 && p < 0.5 ? "Removendo o ruído de fundo…" : "Aplicando o som no arquivo inteiro…",

@@ -210,6 +210,32 @@ export const MODULES = {
       target_db: num("Alvo", "dB", -40, 0, 0.1, -14, false),
     },
   },
+  drum_studio: {
+    label: "Bateria de estúdio",
+    description: "Identifica bumbo, caixa, tons e pratos e reforça cada peça com timbres de estúdio.",
+    params: {
+      kit: {
+        kind: "enum",
+        label: "Timbre",
+        options: [
+          { value: "worship", label: "Worship" },
+          { value: "poprock", label: "Pop Rock" },
+          { value: "reggae", label: "Reggae" },
+          { value: "groove", label: "Groove / Funk" },
+          { value: "soul", label: "Soul / R&B" },
+          { value: "gospel", label: "Gospel" },
+          { value: "sertanejo", label: "Sertanejo" },
+        ],
+        default: "poprock",
+      },
+      sample_mix: num("Reforço das peças", "%", 0, 100, 1, 60, true, 0),
+      kick: num("Bumbo", "dB", -12, 12, 0.5, 0, false),
+      snare: num("Caixa", "dB", -12, 12, 0.5, 0, false),
+      toms: num("Tons", "dB", -12, 12, 0.5, 0, false),
+      cymbals: num("Pratos", "dB", -12, 12, 0.5, 0, false),
+      room: num("Sala", "%", 0, 100, 1, 30, true, 0),
+    },
+  },
 } as const satisfies Record<string, ModuleSpec>;
 
 export type ModuleType = keyof typeof MODULES;

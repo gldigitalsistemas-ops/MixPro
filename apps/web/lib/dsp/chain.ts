@@ -5,6 +5,7 @@ import { eqPeak, eqShelf, highpass, lowpass } from "./filters";
 import { integratedLoudness } from "./loudness";
 import { reverb, delay, stereoWidth } from "./space";
 import { gain, normalize, saturation, softClip } from "./tone";
+import { drumStudio } from "./drums/studio";
 import type { Signal } from "./types";
 
 type Params = Record<string, number | string>;
@@ -25,6 +26,7 @@ const REGISTRY: Record<ModuleType, ModuleFn> = {
   delay,
   reverb,
   normalize,
+  drum_studio: drumStudio,
 };
 
 export type ChainStep = { type: string; bypass?: boolean; params?: Record<string, unknown> };

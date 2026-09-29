@@ -24,6 +24,7 @@ import { CaptionsPanel, type CaptionState } from "./captions-panel";
 import { ExportPanel } from "./export-panel";
 import { StyleBar } from "./style-bar";
 import { MusicPicker, type MusicState } from "./music-picker";
+import { DrumPanel, drumDefaults, withDrumTweaks, type DrumTweaks } from "./drum-panel";
 import { mixMusic, safeCeiling } from "@/lib/media/music";
 import { VideoTools, defaultVideoTools, type VideoToolsState } from "./video-tools";
 import { mapToOutput, speechSegments } from "@/lib/media/cuts";
@@ -87,6 +88,7 @@ export function Studio() {
   const [captionState, setCaptionState] = useState<CaptionState | null>(null);
   const [videoTools, setVideoTools] = useState<VideoToolsState | null>(null);
   const [music, setMusic] = useState<MusicState | null>(null);
+  const [drumTweaks, setDrumTweaks] = useState<DrumTweaks | null>(null);
   // preferências de legenda vindas de "Meu estilo" (usadas quando as legendas forem geradas)
   const [captionPrefs, setCaptionPrefs] = useState<{ style: CaptionStyleId; position: CaptionPosition } | null>(null);
 
@@ -127,6 +129,7 @@ export function Studio() {
     setPreset(p);
     setCategoryId(p.categoryId);
     setIntensity(null);
+    setDrumTweaks(null);
   }, []);
 
   // Preset sugerido: voz falada para vídeos, vocal para áudios
@@ -135,6 +138,14 @@ export function Studio() {
     const byCat = (id: string) => catalog.presets.find((p) => p.categoryId === id);
     return (media.kind === "video" ? (byCat("vocal-criador") ?? byCat("vocal-podcast")) : null) ?? byCat("vocal-pop") ?? catalog.presets[0] ?? null;
   }, [chosenPreset, media, catalog]);
+  // Bateria de estúdio: ajustes finos entram na cadeia do preset
+  const drumParams = useMemo(
+    () => (preset?.chain.chain.find((m) => m.type === "drum_studio")?.params as Record<string, unknown> | undefined) ?? null,
+    [preset],
+  );
+  const drumBase = useMemo(() => (drumParams ? drumDefaults(drumParams) : null), [drumParams]);
+  const chain = useMemo(() => (preset ? withDrumTweaks(preset.chain, drumParams ? drumTweaks : null) : null), [preset, drumParams, drumTweaks]);
+
   // Vídeos quase sempre têm ruído de ambiente; áudios de estúdio não
   const noise: NoiseLevel = chosenNoise ?? (media?.kind === "video" ? "light" : "off");
   const denoiseAmount = NOISE_AMOUNT[noise];
@@ -153,6 +164,7 @@ export function Studio() {
     setCaptionState(null);
     setVideoTools(null);
     setMusic(null);
+    setDrumTweaks(null);
     setTab("som");
     try {
       const m = await loadMedia(file, (p) => setLoading(p * 100));
@@ -185,7 +197,7 @@ export function Studio() {
         {
           channels: media.channels.map((c) => c.subarray(from, excerpt.end)),
           sampleRate: media.sampleRate,
-          chain: preset.chain,
+          chain: chain ?? preset.chain,
           intensity,
           social,
           denoise: denoiseAmount,
@@ -202,7 +214,7 @@ export function Studio() {
               )
             : r.channels;
           setProcessed({
-            key: `${preset.id}-${intensity}-${social}-${denoiseAmount}-${music ? `${music.name}-${music.level}` : ""}`,
+            key: `${preset.id}-${intensity}-${social}-${denoiseAmount}-${music ? `${music.name}-${music.level}` : ""}-${JSON.stringify(drumTweaks)}`,
             buffer: toAudioBuffer(out, media.sampleRate),
             peaks: waveformPeaks(out),
             lufs: music ? integratedLoudness(out, media.sampleRate) : r.lufs,
@@ -219,7 +231,7 @@ export function Studio() {
       clearTimeout(timer);
       ctrl.abort();
     };
-  }, [media, excerpt, preset, intensity, social, denoiseAmount, music]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [media, excerpt, preset, chain, intensity, social, denoiseAmount, music]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const captionRender = useMemo<CaptionRender | null>(
     () =>
@@ -466,6 +478,11 @@ export function Studio() {
                 <Card className="p-4">
                   <IntensitySelector value={intensity} onChange={setIntensity} disabled={!preset} />
                 </Card>
+                {drumBase && (
+                  <Card className="p-4">
+                    <DrumPanel media={media} value={drumTweaks ?? drumBase} defaults={drumBase} onChange={setDrumTweaks} />
+                  </Card>
+                )}
                 <Card className="p-4">
                   <NoiseSelector value={noise} onChange={setNoise} />
                 </Card>
@@ -522,6 +539,7 @@ export function Studio() {
                 <ExportPanel
                   media={media}
                   preset={preset}
+                  chain={chain}
                   intensity={intensity}
                   denoise={denoiseAmount}
                   segments={segments}
