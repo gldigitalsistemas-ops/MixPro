@@ -1,17 +1,34 @@
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { getPayment, settlePayment, verifyWebhookSignature } from "@/lib/payments";
+import {
+  getAuthorizedPayment,
+  getPayment,
+  getPreapproval,
+  settleAuthorizedPayment,
+  settlePayment,
+  syncSubscription,
+  verifyWebhookSignature,
+  type Settlement,
+} from "@/lib/payments";
 
 /**
- * Notificações do Mercado Pago. O status e o valor são sempre confirmados na API
- * com o nosso token; a notificação em si não é considerada prova de pagamento.
+ * Notificações do Mercado Pago (pagamentos avulsos e plano mensal). O status e o valor são
+ * sempre confirmados na API com o nosso token; a notificação em si não é prova de pagamento.
  */
 export async function POST(req: Request) {
   const url = new URL(req.url);
   const body = (await req.json().catch(() => ({}))) as { type?: string; topic?: string; data?: { id?: string | number } };
-  const type = body.type ?? body.topic ?? url.searchParams.get("type") ?? url.searchParams.get("topic");
+  const type = body.type ?? body.topic ?? url.searchParams.get("type") ?? url.searchParams.get("topic") ?? "";
   const dataId = String(url.searchParams.get("data.id") ?? body.data?.id ?? url.searchParams.get("id") ?? "");
 
-  if (type !== "payment" || !dataId) return new Response("OK");
+  const kind =
+    type === "payment"
+      ? "payment"
+      : type === "subscription_authorized_payment" || type === "authorized_payment"
+        ? "subscription_payment"
+        : type === "subscription_preapproval" || type === "preapproval"
+          ? "subscription"
+          : null;
+  if (!kind || !dataId) return new Response("OK");
 
   const signature = req.headers.get("x-signature");
   if (signature && !verifyWebhookSignature(signature, req.headers.get("x-request-id") ?? "", dataId)) {
@@ -20,13 +37,27 @@ export async function POST(req: Request) {
   }
 
   const admin = supabaseAdmin();
-  const eventKey = `mp_payment_${dataId}`;
+  if (kind === "subscription") {
+    // status do plano muda (autorizado, pausado, cancelado): só sincroniza
+    try {
+      await syncSubscription(await getPreapproval(dataId));
+      return new Response("OK");
+    } catch (e) {
+      console.error("[webhook preapproval]", e);
+      return new Response("Erro", { status: 500 });
+    }
+  }
+
+  const eventKey = `mp_${kind}_${dataId}`;
   const { data: seen } = await admin.from("webhook_events").select("processed").eq("id", eventKey).maybeSingle();
   if (seen?.processed) return new Response("OK");
   await admin.from("webhook_events").upsert({ id: eventKey, payload: body });
 
   try {
-    const result = await settlePayment(await getPayment(dataId));
+    const result: Settlement =
+      kind === "payment"
+        ? await settlePayment(await getPayment(dataId))
+        : await settleAuthorizedPayment(await getAuthorizedPayment(dataId));
     // pendente: o Mercado Pago avisa de novo quando o status mudar
     if (result !== "pending") await admin.from("webhook_events").update({ processed: true }).eq("id", eventKey);
     return new Response("OK");

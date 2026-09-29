@@ -10,6 +10,7 @@ import { useToast } from "@/components/ui/toast";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { cn, formatDateTime } from "@/lib/cn";
 import { watchPaymentReturn } from "@/lib/pay-client";
+import { PlanCard } from "./plan-card";
 
 type Tx = { id: string; type: string; amount: number; reason: string | null; created_at: string };
 type Config = { price: number; sizes: number[]; min: number; max: number };
@@ -73,6 +74,7 @@ export function CreditsView() {
   async function buy() {
     if (!(await requireLogin("Crie sua conta para comprar créditos."))) return;
     setPaying(true);
+    void supabaseBrowser().rpc("track_event", { p_event: "checkout_start", p_props: { kind: "creditos", credits: clamp(qty) } });
     try {
       const res = await fetch("/api/payments/checkout", {
         method: "POST",
@@ -117,9 +119,11 @@ export function CreditsView() {
         </div>
       </Card>
 
+      <PlanCard unitPrice={config.price} />
+
       <Card className="flex flex-col gap-5 p-5">
         <div>
-          <h2 className="font-display text-lg font-semibold">Comprar créditos</h2>
+          <h2 className="font-display text-lg font-semibold">Comprar créditos avulsos</h2>
           <p className="text-sm text-muted">
             {brl(config.price)} por crédito. Pague com PIX, cartão ou boleto pelo Mercado Pago. Sem assinatura.
           </p>

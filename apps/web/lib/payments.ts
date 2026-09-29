@@ -98,7 +98,7 @@ export function getPayment(id: string): Promise<MpPayment> {
   return mp<MpPayment>(`/v1/payments/${encodeURIComponent(id)}`);
 }
 
-export type Settlement = "approved" | "failed" | "pending";
+export type Settlement = "approved" | "failed" | "pending" | "ignored";
 
 /**
  * Aplica o resultado de um pagamento consultado na API (idempotente): libera créditos ou a
@@ -107,6 +107,9 @@ export type Settlement = "approved" | "failed" | "pending";
 export async function settlePayment(payment: MpPayment): Promise<Settlement> {
   const admin = supabaseAdmin();
   const ref = payment.external_reference ?? "";
+  // cobranças do plano mensal também geram "pagamentos": são tratadas pelo aviso da assinatura
+  const { data: order } = await admin.from("payment_orders").select("id").eq("mp_external_ref", ref).maybeSingle();
+  if (!order) return "ignored";
   if (payment.status === "approved" && payment.currency_id === "BRL") {
     const { error } = await admin.rpc("approve_payment_order", {
       p_external_ref: ref,
@@ -161,4 +164,100 @@ export function verifyWebhookSignature(xSignature: string, xRequestId: string, d
   const a = Buffer.from(expected);
   const b = Buffer.from(parts.v1);
   return a.length === b.length && timingSafeEqual(a, b);
+}
+
+// -----------------------------------------------------------------------------
+// Plano mensal (Mercado Pago Assinaturas / preapproval)
+// -----------------------------------------------------------------------------
+export type Plan = { id: string; name: string; credits: number; price: number };
+
+export async function getPlans(): Promise<Plan[]> {
+  const { data } = await supabaseAdmin().from("system_settings").select("value").eq("key", "subscription_plans").maybeSingle();
+  return Array.isArray(data?.value) ? (data!.value as Plan[]) : [];
+}
+
+type Preapproval = { id: string; status: string; external_reference: string | null; init_point?: string };
+type AuthorizedPayment = {
+  id: number;
+  preapproval_id: string;
+  status: string;
+  transaction_amount: number;
+  currency_id?: string;
+  payment?: { id: number; status: string } | null;
+};
+
+const SUB_STATUS: Record<string, string> = { authorized: "authorized", paused: "paused", cancelled: "cancelled", pending: "pending" };
+
+/** Cria a assinatura "pendente" no Mercado Pago; o cliente autoriza no link devolvido. */
+export async function createSubscription(opts: { userId: string; email: string; plan: Plan }): Promise<string> {
+  const admin = supabaseAdmin();
+  const { data: sub, error } = await admin
+    .from("subscriptions")
+    .insert({ user_id: opts.userId, plan_id: opts.plan.id, credits_per_cycle: opts.plan.credits, amount_brl: opts.plan.price })
+    .select("id")
+    .single();
+  if (error || !sub) throw new Error("Erro ao criar assinatura");
+  const base = publicEnv.appUrl.replace(/\/$/, "");
+  try {
+    const pre = await mp<Preapproval>("/preapproval", {
+      method: "POST",
+      idempotencyKey: sub.id,
+      body: JSON.stringify({
+        reason: `Mix Pro — ${opts.plan.name} (${opts.plan.credits} créditos por mês)`,
+        external_reference: sub.id,
+        payer_email: opts.email,
+        auto_recurring: { frequency: 1, frequency_type: "months", transaction_amount: opts.plan.price, currency_id: "BRL" },
+        back_url: `${base}/creditos?assinatura=retorno`,
+        status: "pending",
+      }),
+    });
+    await admin.from("subscriptions").update({ mp_preapproval_id: pre.id }).eq("id", sub.id);
+    if (!pre.init_point) throw new Error("Mercado Pago não devolveu o link da assinatura");
+    return pre.init_point;
+  } catch (e) {
+    await admin.from("subscriptions").update({ status: "cancelled" }).eq("id", sub.id);
+    throw e;
+  }
+}
+
+export function getPreapproval(id: string): Promise<Preapproval> {
+  return mp<Preapproval>(`/preapproval/${encodeURIComponent(id)}`);
+}
+
+/** Atualiza o status local da assinatura a partir do Mercado Pago. */
+export async function syncSubscription(pre: Preapproval): Promise<void> {
+  const status = SUB_STATUS[pre.status];
+  if (!status) return;
+  await supabaseAdmin().from("subscriptions").update({ status }).eq("mp_preapproval_id", pre.id);
+}
+
+/** Credita uma cobrança mensal aprovada (idempotente). */
+export async function settleAuthorizedPayment(ap: AuthorizedPayment): Promise<Settlement> {
+  const paid = ap.status === "processed" && (!ap.payment || ap.payment.status === "approved");
+  if (!paid) return ["recycling", "scheduled", "pending"].includes(ap.status) ? "pending" : "failed";
+  if (ap.currency_id && ap.currency_id !== "BRL") return "ignored";
+  const { error } = await supabaseAdmin().rpc("apply_subscription_payment", {
+    p_preapproval_id: ap.preapproval_id,
+    p_auth_payment_id: String(ap.id),
+    p_amount_paid: ap.transaction_amount,
+  });
+  if (error) {
+    if (String(error.message).includes("SUBSCRIPTION_NOT_FOUND")) return "ignored";
+    throw error;
+  }
+  return "approved";
+}
+
+export function getAuthorizedPayment(id: string): Promise<AuthorizedPayment> {
+  return mp<AuthorizedPayment>(`/authorized_payments/${encodeURIComponent(id)}`);
+}
+
+/** Cobranças já feitas de uma assinatura (para creditar na volta, sem esperar o webhook). */
+export async function listAuthorizedPayments(preapprovalId: string): Promise<AuthorizedPayment[]> {
+  const r = await mp<{ results?: AuthorizedPayment[] }>(`/authorized_payments/search?preapproval_id=${encodeURIComponent(preapprovalId)}`);
+  return r.results ?? [];
+}
+
+export async function cancelPreapproval(id: string): Promise<void> {
+  await mp(`/preapproval/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ status: "cancelled" }) });
 }

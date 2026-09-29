@@ -20,12 +20,14 @@ const brl = (v: number) => Number(v).toLocaleString("pt-BR", { style: "currency"
 export default async function AdminPayments() {
   await requireAdmin();
   const admin = supabaseAdmin();
-  const [{ data: orders }, { data: authList }, cred, { data: lastEvent }] = await Promise.all([
+  const [{ data: orders }, { data: authList }, cred, { data: lastEvent }, { data: subs }] = await Promise.all([
     admin.from("payment_orders").select("id, user_id, pack_id, amount_brl, credits_amount, status, created_at").order("created_at", { ascending: false }).limit(300),
     admin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
     checkCredentials(),
     admin.from("webhook_events").select("created_at").order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    admin.from("subscriptions").select("amount_brl").eq("status", "authorized"),
   ]);
+  const mrr = (subs ?? []).reduce((n, s) => n + Number(s.amount_brl), 0);
   const webhookUrl = `${publicEnv.appUrl.replace(/\/$/, "")}/api/payments/webhook`;
   const checks: [string, boolean, string][] = [
     [
@@ -75,12 +77,14 @@ export default async function AdminPayments() {
           ))}
         </ul>
       </Card>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         {[
           ["Recebido no mês", brl(sum(thisMonth))],
           ["Pagamentos no mês", thisMonth.length],
           ["Recebido (últimos 300)", brl(sum(approved))],
           ["Mixagens pagas", approved.filter((o) => (o.pack_id as string).startsWith("pro:")).length],
+          ["Assinantes do plano", subs?.length ?? 0],
+          ["Receita mensal recorrente", brl(mrr)],
         ].map(([l, v]) => (
           <Card key={l as string} className="p-4">
             <p className="text-xs text-muted">{l}</p>
