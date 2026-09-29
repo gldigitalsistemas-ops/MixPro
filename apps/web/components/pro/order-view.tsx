@@ -11,6 +11,7 @@ import { useToast } from "@/components/ui/toast";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { cn, formatDate, formatDateTime } from "@/lib/cn";
 import { PRO_STATUS, ProStatusBadge } from "./pro-status";
+import { watchPaymentReturn } from "@/lib/pay-client";
 
 type Order = {
   id: string;
@@ -61,6 +62,12 @@ export function OrderView({ id }: { id: string }) {
       clearInterval(t);
     };
   }, [user, load]);
+
+  const paymentId = params.get("payment_id");
+  useEffect(() => {
+    if (!user) return;
+    return watchPaymentReturn(paymentId, () => void load());
+  }, [user, paymentId, load]);
 
   async function act(name: string, fn: () => PromiseLike<{ error: unknown }>, ok: string) {
     setBusy(name);

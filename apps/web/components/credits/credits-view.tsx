@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { cn, formatDateTime } from "@/lib/cn";
+import { watchPaymentReturn } from "@/lib/pay-client";
 
 type Tx = { id: string; type: string; amount: number; reason: string | null; created_at: string };
 type Config = { price: number; sizes: number[]; min: number; max: number };
@@ -57,17 +58,15 @@ export function CreditsView() {
     return () => clearTimeout(t);
   }, [user, loadHistory]);
 
-  // Na volta do Mercado Pago o crédito chega pelo webhook em alguns segundos: atualiza por um tempo
+  // Na volta do Mercado Pago: confere o pagamento na hora e atualiza o saldo
+  const paymentId = params.get("payment_id");
   useEffect(() => {
-    if (status !== "sucesso" || !user) return;
-    let n = 0;
-    const t = setInterval(() => {
+    if (!user || (status !== "sucesso" && status !== "pendente")) return;
+    return watchPaymentReturn(paymentId, () => {
       void refresh();
       void loadHistory();
-      if (++n >= 12) clearInterval(t);
-    }, 5000);
-    return () => clearInterval(t);
-  }, [status, user, refresh, loadHistory]);
+    });
+  }, [status, paymentId, user, refresh, loadHistory]);
 
   const clamp = (v: number) => Math.max(config.min, Math.min(config.max, Math.round(v) || config.min));
 

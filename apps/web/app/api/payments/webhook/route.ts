@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { getPayment, verifyWebhookSignature } from "@/lib/payments";
+import { getPayment, settlePayment, verifyWebhookSignature } from "@/lib/payments";
 
 /**
  * Notificações do Mercado Pago. O status e o valor são sempre confirmados na API
@@ -26,23 +26,9 @@ export async function POST(req: Request) {
   await admin.from("webhook_events").upsert({ id: eventKey, payload: body });
 
   try {
-    const payment = await getPayment(dataId);
-    const ref = payment.external_reference ?? "";
-    if (payment.status === "approved" && payment.currency_id === "BRL") {
-      const { error } = await admin.rpc("approve_payment_order", {
-        p_external_ref: ref,
-        p_mp_payment_id: String(payment.id),
-        p_idempotency_key: `mp_payment_${payment.id}`,
-        p_amount_paid: payment.transaction_amount,
-      });
-      if (error) throw error;
-    } else if (["rejected", "cancelled", "refunded", "charged_back"].includes(payment.status)) {
-      await admin.rpc("fail_payment_order", { p_external_ref: ref, p_mp_payment_id: String(payment.id), p_reason: payment.status });
-    } else {
-      // pending / in_process: o Mercado Pago avisa de novo quando mudar
-      return new Response("OK");
-    }
-    await admin.from("webhook_events").update({ processed: true }).eq("id", eventKey);
+    const result = await settlePayment(await getPayment(dataId));
+    // pendente: o Mercado Pago avisa de novo quando o status mudar
+    if (result !== "pending") await admin.from("webhook_events").update({ processed: true }).eq("id", eventKey);
     return new Response("OK");
   } catch (e) {
     console.error("[webhook]", e);

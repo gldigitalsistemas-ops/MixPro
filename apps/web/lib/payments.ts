@@ -98,6 +98,47 @@ export function getPayment(id: string): Promise<MpPayment> {
   return mp<MpPayment>(`/v1/payments/${encodeURIComponent(id)}`);
 }
 
+export type Settlement = "approved" | "failed" | "pending";
+
+/**
+ * Aplica o resultado de um pagamento consultado na API (idempotente): libera créditos ou a
+ * mixagem profissional quando aprovado. Usado pelo webhook e pela confirmação na volta do checkout.
+ */
+export async function settlePayment(payment: MpPayment): Promise<Settlement> {
+  const admin = supabaseAdmin();
+  const ref = payment.external_reference ?? "";
+  if (payment.status === "approved" && payment.currency_id === "BRL") {
+    const { error } = await admin.rpc("approve_payment_order", {
+      p_external_ref: ref,
+      p_mp_payment_id: String(payment.id),
+      p_idempotency_key: `mp_payment_${payment.id}`,
+      p_amount_paid: payment.transaction_amount,
+    });
+    if (error) throw error;
+    return "approved";
+  }
+  if (["rejected", "cancelled", "refunded", "charged_back"].includes(payment.status)) {
+    await admin.rpc("fail_payment_order", { p_external_ref: ref, p_mp_payment_id: String(payment.id), p_reason: payment.status });
+    return "failed";
+  }
+  return "pending";
+}
+
+export type CredentialStatus = { configured: boolean; ok: boolean; mode: "produção" | "teste" | null; account?: string; error?: string };
+
+/** Confere se o Access Token está configurado e é aceito pelo Mercado Pago. */
+export async function checkCredentials(): Promise<CredentialStatus> {
+  const t = process.env.MP_ACCESS_TOKEN;
+  if (!t) return { configured: false, ok: false, mode: null };
+  const mode = t.startsWith("TEST-") ? "teste" : "produção";
+  try {
+    const me = await mp<{ id: number; nickname?: string; email?: string }>("/users/me");
+    return { configured: true, ok: true, mode, account: me.nickname ?? me.email ?? String(me.id) };
+  } catch (e) {
+    return { configured: true, ok: false, mode, error: String(e).slice(0, 200) };
+  }
+}
+
 /**
  * Assinatura x-signature do webhook: HMAC-SHA256 de "id:<data.id>;request-id:<x-request-id>;ts:<ts>;".
  * Mesmo sem ela o valor do pagamento é sempre confirmado consultando a API com o nosso token.

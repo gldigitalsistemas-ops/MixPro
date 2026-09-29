@@ -2,6 +2,8 @@ import { requireAdmin, supabaseAdmin } from "@/lib/supabase/server";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/cn";
+import { checkCredentials } from "@/lib/payments";
+import { publicEnv } from "@/lib/public-env";
 
 export const metadata = { title: "Pagamentos" };
 
@@ -18,10 +20,34 @@ const brl = (v: number) => Number(v).toLocaleString("pt-BR", { style: "currency"
 export default async function AdminPayments() {
   await requireAdmin();
   const admin = supabaseAdmin();
-  const [{ data: orders }, { data: authList }] = await Promise.all([
+  const [{ data: orders }, { data: authList }, cred, { data: lastEvent }] = await Promise.all([
     admin.from("payment_orders").select("id, user_id, pack_id, amount_brl, credits_amount, status, created_at").order("created_at", { ascending: false }).limit(300),
     admin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
+    checkCredentials(),
+    admin.from("webhook_events").select("created_at").order("created_at", { ascending: false }).limit(1).maybeSingle(),
   ]);
+  const webhookUrl = `${publicEnv.appUrl.replace(/\/$/, "")}/api/payments/webhook`;
+  const checks: [string, boolean, string][] = [
+    [
+      "Access Token do Mercado Pago",
+      cred.ok,
+      !cred.configured
+        ? "Falta MP_ACCESS_TOKEN nas variáveis de ambiente."
+        : cred.ok
+          ? `Conectado à conta ${cred.account} (modo ${cred.mode}).`
+          : `Token recusado pelo Mercado Pago: ${cred.error}`,
+    ],
+    [
+      "Assinatura secreta do webhook",
+      Boolean(process.env.MP_WEBHOOK_SECRET),
+      process.env.MP_WEBHOOK_SECRET ? "Configurada (MP_WEBHOOK_SECRET)." : "Opcional, mas recomendada: MP_WEBHOOK_SECRET.",
+    ],
+    [
+      "Avisos do Mercado Pago (webhook)",
+      Boolean(lastEvent),
+      lastEvent ? `Último aviso recebido em ${formatDateTime(lastEvent.created_at as string)}.` : `Nenhum aviso recebido ainda. URL para cadastrar: ${webhookUrl}`,
+    ],
+  ];
   const emails = new Map((authList?.users ?? []).map((u) => [u.id, u.email ?? ""]));
   const approved = (orders ?? []).filter((o) => o.status === "approved");
   const month = new Date();
@@ -33,6 +59,22 @@ export default async function AdminPayments() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="font-display text-2xl font-semibold">Pagamentos</h1>
+      <Card className="flex flex-col gap-3 p-5">
+        <h2 className="font-medium">Integração com o Mercado Pago</h2>
+        <ul className="flex flex-col gap-2 text-sm">
+          {checks.map(([label, ok, detail]) => (
+            <li key={label} className="flex gap-3">
+              <span className={ok ? "text-green-400" : "text-amber-300"} aria-hidden>
+                {ok ? "●" : "○"}
+              </span>
+              <span>
+                <span className="block font-medium">{label}</span>
+                <span className="break-all text-xs text-muted">{detail}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </Card>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {[
           ["Recebido no mês", brl(sum(thisMonth))],
