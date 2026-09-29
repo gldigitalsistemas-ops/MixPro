@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
 import { Logo } from "@/components/ui/misc";
+import { DemoPlayer } from "@/components/landing/demo-player";
 
 export const metadata: Metadata = {
   title: "Mix Pro — Som de estúdio e legendas nos seus vídeos",
@@ -131,6 +132,10 @@ export default function Landing() {
             </p>
           </div>
           <PhoneMock />
+        </section>
+
+        <section className="mx-auto max-w-3xl px-4 pb-16 md:px-8">
+          <DemoPlayer />
         </section>
 
         <section className="mx-auto max-w-6xl px-4 pb-16 md:px-8">
