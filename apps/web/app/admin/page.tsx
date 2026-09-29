@@ -28,19 +28,28 @@ export default async function AdminHome(props: PageProps<"/admin">) {
   };
   const EVENTS = ["studio_open", "file_loaded", "captions_generated", "export", "share", "checkout_start", "tour_done", "style_saved"];
 
-  const [{ data }, exports, presets, eventCounts, videoFiles, withCaptions, withMusic] = await Promise.all([
+  const countDownloads = async (reason?: string) => {
+    let q = supabase.from("credit_transactions").select("id", { count: "exact", head: true }).eq("type", "DOWNLOAD").gte("created_at", since);
+    if (reason) q = q.eq("reason", reason);
+    return (await q).count ?? 0;
+  };
+
+  const [{ data }, exports, presets, eventCounts, videoFiles, withCaptions, withMusic, downloads, videos] = await Promise.all([
     supabase.rpc("admin_metrics", { p_days: days }),
     supabase
       .from("credit_transactions")
       .select("reason, reference_id")
       .eq("type", "DOWNLOAD")
       .gte("created_at", since)
-      .limit(10000),
+      .order("created_at", { ascending: false })
+      .limit(1000),
     supabase.from("presets").select("slug, name"),
     Promise.all(EVENTS.map((e) => countEvent(e))),
     countEvent("file_loaded", ["kind", "video"]),
     countEvent("export", ["captions", "true"]),
     countEvent("export", ["music", "true"]),
+    countDownloads(),
+    countDownloads("Vídeo exportado"),
   ]);
   const count = (k: string) => eventCounts[EVENTS.indexOf(k)] ?? 0;
   const funnel = [
@@ -56,8 +65,8 @@ export default async function AdminHome(props: PageProps<"/admin">) {
     ["Salvaram um estilo", count("style_saved")],
   ];
   const m = (data ?? {}) as Metrics;
+  // ranking de presets: amostra das últimas 1000 exportações (limite do Supabase por consulta)
   const rows = exports.data ?? [];
-  const videos = rows.filter((r) => r.reason === "Vídeo exportado").length;
 
   const names = new Map((presets.data ?? []).map((p) => [p.slug as string, p.name as string]));
   const counts = new Map<string, number>();
@@ -72,7 +81,7 @@ export default async function AdminHome(props: PageProps<"/admin">) {
 
   const cards: [string, React.ReactNode, string?][] = [
     ["Usuários", m.users_total, `+${m.users_new ?? 0} no período`],
-    ["Exportações", rows.length, `${videos} vídeos · ${rows.length - videos} áudios`],
+    ["Exportações", downloads, `${videos} vídeos · ${downloads - videos} áudios`],
     ["Indicações convertidas", m.referrals_new, `${m.referrals_total ?? 0} no total`],
     ["Créditos distribuídos", m.credits_granted, "mensais + indicações"],
   ];

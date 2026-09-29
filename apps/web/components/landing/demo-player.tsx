@@ -4,18 +4,47 @@ import { useEffect, useRef, useState } from "react";
 import { Pause, Play } from "lucide-react";
 import { cn } from "@/lib/cn";
 
+const DEMOS = [
+  {
+    id: "voz",
+    tab: "Voz",
+    title: "Gravado no celular, com ventilador ligado",
+    text: "Mesma gravação, sem editar nada: só o preset “Voz de YouTuber” e a remoção de ruído. Troque no meio da fala.",
+    before: "/demo/antes.m4a",
+    after: "/demo/depois.m4a",
+  },
+  {
+    id: "bateria",
+    tab: "Bateria",
+    title: "Bateria com som de celular virando som de estúdio",
+    text: "O app encontra cada bumbo, caixa e tom e reforça com o timbre do estilo — aqui, o preset “Worship”. Os dois lados estão no mesmo volume.",
+    before: "/demo/bateria-antes.m4a",
+    after: "/demo/bateria-depois.m4a",
+  },
+] as const;
+
 /** Antes/depois de verdade: os dois áudios tocam juntos e a troca só alterna qual está audível. */
 export function DemoPlayer() {
   const before = useRef<HTMLAudioElement>(null);
   const after = useRef<HTMLAudioElement>(null);
+  const [demoId, setDemoId] = useState<(typeof DEMOS)[number]["id"]>("voz");
+  const demo = DEMOS.find((d) => d.id === demoId)!;
   const [playing, setPlaying] = useState(false);
   const [side, setSide] = useState<"antes" | "depois">("antes");
   const [progress, setProgress] = useState(0);
 
+  function chooseDemo(id: typeof demoId) {
+    before.current?.pause();
+    after.current?.pause();
+    setPlaying(false);
+    setProgress(0);
+    setDemoId(id);
+  }
+
   useEffect(() => {
     if (before.current) before.current.muted = side !== "antes";
     if (after.current) after.current.muted = side !== "depois";
-  }, [side]);
+  }, [side, demoId]);
 
   useEffect(() => {
     if (!playing) return;
@@ -51,11 +80,24 @@ export function DemoPlayer() {
   return (
     <div className="glass flex flex-col gap-5 rounded-3xl p-5 md:p-7">
       <div>
-        <p className="text-xs uppercase tracking-wider text-violet-300">Ouça a diferença</p>
-        <h2 className="mt-1 font-display text-2xl font-semibold md:text-3xl">Gravado no celular, com ventilador ligado</h2>
-        <p className="mt-1 text-sm text-muted">
-          Mesma gravação, sem editar nada: só o preset “Voz de YouTuber” e a remoção de ruído. Troque no meio da fala.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs uppercase tracking-wider text-violet-300">Ouça a diferença</p>
+          <div className="flex gap-1 rounded-full border border-border p-1 text-xs" role="tablist" aria-label="Exemplo">
+            {DEMOS.map((d) => (
+              <button
+                key={d.id}
+                role="tab"
+                aria-selected={d.id === demoId}
+                onClick={() => chooseDemo(d.id)}
+                className={cn("rounded-full px-3 py-1 font-medium", d.id === demoId ? "bg-brand text-white" : "text-muted hover:text-text")}
+              >
+                {d.tab}
+              </button>
+            ))}
+          </div>
+        </div>
+        <h2 className="mt-2 font-display text-2xl font-semibold md:text-3xl">{demo.title}</h2>
+        <p className="mt-1 text-sm text-muted">{demo.text}</p>
       </div>
 
       <div className="flex items-center gap-4">
@@ -87,8 +129,8 @@ export function DemoPlayer() {
         <div className={cn("h-full transition-[width]", side === "depois" ? "bg-brand" : "bg-white/40")} style={{ width: `${progress * 100}%` }} />
       </div>
 
-      <audio ref={before} src="/demo/antes.m4a" preload="auto" loop />
-      <audio ref={after} src="/demo/depois.m4a" preload="auto" loop muted />
+      <audio key={demo.before} ref={before} src={demo.before} preload="auto" loop muted={side !== "antes"} />
+      <audio key={demo.after} ref={after} src={demo.after} preload="auto" loop muted={side !== "depois"} />
     </div>
   );
 }

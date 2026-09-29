@@ -4,7 +4,9 @@ import {
   AudioLines,
   Captions,
   Coins,
+  Drum,
   Gift,
+  Send,
   Mic2,
   RectangleVertical,
   Scissors,
@@ -29,6 +31,8 @@ export const metadata: Metadata = {
     "cortar silêncio do vídeo",
     "mixagem online",
     "masterização online",
+    "som de bateria de estúdio",
+    "bateria gravada no celular",
   ],
   openGraph: {
     title: "Mix Pro — Som de estúdio e legendas nos seus vídeos",
@@ -38,18 +42,21 @@ export const metadata: Metadata = {
 };
 
 const FEATURES = [
-  { icon: Wand2, title: "Som de estúdio", text: "44 presets feitos por engenheiro de áudio: voz de podcast, vocal, rap, instrumentos e masterização." },
+  { icon: Wand2, title: "Som de estúdio", text: "58 presets feitos por engenheiro de áudio: voz de criador, podcast, vocal, rap, instrumentos e masterização." },
+  { icon: Drum, title: "Bateria de estúdio", text: "Gravou a bateria no celular? O app acha bumbo, caixa e tons e dá o som de estúdio: worship, pop rock, reggae, groove, soul e mais." },
   { icon: Waves, title: "Adeus, ruído", text: "Tira ventilador, ar-condicionado, rua e chiado com inteligência artificial." },
   { icon: Captions, title: "Legendas automáticas", text: "A IA escreve o que você fala, palavra por palavra, no estilo dos Reels e TikTok." },
   { icon: Scissors, title: "Corte de silêncios", text: "Remove pausas e “é…”, “hã…” automaticamente. Vídeo mais dinâmico, sem editar." },
   { icon: RectangleVertical, title: "Formato vertical", text: "Transforma vídeo deitado em 9:16 com fundo desfocado, pronto para o feed." },
   { icon: AudioLines, title: "Audiograma", text: "Transforma podcast ou música em vídeo com onda animada e legendas." },
+  { icon: Send, title: "Post pronto", text: "Texto do post e hashtags tirados da sua fala. Um toque e está no Instagram, TikTok ou WhatsApp." },
 ];
 
 const FAQ = [
   ["Preciso instalar alguma coisa?", "Não. O Mix Pro funciona no navegador do celular ou do computador. Se quiser, dá para adicioná-lo à tela inicial como um app."],
   ["Meu vídeo é enviado para algum servidor?", "Não. Todo o processamento acontece no seu aparelho. Seu arquivo nunca sai dele."],
-  ["Quanto custa?", "Testar e ouvir é grátis e ilimitado. Você ganha 5 downloads ao criar a conta; depois, cada download custa R$ 1,00 e você compra só o que precisar, por PIX ou cartão."],
+  ["Quanto custa?", "Testar e ouvir é grátis e ilimitado. Você ganha 5 downloads ao criar a conta; depois, cada download custa R$ 1,00 e você compra só o que precisar, por PIX ou cartão. Quem posta muito pode assinar o Plano Criador, com créditos todo mês por um preço menor."],
+  ["Funciona com bateria gravada no celular?", "Sim. Na categoria Bateria de Estúdio o app identifica bumbo, caixa, tons e pratos e reforça cada batida com o timbre do estilo escolhido. Você ajusta o volume de cada peça e ouve na hora."],
   ["Posso usar o áudio no CapCut?", "Sim. Além do vídeo pronto, você pode baixar só o áudio (MP3, WAV ou M4A) e as legendas em .srt."],
   ["E se eu quiser uma mixagem feita por um profissional?", "Na Mixagem Profissional um engenheiro de áudio mixa a sua música à mão, com revisões inclusas."],
 ];
@@ -141,7 +148,7 @@ export default function Landing() {
         <section className="mx-auto max-w-6xl px-4 pb-16 md:px-8">
           <h2 className="mb-2 font-display text-2xl font-semibold md:text-3xl">Tudo o que o seu vídeo precisa</h2>
           <p className="mb-8 text-muted">Ferramentas de estúdio que antes exigiam programa caro e muito tempo de edição.</p>
-          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {FEATURES.map(({ icon: Icon, title, text }) => (
               <li key={title} className="glass rounded-3xl p-5">
                 <span className="bg-brand mb-4 grid size-11 place-items-center rounded-2xl text-white">
@@ -182,7 +189,7 @@ export default function Landing() {
           <div className="glass rounded-3xl p-6">
             <Coins className="size-6 text-amber-300" />
             <p className="mt-3 font-display text-3xl font-bold">R$ 1 por download</p>
-            <p className="text-sm text-muted">Compre só o que precisar, por PIX ou cartão. Sem assinatura.</p>
+            <p className="text-sm text-muted">Compre só o que precisar, por PIX ou cartão. Posta toda semana? O Plano Criador sai mais barato.</p>
           </div>
           <div className="glass rounded-3xl p-6">
             <Gift className="size-6 text-pink-300" />
