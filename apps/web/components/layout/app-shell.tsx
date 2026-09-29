@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Coins, Gift, Mic2, Shield, SlidersHorizontal, UserRound } from "lucide-react";
+import { Coins, Gift, Mic2, MonitorDown, Shield, SlidersHorizontal, UserRound } from "lucide-react";
+import { useInstallApp } from "@/components/pwa/pwa";
 import { useAccountCtx } from "@/components/account/account-provider";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/misc";
@@ -21,6 +22,7 @@ const active = (path: string, href: string) => path === href || path.startsWith(
 export function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const { user, account, isAdmin, requireLogin } = useAccountCtx();
+  const install = useInstallApp();
 
   return (
     <div className="flex min-h-dvh flex-col pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">
@@ -50,6 +52,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
           </nav>
           <div className="ml-auto flex items-center gap-2">
+            {install && (
+              <button
+                onClick={() => void install()}
+                className="flex h-9 items-center gap-1.5 rounded-full border border-violet-400/40 bg-primary/15 px-3 text-xs text-violet-200"
+              >
+                <MonitorDown className="size-4" aria-hidden /> Instalar app
+              </button>
+            )}
             {user && (
               <Link
                 href="/creditos"

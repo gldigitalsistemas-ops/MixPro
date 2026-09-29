@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Captions, Download, FileAudio, FileVideo, RefreshCw, ShieldCheck, SlidersHorizontal, Upload } from "lucide-react";
+import { Captions, Clapperboard, Download, FileAudio, FileVideo, RefreshCw, ShieldCheck, SlidersHorizontal, Upload } from "lucide-react";
 import { ABPlayer, type ABSource } from "@/components/audio/ab-player";
 import { IntensitySelector } from "@/components/presets/intensity";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { ProgressBar } from "@/components/ui/misc";
 import { useToast } from "@/components/ui/toast";
 import { NeedLoginError } from "@/lib/account";
 import { useAccountCtx } from "@/components/account/account-provider";
+import { takeSharedFile } from "@/components/pwa/pwa";
 import { cn, formatDuration } from "@/lib/cn";
 import { integratedLoudness, waveformPeaks } from "@/lib/dsp/loudness";
 import { DspAbortError, runDsp } from "@/lib/dsp/runner";
@@ -21,6 +22,12 @@ import { drawCaptions, type CaptionRender } from "@/lib/captions/model";
 import { captionFontFamily, ensureCaptionFont } from "@/lib/captions/font";
 import { CaptionsPanel, type CaptionState } from "./captions-panel";
 import { ExportPanel } from "./export-panel";
+import { StyleBar } from "./style-bar";
+import { VideoTools, defaultVideoTools, type VideoToolsState } from "./video-tools";
+import { mapToOutput, speechSegments } from "@/lib/media/cuts";
+import type { Look } from "@/lib/media/compose";
+import type { StyleSettings } from "@/lib/styles";
+import { allWords, buildCaptions, type CaptionStyleId, type CaptionPosition } from "@/lib/captions/model";
 import { NOISE_AMOUNT, NoiseSelector, type NoiseLevel } from "./noise-selector";
 import { PresetPicker } from "./preset-picker";
 
@@ -47,11 +54,12 @@ function Steps() {
   );
 }
 
-type Tab = "som" | "legendas" | "baixar";
+type Tab = "som" | "legendas" | "video" | "baixar";
 
-const TABS: { id: Tab; label: string; icon: typeof SlidersHorizontal }[] = [
+const TABS: { id: Tab; label: string; audioLabel?: string; icon: typeof SlidersHorizontal }[] = [
   { id: "som", label: "Som", icon: SlidersHorizontal },
   { id: "legendas", label: "Legendas", icon: Captions },
+  { id: "video", label: "Vídeo", audioLabel: "Edição", icon: Clapperboard },
   { id: "baixar", label: "Baixar", icon: Download },
 ];
 
@@ -75,6 +83,9 @@ export function Studio() {
   const [social, setSocial] = useState(true);
   const [chosenNoise, setNoise] = useState<NoiseLevel | null>(null);
   const [captionState, setCaptionState] = useState<CaptionState | null>(null);
+  const [videoTools, setVideoTools] = useState<VideoToolsState | null>(null);
+  // preferências de legenda vindas de "Meu estilo" (usadas quando as legendas forem geradas)
+  const [captionPrefs, setCaptionPrefs] = useState<{ style: CaptionStyleId; position: CaptionPosition } | null>(null);
 
   const [excerpt, setExcerpt] = useState<Excerpt | null>(null);
   const [original, setOriginal] = useState<ABSource | null>(null);
@@ -94,6 +105,15 @@ export function Studio() {
   useEffect(() => {
     void loadCatalog();
   }, [loadCatalog]);
+
+  // Vídeo recebido pelo menu "Compartilhar" da galeria (app instalado)
+  useEffect(() => {
+    if (!window.location.search.includes("compartilhado=1")) return;
+    window.history.replaceState(null, "", "/estudio");
+    takeSharedFile()
+      .then((f) => f && void openFile(f))
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const videoUrl = useMemo(() => (media?.kind === "video" ? URL.createObjectURL(media.file) : null), [media]);
   useEffect(() => () => {
@@ -128,6 +148,7 @@ export function Studio() {
     setCategoryId(null);
     setNoise(null);
     setCaptionState(null);
+    setVideoTools(null);
     setTab("som");
     try {
       const m = await loadMedia(file, (p) => setLoading(p * 100));
@@ -140,6 +161,7 @@ export function Studio() {
         peaks: waveformPeaks(a),
         lufs: integratedLoudness(a, m.sampleRate),
       });
+      setVideoTools(defaultVideoTools(m));
       setMedia(m);
     } catch (err) {
       toast.error(err instanceof MediaLoadError ? err.message : "Não foi possível abrir esse arquivo.");
@@ -211,6 +233,62 @@ export function Studio() {
         : null,
     [captionRender],
   );
+
+  const words = useMemo(() => (captionState ? allWords(captionState.captions) : null), [captionState]);
+  const segments = useMemo(
+    () => (media ? speechSegments(media.channels, media.sampleRate, media.audioStart, videoTools?.cut ?? "off", words) : []),
+    [media, videoTools?.cut, words],
+  );
+  const cutting = (videoTools?.cut ?? "off") !== "off";
+  const look = useMemo<Look>(
+    () => ({
+      format: videoTools?.format ?? "original",
+      fit: videoTools?.fit ?? "blur",
+      watermark: videoTools?.watermark ?? false,
+      captions: captionState?.burnIn ? captionRender : null,
+      fontFamily: captionRender?.fontFamily ?? (typeof window === "undefined" ? "sans-serif" : captionFontFamily()),
+    }),
+    [videoTools, captionState?.burnIn, captionRender],
+  );
+
+  const styleSettings: StyleSettings = {
+    presetSlug: preset?.slug,
+    intensity,
+    noise,
+    social,
+    captionStyle: captionState?.style,
+    captionPosition: captionState?.position,
+    format: videoTools?.format,
+    fit: videoTools?.fit,
+    cutSilence: videoTools?.cut,
+    watermark: videoTools?.watermark,
+  };
+
+  function applyStyle(st: StyleSettings) {
+    const p = catalog?.presets.find((x) => x.slug === st.presetSlug);
+    if (p) choosePreset(p);
+    if (st.intensity && [25, 50, 75, 100].includes(st.intensity)) setIntensity(st.intensity as Intensity);
+    if (st.noise) setNoise(st.noise);
+    if (typeof st.social === "boolean") setSocial(st.social);
+    if (st.captionStyle && st.captionPosition) {
+      const style = st.captionStyle as CaptionStyleId;
+      const position = st.captionPosition as CaptionPosition;
+      setCaptionPrefs({ style, position });
+      setCaptionState((c) => (c ? { ...c, style, position, captions: buildCaptions(allWords(c.captions), style) } : c));
+    }
+    setVideoTools((v) =>
+      v
+        ? {
+            ...v,
+            format: media?.kind === "audio" && st.format === "original" ? v.format : ((st.format as VideoToolsState["format"]) ?? v.format),
+            fit: (st.fit as VideoToolsState["fit"]) ?? v.fit,
+            cut: (st.cutSilence as VideoToolsState["cut"]) ?? v.cut,
+            watermark: st.watermark ?? v.watermark,
+          }
+        : v,
+    );
+    toast.success("Estilo aplicado.");
+  }
 
   const onToggleFavorite = useCallback(
     (p: StudioPreset) => {
@@ -329,23 +407,25 @@ export function Studio() {
 
           <div className="flex flex-col gap-4">
             <div className="sticky top-16 z-30 -mx-4 bg-bg/90 px-4 py-2 backdrop-blur-xl md:static md:mx-0 md:bg-transparent md:p-0 md:backdrop-blur-none">
-              <div className="grid grid-cols-3 gap-1 rounded-2xl border border-border bg-surface/60 p-1" role="tablist" aria-label="Ferramentas">
-                {TABS.map(({ id, label, icon: Icon }) => (
+              <div className="grid grid-cols-4 gap-1 rounded-2xl border border-border bg-surface/60 p-1" role="tablist" aria-label="Ferramentas">
+                {TABS.map(({ id, label, audioLabel, icon: Icon }) => (
                   <button
                     key={id}
                     role="tab"
                     aria-selected={tab === id}
                     onClick={() => setTab(id)}
                     className={cn(
-                      "flex h-11 items-center justify-center gap-2 rounded-xl text-sm font-medium transition",
+                      "flex h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-medium transition sm:h-11 sm:flex-row sm:gap-2 sm:text-sm",
                       tab === id ? "bg-brand text-white" : "text-muted hover:text-text",
                     )}
                   >
-                    <Icon className="size-4" aria-hidden /> {label}
+                    <Icon className="size-4" aria-hidden /> {media.kind === "audio" && audioLabel ? audioLabel : label}
                   </button>
                 ))}
               </div>
             </div>
+
+            <StyleBar current={styleSettings} onApply={applyStyle} />
 
             {tab === "som" && (
               <>
@@ -389,7 +469,33 @@ export function Studio() {
               <>
                 <Card className="p-4">
                   <h2 className="mb-3 font-display text-lg font-semibold">Legendas automáticas</h2>
-                  <CaptionsPanel media={media} value={captionState} onChange={setCaptionState} />
+                  <CaptionsPanel
+                    media={media}
+                    value={captionState}
+                    onChange={setCaptionState}
+                    defaults={captionPrefs}
+                    mapTime={cutting ? (t) => mapToOutput(segments, t) : null}
+                  />
+                </Card>
+                <Button variant="secondary" onClick={() => setTab("video")}>
+                  Próximo: {media.kind === "video" ? "vídeo" : "edição"}
+                </Button>
+              </>
+            )}
+
+            {tab === "video" && videoTools && (
+              <>
+                <Card className="p-4">
+                  <h2 className="mb-3 font-display text-lg font-semibold">{media.kind === "video" ? "Vídeo" : "Edição"}</h2>
+                  <VideoTools
+                    media={media}
+                    videoUrl={videoUrl}
+                    value={videoTools}
+                    onChange={setVideoTools}
+                    segments={segments}
+                    hasWords={Boolean(words?.length)}
+                    look={look}
+                  />
                 </Card>
                 <Button variant="secondary" onClick={() => setTab("baixar")}>
                   Próximo: baixar
@@ -405,7 +511,10 @@ export function Studio() {
                   preset={preset}
                   intensity={intensity}
                   denoise={denoiseAmount}
-                  captions={media.kind === "video" && captionState?.burnIn ? captionRender : null}
+                  segments={segments}
+                  cutting={cutting}
+                  look={look}
+                  audiogram={media.kind === "audio" ? (videoTools?.audiogram ?? null) : null}
                   social={social}
                   onSocialChange={setSocial}
                   balance={account?.balance ?? null}

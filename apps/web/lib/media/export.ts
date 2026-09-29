@@ -14,13 +14,12 @@ import {
   WebMOutputFormat,
   canEncodeAudio,
   type AudioCodec,
-  type ConversionVideoOptions,
-  type InputVideoTrack,
-  type VideoSample,
 } from "mediabunny";
-import { drawCaptions, type CaptionRender } from "@/lib/captions/model";
 import type { Signal } from "@/lib/dsp/types";
 import type { LoadedMedia } from "./load";
+
+/** Erro com mensagem já pensada para o usuário (os demais viram um aviso genérico). */
+export class MediaError extends Error {}
 
 export type AudioFormat = "wav" | "mp3" | "m4a";
 export type ExportResult = { blob: Blob; filename: string };
@@ -55,55 +54,16 @@ function baseName(file: File) {
   return file.name.replace(/\.[^.]+$/, "").slice(0, 60) || "audio";
 }
 
-const MAX_SHORT_SIDE = 1080;
-
-/**
- * Com legendas, cada quadro é desenhado num canvas com o texto e recodificado
- * (limitado a 1080p no lado menor); sem legendas o vídeo é copiado sem perdas.
- */
-function captionVideoOptions(track: InputVideoTrack, webm: boolean, captions: CaptionRender): ConversionVideoOptions {
-  // displayWidth/Height já consideram a rotação (vídeo de celular em pé sai em pé)
-  const w0 = track.displayWidth;
-  const h0 = track.displayHeight;
-  const scale = Math.min(1, MAX_SHORT_SIDE / Math.min(w0, h0));
-  const even = (v: number) => Math.max(2, Math.round((v * scale) / 2) * 2);
-  const width = even(w0);
-  const height = even(h0);
-  let canvas: OffscreenCanvas | null = null;
-  let ctx: OffscreenCanvasRenderingContext2D | null = null;
-  return {
-    forceTranscode: true,
-    allowTransformationMetadata: false,
-    codec: webm ? "vp9" : "avc",
-    quality: QUALITY_HIGH,
-    width,
-    height,
-    fit: "contain",
-    process: (sample: VideoSample) => {
-      if (!canvas || canvas.width !== sample.displayWidth || canvas.height !== sample.displayHeight) {
-        canvas = new OffscreenCanvas(sample.displayWidth, sample.displayHeight);
-        ctx = canvas.getContext("2d");
-      }
-      sample.draw(ctx!, 0, 0, canvas.width, canvas.height);
-      drawCaptions(ctx!, canvas.width, canvas.height, sample.timestamp, captions);
-      return canvas;
-    },
-    processedWidth: width,
-    processedHeight: height,
-  };
-}
-
-/** Vídeo original + áudio tratado (e legendas, se houver), no mesmo contêiner. */
+/** Vídeo original (copiado sem recodificar) + áudio tratado, no mesmo contêiner. */
 export async function exportVideo(
   media: LoadedMedia,
   processed: Signal,
   onProgress: (v: number) => void,
-  captions?: CaptionRender | null,
 ): Promise<ExportResult> {
   const webm = media.videoContainer === "webm";
   const codec: AudioCodec = webm ? "opus" : "aac";
   if (!(await ensureEncoder(codec, processed.length, media.sampleRate))) {
-    throw new Error("Este navegador não consegue gerar o vídeo. Baixe o áudio e junte no CapCut, ou use o Chrome.");
+    throw new MediaError("Este navegador não consegue gerar o vídeo. Baixe o áudio e junte no CapCut, ou use o Chrome.");
   }
 
   const input = new Input({ source: new BlobSource(media.file), formats: ALL_FORMATS });
@@ -117,12 +77,11 @@ export async function exportVideo(
       output,
       tracks: "primary",
       audio: { discard: true },
-      video: captions ? (track) => captionVideoOptions(track, webm, captions) : undefined,
       composable: true,
       showWarnings: false,
     });
     if (!conversion.isValid || !conversion.utilizedTracks.some((t) => t.isVideoTrack())) {
-      throw new Error("Não foi possível copiar o vídeo deste arquivo. Baixe o áudio e junte no CapCut.");
+      throw new MediaError("Não foi possível copiar o vídeo deste arquivo. Baixe o áudio e junte no CapCut.");
     }
     const source = new AudioBufferSource({ codec, quality: QUALITY_HIGH }, { startTimestamp: media.audioStart });
     output.addAudioTrack(source);
@@ -144,7 +103,7 @@ export async function exportVideo(
     ]);
     await output.finalize();
     const buffer = output.target.buffer;
-    if (!buffer) throw new Error("Falha ao gerar o vídeo.");
+    if (!buffer) throw new MediaError("Falha ao gerar o vídeo.");
     return {
       blob: new Blob([buffer], { type: webm ? "video/webm" : "video/mp4" }),
       filename: `${baseName(media.file)}-mixpro.${webm ? "webm" : "mp4"}`,
@@ -204,7 +163,7 @@ export async function exportAudio(
 
   const codec: AudioCodec = format === "mp3" ? "mp3" : "aac";
   if (!(await ensureEncoder(codec, processed.length, media.sampleRate))) {
-    throw new Error(`Este navegador não consegue gerar ${format.toUpperCase()}. Baixe em WAV.`);
+    throw new MediaError(`Este navegador não consegue gerar ${format.toUpperCase()}. Baixe em WAV.`);
   }
   const output = new Output({
     format: format === "mp3" ? new Mp3OutputFormat() : new Mp4OutputFormat({ fastStart: "in-memory" }),
@@ -216,6 +175,6 @@ export async function exportAudio(
   await feed(source, processed, media.sampleRate, onProgress);
   await output.finalize();
   const buffer = output.target.buffer;
-  if (!buffer) throw new Error("Falha ao gerar o arquivo de áudio.");
+  if (!buffer) throw new MediaError("Falha ao gerar o arquivo de áudio.");
   return { blob: new Blob([buffer], { type: format === "mp3" ? "audio/mpeg" : "audio/mp4" }), filename };
 }

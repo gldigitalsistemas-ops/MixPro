@@ -49,10 +49,16 @@ export function CaptionsPanel({
   media,
   value,
   onChange,
+  defaults,
+  mapTime,
 }: {
   media: LoadedMedia;
   value: CaptionState | null;
   onChange: (v: CaptionState | null) => void;
+  /** Estilo/posição preferidos (de "Meu estilo") para quando as legendas forem geradas. */
+  defaults?: { style: CaptionStyleId; position: CaptionPosition } | null;
+  /** Com cortes de pausas, converte o tempo do original para o do arquivo final (para o .srt). */
+  mapTime?: ((t: number) => number | null) | null;
 }) {
   const toast = useToast();
   const [language, setLanguage] = useState("portuguese");
@@ -67,11 +73,11 @@ export function CaptionsPanel({
         toast.info("Não encontramos fala neste arquivo.");
         return;
       }
-      const style = value?.style ?? "destaque";
+      const style = value?.style ?? defaults?.style ?? "destaque";
       onChange({
         captions: buildCaptions(words, style),
         style,
-        position: value?.position ?? "bottom",
+        position: value?.position ?? defaults?.position ?? "bottom",
         burnIn: media.kind === "video",
       });
     } catch {
@@ -83,7 +89,8 @@ export function CaptionsPanel({
 
   function downloadSrt() {
     if (!value) return;
-    const blob = new Blob([toSrt(value.captions)], { type: "application/x-subrip" });
+    const captions = mapTime ? remap(value.captions, mapTime) : value.captions;
+    const blob = new Blob([toSrt(captions)], { type: "application/x-subrip" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = `${media.file.name.replace(/\.[^.]+$/, "")}.srt`;
@@ -235,4 +242,18 @@ export function CaptionsPanel({
       </div>
     </div>
   );
+}
+
+/** Leva as legendas para a linha do tempo do arquivo cortado (palavras cortadas somem). */
+function remap(captions: Caption[], map: (t: number) => number | null): Caption[] {
+  return captions
+    .map((c) => {
+      const words = c.words.flatMap((w) => {
+        const start = map(w.start);
+        const end = map(Math.max(w.start, w.end - 0.001));
+        return start === null || end === null ? [] : [{ ...w, start, end: Math.max(end, start + 0.05) }];
+      });
+      return words.length ? { start: words[0].start, end: words[words.length - 1].end, words } : null;
+    })
+    .filter((c): c is Caption => c !== null);
 }

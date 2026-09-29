@@ -1,28 +1,37 @@
 import type { MetadataRoute } from "next";
 
-export default function manifest(): MetadataRoute.Manifest {
+type ShareTarget = {
+  share_target: {
+    action: string;
+    method: "POST";
+    enctype: "multipart/form-data";
+    params: { title?: string; text?: string; files: { name: string; accept: string[] }[] };
+  };
+};
+
+export default function manifest(): MetadataRoute.Manifest & ShareTarget {
   return {
-    name: "Mix Pro",
+    name: "Mix Pro — Som de estúdio e legendas",
     short_name: "Mix Pro",
-    description: "Mixagem e masterização de áudio online com presets profissionais.",
-    start_url: "/",
+    description: "Som de estúdio, remoção de ruído, legendas automáticas e cortes para os seus vídeos. Direto no celular.",
+    start_url: "/estudio",
+    scope: "/",
     display: "standalone",
     background_color: "#06061a",
     theme_color: "#06061a",
     orientation: "portrait-primary",
-    categories: ["music", "utilities"],
+    categories: ["music", "photo", "video", "utilities"],
     icons: [
       { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
       { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
       { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
-    screenshots: [
-      {
-        src: "/og-image.jpg",
-        sizes: "1200x630",
-        type: "image/jpeg",
-        form_factor: "wide",
-      },
-    ],
+    // Android: aparece no menu "Compartilhar" da galeria depois de instalado
+    share_target: {
+      action: "/compartilhar",
+      method: "POST",
+      enctype: "multipart/form-data",
+      params: { title: "title", text: "text", files: [{ name: "media", accept: ["video/*", "audio/*"] }] },
+    },
   };
 }

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Montserrat, Sora } from "next/font/google";
 import { ToastProvider } from "@/components/ui/toast";
+import { PwaSetup } from "@/components/pwa/pwa";
 import "./globals.css";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"], display: "swap" });
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="pt-BR" className={`${inter.variable} ${sora.variable} ${montserrat.variable}`}>
       <body>
         <ToastProvider>{children}</ToastProvider>
+        <PwaSetup />
       </body>
     </html>
   );
