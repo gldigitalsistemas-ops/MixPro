@@ -17,7 +17,10 @@ import { pickExcerpt, toAudioBuffer, type Excerpt } from "@/lib/media/excerpt";
 import { loadMedia, MediaLoadError, type LoadedMedia } from "@/lib/media/load";
 import { fetchPresets, type StudioCategory, type StudioPreset } from "@/lib/presets";
 import type { Intensity } from "@mixpro/contracts";
+import { drawCaptions, type CaptionRender } from "@/lib/captions/model";
+import { captionFontFamily, ensureCaptionFont } from "@/lib/captions/font";
 import { AuthModal } from "./auth-modal";
+import { CaptionsPanel, type CaptionState } from "./captions-panel";
 import { ExportPanel, type Target } from "./export-panel";
 import { CreditsPill, InviteModal } from "./invite";
 import { NOISE_AMOUNT, NoiseSelector, type NoiseLevel } from "./noise-selector";
@@ -80,6 +83,7 @@ export function Studio() {
   const [chosenIntensity, setIntensity] = useState<Intensity | null>(null);
   const [social, setSocial] = useState(true);
   const [chosenNoise, setNoise] = useState<NoiseLevel | null>(null);
+  const [captionState, setCaptionState] = useState<CaptionState | null>(null);
 
   const [excerpt, setExcerpt] = useState<Excerpt | null>(null);
   const [original, setOriginal] = useState<ABSource | null>(null);
@@ -139,6 +143,7 @@ export function Studio() {
     setIntensity(null);
     setCategoryId(null);
     setNoise(null);
+    setCaptionState(null);
     try {
       const m = await loadMedia(file, (p) => setLoading(p * 100));
       const ex = pickExcerpt(m.channels, m.sampleRate);
@@ -199,6 +204,29 @@ export function Studio() {
     };
   }, [media, excerpt, preset, intensity, social, denoiseAmount]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const captionRender = useMemo<CaptionRender | null>(
+    () =>
+      captionState
+        ? {
+            captions: captionState.captions,
+            style: captionState.style,
+            position: captionState.position,
+            fontFamily: captionFontFamily(),
+          }
+        : null,
+    [captionState],
+  );
+  useEffect(() => {
+    if (captionRender) void ensureCaptionFont();
+  }, [captionRender]);
+  const overlay = useMemo(
+    () =>
+      captionRender
+        ? (ctx: CanvasRenderingContext2D, w: number, h: number, t: number) => drawCaptions(ctx, w, h, t, captionRender)
+        : null,
+    [captionRender],
+  );
+
   const onToggleFavorite = useCallback(
     (p: StudioPreset) => {
       toggleFavorite(p.id).catch((err) => {
@@ -225,6 +253,7 @@ export function Studio() {
         preset={preset}
         intensity={intensity}
         denoise={denoiseAmount}
+        captions={media.kind === "video" && captionState?.burnIn ? captionRender : null}
         social={social}
         onSocialChange={setSocial}
         balance={account?.balance ?? null}
@@ -363,6 +392,7 @@ export function Studio() {
                   busy={previewBusy ?? (!processed ? "Escolha um preset" : null)}
                   offsetSeconds={excerpt ? excerpt.start / media.sampleRate : 0}
                   videoUrl={videoUrl}
+                  overlay={overlay}
                 />
               </Card>
 
@@ -401,6 +431,11 @@ export function Studio() {
 
               <Card className="p-4">
                 <IntensitySelector value={intensity} onChange={setIntensity} disabled={!preset} />
+              </Card>
+
+              <Card className="p-4">
+                <h2 className="mb-3 font-display text-lg font-semibold">Legendas automáticas</h2>
+                <CaptionsPanel media={media} value={captionState} onChange={setCaptionState} />
               </Card>
 
               {!isDesktop && exportCard}

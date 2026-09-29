@@ -11,6 +11,8 @@ import { exportAudio, exportVideo, type AudioFormat } from "@/lib/media/export";
 import type { LoadedMedia } from "@/lib/media/load";
 import type { StudioPreset } from "@/lib/presets";
 import { cn } from "@/lib/cn";
+import type { CaptionRender } from "@/lib/captions/model";
+import { ensureCaptionFont } from "@/lib/captions/font";
 
 export type Target = "video" | AudioFormat;
 type Phase = { label: string; progress: number } | null;
@@ -21,6 +23,8 @@ type Props = {
   preset: StudioPreset | null;
   intensity: number;
   denoise: number;
+  /** Legendas a gravar no vídeo (null = sem legendas). */
+  captions: CaptionRender | null;
   social: boolean;
   onSocialChange: (v: boolean) => void;
   balance: number | null;
@@ -34,14 +38,16 @@ type Props = {
   onAutoStarted: () => void;
 };
 
-function fileKey(f: File): string {
+function fnv(text: string): string {
   let h = 0x811c9dc5;
-  for (const ch of `${f.name}|${f.size}|${f.lastModified}`) {
+  for (const ch of text) {
     h ^= ch.charCodeAt(0);
     h = Math.imul(h, 0x01000193);
   }
   return (h >>> 0).toString(16).padStart(8, "0");
 }
+
+const fileKey = (f: File) => fnv(`${f.name}|${f.size}|${f.lastModified}`);
 
 const canShareFiles = (file: File) => typeof navigator !== "undefined" && !!navigator.canShare?.({ files: [file] });
 
@@ -50,6 +56,7 @@ export function ExportPanel({
   preset,
   intensity,
   denoise,
+  captions,
   social,
   onSocialChange,
   balance,
@@ -64,9 +71,12 @@ export function ExportPanel({
   const [phase, setPhase] = useState<Phase>(null);
   const [lastResult, setResult] = useState<Result | null>(null);
   const cache = useRef<{ key: string; value: DspResult } | null>(null);
-  const settingsKey = preset
+  // o processamento de áudio (cache) não depende das legendas; o arquivo final sim
+  const audioKey = preset
     ? `${fileKey(media.file)}_${preset.slug}_${intensity}_${social ? 1 : 0}_n${Math.round(denoise * 100)}`
     : null;
+  const captionsKey = captions ? fnv(JSON.stringify([captions.captions, captions.style, captions.position])) : "0";
+  const settingsKey = audioKey && `${audioKey}_c${captionsKey}`;
 
   useEffect(() => () => {
     if (lastResult) URL.revokeObjectURL(lastResult.url);
@@ -75,7 +85,7 @@ export function ExportPanel({
   const result = lastResult?.key === settingsKey ? lastResult : null;
 
   async function processFull(): Promise<DspResult> {
-    if (cache.current?.key === settingsKey) return cache.current.value;
+    if (cache.current?.key === audioKey) return cache.current.value;
     const value = await runDsp(
       { channels: media.channels, sampleRate: media.sampleRate, chain: preset!.chain, intensity, social, denoise },
       (p) =>
@@ -84,7 +94,7 @@ export function ExportPanel({
           progress: p * 100,
         }),
     );
-    cache.current = { key: settingsKey!, value };
+    cache.current = { key: audioKey!, value };
     return value;
   }
 
@@ -105,12 +115,18 @@ export function ExportPanel({
     try {
       setPhase({ label: "Aplicando o preset no arquivo inteiro…", progress: 0 });
       const processed = await processFull();
-      const label = target === "video" ? "Montando o vídeo com o som novo…" : "Gerando o arquivo de áudio…";
+      const label =
+        target === "video"
+          ? captions
+            ? "Gravando as legendas no vídeo…"
+            : "Montando o vídeo com o som novo…"
+          : "Gerando o arquivo de áudio…";
       setPhase({ label, progress: 0 });
       const onProgress = (p: number) => setPhase({ label, progress: p * 100 });
+      if (target === "video" && captions) await ensureCaptionFont();
       const out =
         target === "video"
-          ? await exportVideo(media, processed.channels, onProgress)
+          ? await exportVideo(media, processed.channels, onProgress, captions)
           : await exportAudio(media, processed.channels, target, onProgress);
 
       await spend(`${settingsKey}_${target}`, target === "video" ? "video" : "audio");

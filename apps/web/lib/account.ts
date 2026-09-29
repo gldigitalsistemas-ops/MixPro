@@ -111,7 +111,7 @@ export function useAccount() {
       if (!user) throw new NeedLoginError();
       const { data, error } = await supabaseBrowser().rpc("spend_export_credit", { p_ref: ref, p_kind: kind });
       if (error) {
-        if (error.message.includes("INSUFFICIENT_CREDITS")) throw new NoCreditsError();
+        if (String(error.message ?? "").includes("INSUFFICIENT_CREDITS")) throw new NoCreditsError();
         // Sem as funções de crédito no servidor, o usuário não é bloqueado.
         if (unavailable) return;
         throw error;

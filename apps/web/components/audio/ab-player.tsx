@@ -22,6 +22,8 @@ type Props = {
   offsetSeconds?: number;
   /** Vídeo exibido sem som, acompanhando o áudio A/B. */
   videoUrl?: string | null;
+  /** Desenha por cima do vídeo (ex.: legendas) no tempo do quadro exibido. */
+  overlay?: ((ctx: CanvasRenderingContext2D, width: number, height: number, t: number) => void) | null;
 };
 
 function useEngine(engine: ABEngine) {
@@ -29,11 +31,42 @@ function useEngine(engine: ABEngine) {
   useSyncExternalStore((cb) => engine.subscribe(cb), snap, () => "");
 }
 
-export function ABPlayer({ original, processed, busy, offsetSeconds = 0, videoUrl }: Props) {
+/** Posiciona o canvas exatamente sobre a imagem do vídeo (object-contain) e desenha o overlay. */
+function paintOverlay(v: HTMLVideoElement, canvas: HTMLCanvasElement, draw: Props["overlay"]) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  if (!draw || !v.videoWidth) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+  const s = Math.min(v.clientWidth / v.videoWidth, v.clientHeight / v.videoHeight);
+  const cw = v.videoWidth * s;
+  const ch = v.videoHeight * s;
+  const dpr = window.devicePixelRatio || 1;
+  const pw = Math.round(cw * dpr);
+  const ph = Math.round(ch * dpr);
+  if (canvas.width !== pw || canvas.height !== ph) {
+    canvas.width = pw;
+    canvas.height = ph;
+    canvas.style.width = `${cw}px`;
+    canvas.style.height = `${ch}px`;
+    canvas.style.left = `${(v.clientWidth - cw) / 2}px`;
+    canvas.style.top = `${(v.clientHeight - ch) / 2}px`;
+  }
+  ctx.clearRect(0, 0, pw, ph);
+  draw(ctx, pw, ph, v.currentTime);
+}
+
+export function ABPlayer({ original, processed, busy, offsetSeconds = 0, videoUrl, overlay }: Props) {
   const [engine] = useState(() => new ABEngine());
   useEngine(engine);
   const [time, setTime] = useState(0);
   const video = useRef<HTMLVideoElement>(null);
+  const overlayCanvas = useRef<HTMLCanvasElement>(null);
+  const overlayRef = useRef(overlay);
+  useEffect(() => {
+    overlayRef.current = overlay;
+  }, [overlay]);
 
   const origKey = original?.key;
   const procKey = processed?.key;
@@ -60,6 +93,7 @@ export function ABPlayer({ original, processed, busy, offsetSeconds = 0, videoUr
           if (!v.paused) v.pause();
           if (Math.abs(v.currentTime - target) > 0.05) v.currentTime = target;
         }
+        if (overlayCanvas.current) paintOverlay(v, overlayCanvas.current, overlayRef.current);
       }
       raf = requestAnimationFrame(tick);
     };
@@ -101,6 +135,7 @@ export function ABPlayer({ original, processed, busy, offsetSeconds = 0, videoUr
       {videoUrl && (
         <div className="relative mx-auto w-full max-w-sm overflow-hidden rounded-2xl bg-black">
           <video ref={video} src={videoUrl} muted playsInline preload="auto" className="max-h-[50dvh] w-full object-contain" />
+          <canvas ref={overlayCanvas} className="pointer-events-none absolute" aria-hidden />
           <span
             className={cn(
               "absolute left-2 top-2 rounded-full px-2.5 py-1 text-[11px] font-semibold backdrop-blur",

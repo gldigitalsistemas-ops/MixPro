@@ -14,7 +14,11 @@ import {
   WebMOutputFormat,
   canEncodeAudio,
   type AudioCodec,
+  type ConversionVideoOptions,
+  type InputVideoTrack,
+  type VideoSample,
 } from "mediabunny";
+import { drawCaptions, type CaptionRender } from "@/lib/captions/model";
 import type { Signal } from "@/lib/dsp/types";
 import type { LoadedMedia } from "./load";
 
@@ -51,11 +55,50 @@ function baseName(file: File) {
   return file.name.replace(/\.[^.]+$/, "").slice(0, 60) || "audio";
 }
 
-/** Vídeo original (copiado sem recodificar) + áudio tratado, no mesmo contêiner. */
+const MAX_SHORT_SIDE = 1080;
+
+/**
+ * Com legendas, cada quadro é desenhado num canvas com o texto e recodificado
+ * (limitado a 1080p no lado menor); sem legendas o vídeo é copiado sem perdas.
+ */
+function captionVideoOptions(track: InputVideoTrack, webm: boolean, captions: CaptionRender): ConversionVideoOptions {
+  // displayWidth/Height já consideram a rotação (vídeo de celular em pé sai em pé)
+  const w0 = track.displayWidth;
+  const h0 = track.displayHeight;
+  const scale = Math.min(1, MAX_SHORT_SIDE / Math.min(w0, h0));
+  const even = (v: number) => Math.max(2, Math.round((v * scale) / 2) * 2);
+  const width = even(w0);
+  const height = even(h0);
+  let canvas: OffscreenCanvas | null = null;
+  let ctx: OffscreenCanvasRenderingContext2D | null = null;
+  return {
+    forceTranscode: true,
+    allowTransformationMetadata: false,
+    codec: webm ? "vp9" : "avc",
+    quality: QUALITY_HIGH,
+    width,
+    height,
+    fit: "contain",
+    process: (sample: VideoSample) => {
+      if (!canvas || canvas.width !== sample.displayWidth || canvas.height !== sample.displayHeight) {
+        canvas = new OffscreenCanvas(sample.displayWidth, sample.displayHeight);
+        ctx = canvas.getContext("2d");
+      }
+      sample.draw(ctx!, 0, 0, canvas.width, canvas.height);
+      drawCaptions(ctx!, canvas.width, canvas.height, sample.timestamp, captions);
+      return canvas;
+    },
+    processedWidth: width,
+    processedHeight: height,
+  };
+}
+
+/** Vídeo original + áudio tratado (e legendas, se houver), no mesmo contêiner. */
 export async function exportVideo(
   media: LoadedMedia,
   processed: Signal,
   onProgress: (v: number) => void,
+  captions?: CaptionRender | null,
 ): Promise<ExportResult> {
   const webm = media.videoContainer === "webm";
   const codec: AudioCodec = webm ? "opus" : "aac";
@@ -74,6 +117,7 @@ export async function exportVideo(
       output,
       tracks: "primary",
       audio: { discard: true },
+      video: captions ? (track) => captionVideoOptions(track, webm, captions) : undefined,
       composable: true,
       showWarnings: false,
     });
