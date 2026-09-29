@@ -23,6 +23,8 @@ import { captionFontFamily, ensureCaptionFont } from "@/lib/captions/font";
 import { CaptionsPanel, type CaptionState } from "./captions-panel";
 import { ExportPanel } from "./export-panel";
 import { StyleBar } from "./style-bar";
+import { MusicPicker, type MusicState } from "./music-picker";
+import { mixMusic, safeCeiling } from "@/lib/media/music";
 import { VideoTools, defaultVideoTools, type VideoToolsState } from "./video-tools";
 import { mapToOutput, speechSegments } from "@/lib/media/cuts";
 import type { Look } from "@/lib/media/compose";
@@ -84,6 +86,7 @@ export function Studio() {
   const [chosenNoise, setNoise] = useState<NoiseLevel | null>(null);
   const [captionState, setCaptionState] = useState<CaptionState | null>(null);
   const [videoTools, setVideoTools] = useState<VideoToolsState | null>(null);
+  const [music, setMusic] = useState<MusicState | null>(null);
   // preferências de legenda vindas de "Meu estilo" (usadas quando as legendas forem geradas)
   const [captionPrefs, setCaptionPrefs] = useState<{ style: CaptionStyleId; position: CaptionPosition } | null>(null);
 
@@ -149,6 +152,7 @@ export function Studio() {
     setNoise(null);
     setCaptionState(null);
     setVideoTools(null);
+    setMusic(null);
     setTab("som");
     try {
       const m = await loadMedia(file, (p) => setLoading(p * 100));
@@ -191,11 +195,17 @@ export function Studio() {
         ctrl.signal,
       )
         .then((r) => {
+          const out = music
+            ? safeCeiling(
+                mixMusic(r.channels, music.channels, media.sampleRate, music.level, excerpt.start, media.channels[0].length),
+                media.sampleRate,
+              )
+            : r.channels;
           setProcessed({
-            key: `${preset.id}-${intensity}-${social}-${denoiseAmount}`,
-            buffer: toAudioBuffer(r.channels, media.sampleRate),
-            peaks: waveformPeaks(r.channels),
-            lufs: r.lufs,
+            key: `${preset.id}-${intensity}-${social}-${denoiseAmount}-${music ? `${music.name}-${music.level}` : ""}`,
+            buffer: toAudioBuffer(out, media.sampleRate),
+            peaks: waveformPeaks(out),
+            lufs: music ? integratedLoudness(out, media.sampleRate) : r.lufs,
           });
           setPreviewBusy(null);
         })
@@ -209,7 +219,7 @@ export function Studio() {
       clearTimeout(timer);
       ctrl.abort();
     };
-  }, [media, excerpt, preset, intensity, social, denoiseAmount]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [media, excerpt, preset, intensity, social, denoiseAmount, music]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const captionRender = useMemo<CaptionRender | null>(
     () =>
@@ -459,6 +469,9 @@ export function Studio() {
                 <Card className="p-4">
                   <NoiseSelector value={noise} onChange={setNoise} />
                 </Card>
+                <Card className="p-4">
+                  <MusicPicker sampleRate={media.sampleRate} channels={media.channels.length} value={music} onChange={setMusic} />
+                </Card>
                 <Button variant="secondary" onClick={() => setTab("legendas")}>
                   Próximo: legendas
                 </Button>
@@ -515,6 +528,7 @@ export function Studio() {
                   cutting={cutting}
                   look={look}
                   audiogram={media.kind === "audio" ? (videoTools?.audiogram ?? null) : null}
+                  music={music}
                   social={social}
                   onSocialChange={setSocial}
                   balance={account?.balance ?? null}

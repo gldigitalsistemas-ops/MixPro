@@ -13,6 +13,9 @@ import { keptDuration, spliceAudio, type Segment } from "@/lib/media/cuts";
 import { MediaError, exportAudio, exportVideo, type AudioFormat } from "@/lib/media/export";
 import type { LoadedMedia } from "@/lib/media/load";
 import { renderVideo } from "@/lib/media/render";
+import { mixMusic, safeCeiling } from "@/lib/media/music";
+import type { MusicState } from "./music-picker";
+import type { Signal } from "@/lib/dsp/types";
 import type { StudioPreset } from "@/lib/presets";
 import { cn, formatDuration } from "@/lib/cn";
 
@@ -33,6 +36,7 @@ type Props = {
   look: Look;
   /** Estilo do audiograma quando o arquivo é só áudio (null = não gerar vídeo). */
   audiogram: AudiogramStyle | null;
+  music: MusicState | null;
   balance: number | null;
   /** Debita 1 crédito (lança NoCreditsError quando não há saldo). */
   spend: (ref: string, kind: "video" | "audio") => Promise<void>;
@@ -64,7 +68,7 @@ function triggerDownload(url: string, filename: string) {
 }
 
 export function ExportPanel(props: Props) {
-  const { media, preset, intensity, denoise, social, onSocialChange, segments, cutting, look, audiogram } = props;
+  const { media, preset, intensity, denoise, social, onSocialChange, segments, cutting, look, audiogram, music } = props;
   const { balance, spend, onNeedCredits, signedIn, requireLogin } = props;
   const toast = useToast();
   const [phase, setPhase] = useState<Phase>(null);
@@ -83,6 +87,7 @@ export function ExportPanel(props: Props) {
       look.watermark,
       look.captions ? [look.captions.captions, look.captions.style, look.captions.position] : 0,
       audiogram ? [audiogram.palette, audiogram.title, Boolean(audiogram.image)] : 0,
+      music ? [music.name, music.level] : 0,
     ]),
   );
   const settingsKey = audioKey && `${audioKey}_e${editKey}`;
@@ -107,6 +112,8 @@ export function ExportPanel(props: Props) {
   }
 
   const makesVideo = media.kind === "video" || audiogram !== null;
+  const withMusic = (a: Signal) =>
+    music ? safeCeiling(mixMusic(a, music.channels, media.sampleRate, music.level, 0, a[0].length), media.sampleRate) : a;
 
   async function run(target: Target) {
     if (!preset || !settingsKey || phase) return;
@@ -123,14 +130,16 @@ export function ExportPanel(props: Props) {
         const onProgress = (p: number) => setPhase({ label, progress: p * 100 });
         if (render) {
           await ensureCaptionFont();
-          out = await renderVideo({ media, audio: processed.channels, segments, look, audiogram, onProgress });
+          out = await renderVideo({ media, audio: processed.channels, segments, look, audiogram, postAudio: withMusic, onProgress });
         } else {
-          out = await exportVideo(media, processed.channels, onProgress);
+          out = await exportVideo(media, withMusic(processed.channels), onProgress);
         }
       } else {
         const label = "Gerando o arquivo de áudio…";
         setPhase({ label, progress: 0 });
-        const audio = cutting ? spliceAudio(processed.channels, media.sampleRate, media.audioStart, segments) : processed.channels;
+        const audio = withMusic(
+          cutting ? spliceAudio(processed.channels, media.sampleRate, media.audioStart, segments) : processed.channels,
+        );
         out = await exportAudio(media, audio, target, (p) => setPhase({ label, progress: p * 100 }));
       }
 
@@ -171,6 +180,7 @@ export function ExportPanel(props: Props) {
     look.captions && "legendas",
     makesVideo && look.format !== "original" && `formato ${look.format}`,
     cutting && saved >= 0.5 && `${formatDuration(saved)} de pausas cortadas`,
+    music && "música de fundo",
     makesVideo && look.watermark && "selo Mix Pro",
   ].filter(Boolean) as string[];
 

@@ -52,11 +52,14 @@ export async function renderVideo(opts: {
   segments: Segment[];
   look: Look;
   audiogram: AudiogramStyle | null;
+  /** Aplicado ao áudio já emendado (ex.: música de fundo). */
+  postAudio?: (audio: Signal) => Signal;
   onProgress: (v: number) => void;
 }): Promise<ExportResult> {
   const { media, segments, look } = opts;
   const sr = media.sampleRate;
-  const outAudio = spliceAudio(opts.audio, sr, media.audioStart, segments);
+  const spliced = spliceAudio(opts.audio, sr, media.audioStart, segments);
+  const outAudio = opts.postAudio ? opts.postAudio(spliced) : spliced;
   const duration = keptDuration(segments);
   await audioCodecReady(outAudio.length, sr);
 
