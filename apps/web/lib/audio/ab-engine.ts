@@ -15,6 +15,50 @@ function audioContext(): AudioContext {
   return sharedCtx;
 }
 
+let silentLoop: HTMLAudioElement | null = null;
+
+/** 0,5 s de silêncio em WAV (gerado na hora, sem arquivo). */
+function silentWavUrl(): string {
+  const sr = 8000;
+  const n = sr / 2;
+  const view = new DataView(new ArrayBuffer(44 + n));
+  const str = (o: number, s: string) => [...s].forEach((c, i) => view.setUint8(o + i, c.charCodeAt(0)));
+  str(0, "RIFF");
+  view.setUint32(4, 36 + n, true);
+  str(8, "WAVE");
+  str(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sr, true);
+  view.setUint32(28, sr, true);
+  view.setUint16(32, 1, true);
+  view.setUint16(34, 8, true);
+  str(36, "data");
+  view.setUint32(40, n, true);
+  for (let i = 0; i < n; i++) view.setUint8(44 + i, 128);
+  return URL.createObjectURL(new Blob([view.buffer], { type: "audio/wav" }));
+}
+
+/**
+ * No iPhone o Web Audio obedece à chave de modo silencioso (o player de vídeo não).
+ * Colocar a sessão em "playback" faz a prévia tocar como um app de música. Precisa rodar no toque.
+ */
+function enableMediaPlayback() {
+  const nav = navigator as Navigator & { audioSession?: { type: string } };
+  try {
+    if (nav.audioSession) nav.audioSession.type = "playback";
+  } catch {}
+  // iOS mais antigos: um <audio> tocando (em silêncio) muda a sessão para mídia
+  if (!silentLoop) {
+    silentLoop = document.createElement("audio");
+    silentLoop.src = silentWavUrl();
+    silentLoop.loop = true;
+    silentLoop.setAttribute("playsinline", "");
+  }
+  void silentLoop.play().catch(() => {});
+}
+
 export class ABEngine {
   private graph: { ctx: AudioContext; master: GainNode; gainA: GainNode; gainB: GainNode } | null = null;
   private srcA: AudioBufferSourceNode | null = null;
@@ -146,6 +190,7 @@ export class ABEngine {
 
   async play() {
     if (!this.bufA && !this.bufB) return;
+    enableMediaPlayback();
     const { ctx } = this.g();
     if (ctx.state === "suspended") await ctx.resume();
     if (this.playing) return;

@@ -61,6 +61,7 @@ export function ABPlayer({ original, processed, busy, offsetSeconds = 0, videoUr
   const [engine] = useState(() => new ABEngine());
   useEngine(engine);
   const [time, setTime] = useState(0);
+  const [playedOnce, setPlayedOnce] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
   const overlayCanvas = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef(overlay);
@@ -173,11 +174,15 @@ export function ABPlayer({ original, processed, busy, offsetSeconds = 0, videoUr
 
       <div className="flex items-center gap-3">
         <button
-          onClick={() => engine.toggle()}
+          onClick={() => {
+            setPlayedOnce(true);
+            engine.toggle();
+          }}
           disabled={!original}
           aria-label={engine.playing ? "Pausar" : "Tocar"}
-          className="bg-brand grid size-14 shrink-0 place-items-center rounded-full text-white shadow-[0_8px_30px_-6px_rgb(124_58_237/0.7)] transition hover:brightness-110 disabled:opacity-50"
+          className="bg-brand relative grid size-14 shrink-0 place-items-center rounded-full text-white shadow-[0_8px_30px_-6px_rgb(124_58_237/0.7)] transition hover:brightness-110 disabled:opacity-50"
         >
+          {!playedOnce && original && <span aria-hidden className="absolute inset-0 animate-ping rounded-full bg-violet-400/40" />}
           {engine.playing ? <Pause className="size-6" /> : <Play className="size-6 translate-x-0.5" />}
         </button>
 
@@ -225,6 +230,9 @@ export function ABPlayer({ original, processed, busy, offsetSeconds = 0, videoUr
           Comparar no mesmo volume
         </label>
         <span className="hidden md:inline">Atalhos: espaço, A, B</span>
+        {!playedOnce && original && (
+          <span className="w-full text-violet-200">Toque em ▶ e alterne entre Antes e Depois enquanto ouve.</span>
+        )}
       </div>
     </div>
   );
