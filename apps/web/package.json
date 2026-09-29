@@ -13,6 +13,7 @@
     "@mediabunny/aac-encoder": "1.60.0",
     "@mediabunny/mp3-encoder": "1.60.0",
     "@mixpro/contracts": "workspace:*",
+    "@shiguredo/rnnoise-wasm": "2025.1.5",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.1",
     "clsx": "^2.1.1",

@@ -20,6 +20,7 @@ type Props = {
   media: LoadedMedia;
   preset: StudioPreset | null;
   intensity: number;
+  denoise: number;
   social: boolean;
   onSocialChange: (v: boolean) => void;
   balance: number | null;
@@ -48,6 +49,7 @@ export function ExportPanel({
   media,
   preset,
   intensity,
+  denoise,
   social,
   onSocialChange,
   balance,
@@ -62,7 +64,9 @@ export function ExportPanel({
   const [phase, setPhase] = useState<Phase>(null);
   const [lastResult, setResult] = useState<Result | null>(null);
   const cache = useRef<{ key: string; value: DspResult } | null>(null);
-  const settingsKey = preset ? `${fileKey(media.file)}_${preset.slug}_${intensity}_${social ? 1 : 0}` : null;
+  const settingsKey = preset
+    ? `${fileKey(media.file)}_${preset.slug}_${intensity}_${social ? 1 : 0}_n${Math.round(denoise * 100)}`
+    : null;
 
   useEffect(() => () => {
     if (lastResult) URL.revokeObjectURL(lastResult.url);
@@ -73,8 +77,12 @@ export function ExportPanel({
   async function processFull(): Promise<DspResult> {
     if (cache.current?.key === settingsKey) return cache.current.value;
     const value = await runDsp(
-      { channels: media.channels, sampleRate: media.sampleRate, chain: preset!.chain, intensity, social },
-      (p) => setPhase({ label: "Aplicando o preset no arquivo inteiro…", progress: p * 100 }),
+      { channels: media.channels, sampleRate: media.sampleRate, chain: preset!.chain, intensity, social, denoise },
+      (p) =>
+        setPhase({
+          label: denoise > 0 && p < 0.5 ? "Removendo o ruído de fundo…" : "Aplicando o preset no arquivo inteiro…",
+          progress: p * 100,
+        }),
     );
     cache.current = { key: settingsKey!, value };
     return value;

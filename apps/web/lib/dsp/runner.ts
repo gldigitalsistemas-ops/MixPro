@@ -12,6 +12,7 @@ export type DspJob = {
   chain: ChainDoc;
   intensity: number;
   social: boolean;
+  denoise?: number;
   preroll?: number;
 };
 
@@ -63,6 +64,7 @@ export function runDsp(job: DspJob, onProgress?: (v: number) => void, signal?: A
       chain: job.chain,
       intensity: job.intensity,
       social: job.social,
+      denoise: job.denoise ?? 0,
       preroll: job.preroll ?? 0,
     };
     worker.postMessage(req, channels.map((c) => c.buffer));

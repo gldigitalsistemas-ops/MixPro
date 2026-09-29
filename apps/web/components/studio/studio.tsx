@@ -20,6 +20,7 @@ import type { Intensity } from "@mixpro/contracts";
 import { AuthModal } from "./auth-modal";
 import { ExportPanel, type Target } from "./export-panel";
 import { CreditsPill, InviteModal } from "./invite";
+import { NOISE_AMOUNT, NoiseSelector, type NoiseLevel } from "./noise-selector";
 import { PresetPicker } from "./preset-picker";
 
 const ACCEPT = "video/*,audio/*,.mp4,.mov,.m4a,.mp3,.wav,.aac,.flac,.ogg,.webm";
@@ -78,6 +79,7 @@ export function Studio() {
   const [chosenPreset, setPreset] = useState<StudioPreset | null>(null);
   const [chosenIntensity, setIntensity] = useState<Intensity | null>(null);
   const [social, setSocial] = useState(true);
+  const [chosenNoise, setNoise] = useState<NoiseLevel | null>(null);
 
   const [excerpt, setExcerpt] = useState<Excerpt | null>(null);
   const [original, setOriginal] = useState<ABSource | null>(null);
@@ -122,6 +124,9 @@ export function Studio() {
     const byCat = (id: string) => catalog.presets.find((p) => p.categoryId === id);
     return (media.kind === "video" ? byCat("vocal-podcast") : null) ?? byCat("vocal-pop") ?? catalog.presets[0] ?? null;
   }, [chosenPreset, media, catalog]);
+  // Vídeos quase sempre têm ruído de ambiente; áudios de estúdio não
+  const noise: NoiseLevel = chosenNoise ?? (media?.kind === "video" ? "light" : "off");
+  const denoiseAmount = NOISE_AMOUNT[noise];
   const intensity: Intensity =
     chosenIntensity ?? ([25, 50, 75, 100].includes(preset?.defaultIntensity ?? 0) ? (preset!.defaultIntensity as Intensity) : 50);
 
@@ -133,6 +138,7 @@ export function Studio() {
     setPreset(null);
     setIntensity(null);
     setCategoryId(null);
+    setNoise(null);
     try {
       const m = await loadMedia(file, (p) => setLoading(p * 100));
       const ex = pickExcerpt(m.channels, m.sampleRate);
@@ -166,14 +172,15 @@ export function Studio() {
           chain: preset.chain,
           intensity,
           social,
+          denoise: denoiseAmount,
           preroll: excerpt.preroll,
         },
-        (p) => setPreviewBusy(`Aplicando o preset… ${Math.round(p * 100)}%`),
+        (p) => setPreviewBusy(`${denoiseAmount > 0 && p < 0.5 ? "Removendo ruído" : "Aplicando o preset"}… ${Math.round(p * 100)}%`),
         ctrl.signal,
       )
         .then((r) => {
           setProcessed({
-            key: `${preset.id}-${intensity}-${social}`,
+            key: `${preset.id}-${intensity}-${social}-${denoiseAmount}`,
             buffer: toAudioBuffer(r.channels, media.sampleRate),
             peaks: waveformPeaks(r.channels),
             lufs: r.lufs,
@@ -190,7 +197,7 @@ export function Studio() {
       clearTimeout(timer);
       ctrl.abort();
     };
-  }, [media, excerpt, preset, intensity, social]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [media, excerpt, preset, intensity, social, denoiseAmount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onToggleFavorite = useCallback(
     (p: StudioPreset) => {
@@ -217,6 +224,7 @@ export function Studio() {
         media={media}
         preset={preset}
         intensity={intensity}
+        denoise={denoiseAmount}
         social={social}
         onSocialChange={setSocial}
         balance={account?.balance ?? null}
@@ -385,6 +393,10 @@ export function Studio() {
                 ) : (
                   <p className="py-6 text-center text-sm text-muted">Carregando presets…</p>
                 )}
+              </Card>
+
+              <Card className="p-4">
+                <NoiseSelector value={noise} onChange={setNoise} />
               </Card>
 
               <Card className="p-4">

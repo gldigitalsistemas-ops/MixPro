@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 import { finalizeForSocial, runChain, type ChainDoc } from "./chain";
+import { denoise } from "./denoise";
 import { integratedLoudness, samplePeak } from "./loudness";
 import type { Signal } from "./types";
 
@@ -11,6 +12,8 @@ export type DspRequest = {
   intensity: number;
   /** Aplica o ajuste final de loudness para redes (-14 LUFS, teto -1 dBFS). */
   social: boolean;
+  /** Remoção de ruído antes do preset: 0 = desligada, 1 = total. */
+  denoise: number;
   /** Amostras iniciais usadas só para "aquecer" dinâmica/reverb; são descartadas na saída. */
   preroll: number;
 };
@@ -22,11 +25,16 @@ export type DspResponse =
 
 const post = (msg: DspResponse, transfer: Transferable[] = []) => self.postMessage(msg, transfer);
 
-self.onmessage = (e: MessageEvent<DspRequest>) => {
+self.onmessage = async (e: MessageEvent<DspRequest>) => {
   const { id, channels, sampleRate, chain, intensity, social, preroll } = e.data;
+  // com remoção de ruído, ela ocupa a primeira metade da barra de progresso
+  const split = e.data.denoise > 0 ? 0.5 : 0;
   try {
-    let out = runChain(channels, sampleRate, chain, intensity, (done, total) =>
-      post({ id, type: "progress", value: done / (total + (social ? 1 : 0)) }),
+    const clean = await denoise(channels, sampleRate, e.data.denoise, (v) =>
+      post({ id, type: "progress", value: v * split }),
+    );
+    let out = runChain(clean, sampleRate, chain, intensity, (done, total) =>
+      post({ id, type: "progress", value: split + (1 - split) * (done / (total + (social ? 1 : 0))) }),
     );
     if (preroll > 0) out = out.map((ch) => ch.slice(preroll));
     if (social) out = finalizeForSocial(out, sampleRate);

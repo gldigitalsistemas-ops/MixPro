@@ -101,3 +101,15 @@ test("Todos os presets do seed são válidos e produzem áudio finito", () => {
     }
   }
 });
+
+test("Reamostragem 44,1 → 48 → 44,1 kHz preserva o sinal (erro < -80 dB) e o comprimento", async () => {
+  const { resample } = await import("./resample");
+  const sr = 44100;
+  const x = new Float32Array(sr);
+  for (let i = 0; i < sr; i++) x[i] = 0.5 * Math.sin((2 * Math.PI * 1000 * i) / sr) + 0.3 * Math.sin((2 * Math.PI * 7919 * i) / sr);
+  const y = resample(resample(x, 44100, 48000), 48000, 44100);
+  assert.equal(y.length, x.length);
+  let err = 0;
+  for (let i = 2000; i < sr - 2000; i++) err = Math.max(err, Math.abs(y[i] - x[i]));
+  assert.ok(20 * Math.log10(err) < -80, `erro ${err}`);
+});
