@@ -22,11 +22,20 @@ export default async function AdminUsers(props: PageProps<"/admin/usuarios">) {
     const ids = [...emails.entries()].filter(([, v]) => v.email.toLowerCase().includes(q.toLowerCase())).map(([id]) => id);
     query = ids.length ? query.or(`display_name.ilike.%${q.replace(/[%,()]/g, "")}%,id.in.(${ids.join(",")})`) : query.ilike("display_name", `%${q.replace(/[%,()]/g, "")}%`);
   }
-  const [{ data: profiles }, { data: balances }] = await Promise.all([
+  const [{ data: profiles }, { data: balances }, { data: exportsRows }, { data: referred }] = await Promise.all([
     query,
     admin.from("credit_balances").select("user_id,balance").eq("kind", "download"),
+    admin.from("credit_transactions").select("user_id").eq("type", "DOWNLOAD").limit(50000),
+    admin.from("profiles").select("referred_by").not("referred_by", "is", null).limit(50000),
   ]);
   const balanceOf = new Map((balances ?? []).map((b) => [b.user_id, b.balance]));
+  const countBy = (rows: Record<string, unknown>[] | null, key: string) => {
+    const m = new Map<string, number>();
+    for (const r of rows ?? []) m.set(r[key] as string, (m.get(r[key] as string) ?? 0) + 1);
+    return m;
+  };
+  const exportsOf = countBy(exportsRows, "user_id");
+  const referredOf = countBy(referred, "referred_by");
 
   return (
     <div className="flex flex-col gap-6">
@@ -42,13 +51,15 @@ export default async function AdminUsers(props: PageProps<"/admin/usuarios">) {
         </form>
       </div>
       <Card className="overflow-x-auto">
-        <table className="w-full min-w-[720px] text-sm">
+        <table className="w-full min-w-[860px] text-sm">
           <thead className="text-left text-xs text-subtle">
             <tr className="border-b border-border">
               <th className="px-4 py-3 font-normal">Usuário</th>
               <th className="px-4 py-3 font-normal">Cadastro</th>
               <th className="px-4 py-3 font-normal">Código</th>
-              <th className="px-4 py-3 font-normal">Downloads</th>
+              <th className="px-4 py-3 font-normal">Créditos</th>
+              <th className="px-4 py-3 font-normal">Exportações</th>
+              <th className="px-4 py-3 font-normal">Indicou</th>
               <th className="px-4 py-3 font-normal">Ajustar créditos</th>
               <th className="px-4 py-3 font-normal" />
             </tr>
@@ -71,6 +82,8 @@ export default async function AdminUsers(props: PageProps<"/admin/usuarios">) {
                   <td className="px-4 py-3 text-xs text-muted">{formatDate(p.created_at)}</td>
                   <td className="px-4 py-3 font-mono text-xs">{p.referral_code}</td>
                   <td className="px-4 py-3 tabular-nums">{balanceOf.get(p.id) ?? 0}</td>
+                  <td className="px-4 py-3 tabular-nums">{exportsOf.get(p.id) ?? 0}</td>
+                  <td className="px-4 py-3 tabular-nums">{referredOf.get(p.id) ?? 0}</td>
                   <td className="px-4 py-3">
                     <AdjustCredits userId={p.id} />
                   </td>

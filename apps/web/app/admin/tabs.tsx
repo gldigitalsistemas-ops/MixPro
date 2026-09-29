@@ -7,8 +7,6 @@ import { cn } from "@/lib/cn";
 const TABS = [
   { href: "/admin", label: "Visão geral", exact: true },
   { href: "/admin/presets", label: "Presets" },
-  { href: "/admin/jobs", label: "Jobs" },
-  { href: "/admin/pedidos-pro", label: "Mix Pro" },
   { href: "/admin/usuarios", label: "Usuários" },
   { href: "/admin/configuracoes", label: "Configurações" },
 ];

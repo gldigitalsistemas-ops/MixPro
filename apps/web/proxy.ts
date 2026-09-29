@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 /**
- * Renova a sessão do Supabase a cada navegação e protege /app e /admin.
+ * Renova a sessão do Supabase a cada navegação e protege /admin.
  * A autorização real acontece no servidor (RLS + checagens nas rotas).
  */
 export async function proxy(request: NextRequest) {
@@ -26,7 +26,7 @@ export async function proxy(request: NextRequest) {
   const { data } = await supabase.auth.getUser();
   const path = request.nextUrl.pathname;
 
-  if (!data.user && (path.startsWith("/app") || path.startsWith("/admin"))) {
+  if (!data.user && path.startsWith("/admin")) {
     const url = request.nextUrl.clone();
     url.pathname = "/entrar";
     url.search = `?next=${encodeURIComponent(path + request.nextUrl.search)}`;
@@ -37,5 +37,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/app/:path*", "/admin/:path*", "/entrar", "/cadastro", "/auth/:path*"],
+  matcher: ["/admin/:path*", "/entrar", "/cadastro", "/auth/:path*"],
 };

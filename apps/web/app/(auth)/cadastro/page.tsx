@@ -6,10 +6,10 @@ export const metadata = { title: "Criar conta" };
 
 export default async function Page() {
   const supabase = await supabaseServer();
-  const { data } = await supabase.from("system_settings").select("value").eq("key", "free_downloads").maybeSingle();
+  const { data } = await supabase.from("system_settings").select("value").eq("key", "monthly_free_credits").maybeSingle();
   return (
     <Suspense>
-      <SignupForm freeDownloads={Number(data?.value ?? 5)} />
+      <SignupForm monthlyCredits={Number(data?.value ?? 10)} />
     </Suspense>
   );
 }

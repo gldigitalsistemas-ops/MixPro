@@ -7,6 +7,7 @@ import { MailCheck } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { publicEnv } from "@/lib/public-env";
 import { Button } from "@/components/ui/button";
+import { REF_STORAGE_KEY } from "@/lib/account";
 
 const inputCls =
   "h-12 w-full rounded-xl border border-border-strong bg-black/20 px-4 text-sm outline-none transition placeholder:text-subtle focus:border-violet-400";
@@ -20,13 +21,32 @@ function translate(msg: string): string {
   return "Não foi possível concluir. Tente novamente.";
 }
 
-function safeNext(next: string | null) {
-  return next && next.startsWith("/") && !next.startsWith("//") ? next : "/app";
+function safeNext(next: string | null | undefined) {
+  return next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
 }
 
-export function LoginForm() {
+function storedRef(): string | null {
+  try {
+    const v = localStorage.getItem(REF_STORAGE_KEY);
+    return v && /^[A-Z0-9]{4,12}$/.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Dentro de uma janela no estúdio: não navega, só avisa quando terminar. */
+export type Embedded = { onDone: () => void; onSwitch: () => void };
+
+export function LoginFields({
+  next,
+  linkError,
+  embedded,
+}: {
+  next?: string | null;
+  linkError?: boolean;
+  embedded?: Embedded;
+}) {
   const router = useRouter();
-  const params = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,12 +56,13 @@ export function LoginForm() {
     setLoading(true);
     setError(null);
     const { error } = await supabaseBrowser().auth.signInWithPassword({
-      email: String(form.get("email")),
+      email: String(form.get("email")).trim(),
       password: String(form.get("password")),
     });
     setLoading(false);
     if (error) return setError(translate(error.message));
-    router.replace(safeNext(params.get("next")));
+    if (embedded) return embedded.onDone();
+    router.replace(safeNext(next));
     router.refresh();
   }
 
@@ -51,7 +72,7 @@ export function LoginForm() {
         <h1 className="font-display text-2xl font-semibold">Entrar</h1>
         <p className="mt-1 text-sm text-muted">Continue de onde parou.</p>
       </div>
-      {params.get("erro") && <p className="rounded-xl bg-danger/10 p-3 text-sm text-red-300">O link expirou ou é inválido.</p>}
+      {linkError && <p className="rounded-xl bg-danger/10 p-3 text-sm text-red-300">O link expirou ou é inválido.</p>}
       <label className="flex flex-col gap-1.5 text-sm">
         E-mail
         <input name="email" type="email" autoComplete="email" required className={inputCls} placeholder="voce@email.com" />
@@ -72,20 +93,44 @@ export function LoginForm() {
         <Link href="/recuperar-senha" className="text-muted hover:text-text">
           Esqueci a senha
         </Link>
-        <Link href={`/cadastro${params.get("next") ? `?next=${encodeURIComponent(params.get("next")!)}` : ""}`} className="text-violet-300 hover:text-violet-200">
-          Criar conta grátis
-        </Link>
+        {embedded ? (
+          <button type="button" onClick={embedded.onSwitch} className="text-violet-300 hover:text-violet-200">
+            Criar conta grátis
+          </button>
+        ) : (
+          <Link
+            href={`/cadastro${next ? `?next=${encodeURIComponent(next)}` : ""}`}
+            className="text-violet-300 hover:text-violet-200"
+          >
+            Criar conta grátis
+          </Link>
+        )}
       </div>
     </form>
   );
 }
 
-export function SignupForm({ freeDownloads }: { freeDownloads: number }) {
+export function LoginForm() {
   const params = useSearchParams();
+  return <LoginFields next={params.get("next")} linkError={Boolean(params.get("erro"))} />;
+}
+
+export function SignupFields({
+  monthlyCredits,
+  next,
+  refCode,
+  embedded,
+}: {
+  monthlyCredits: number;
+  next?: string | null;
+  refCode?: string | null;
+  embedded?: Embedded;
+}) {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
-  const router = useRouter();
+  const [checking, setChecking] = useState(false);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -96,7 +141,7 @@ export function SignupForm({ freeDownloads }: { freeDownloads: number }) {
     setLoading(true);
     setError(null);
     const email = String(form.get("email")).trim();
-    const ref = params.get("ref");
+    const ref = refCode ?? storedRef();
     const { data, error } = await supabaseBrowser().auth.signUp({
       email,
       password,
@@ -105,17 +150,28 @@ export function SignupForm({ freeDownloads }: { freeDownloads: number }) {
           display_name: String(form.get("name")).trim(),
           ...(ref ? { referral_code: ref } : {}),
         },
-        emailRedirectTo: `${publicEnv.appUrl}/auth/callback?next=${encodeURIComponent(safeNext(params.get("next")))}`,
+        emailRedirectTo: `${publicEnv.appUrl}/auth/callback?next=${encodeURIComponent(safeNext(next))}`,
       },
     });
     setLoading(false);
     if (error) return setError(translate(error.message));
     if (data.session) {
-      router.replace(safeNext(params.get("next")));
+      if (embedded) return embedded.onDone();
+      router.replace(safeNext(next));
       router.refresh();
     } else {
       setSentTo(email);
     }
+  }
+
+  /** O link de confirmação abre em outra aba; a sessão fica nos cookies, que esta aba também lê. */
+  async function checkConfirmed() {
+    setChecking(true);
+    setError(null);
+    const { data } = await supabaseBrowser().auth.getSession();
+    setChecking(false);
+    if (data.session) embedded?.onDone();
+    else setError("Ainda não encontramos a confirmação. Toque no link do e-mail e tente de novo.");
   }
 
   if (sentTo) {
@@ -124,9 +180,17 @@ export function SignupForm({ freeDownloads }: { freeDownloads: number }) {
         <MailCheck className="size-10 text-violet-300" aria-hidden />
         <h1 className="font-display text-xl font-semibold">Confirme seu e-mail</h1>
         <p className="text-sm text-muted">
-          Enviamos um link para <strong className="text-text">{sentTo}</strong>. Clique nele para ativar sua conta e
-          receber seus {freeDownloads} downloads grátis.
+          Enviamos um link para <strong className="text-text">{sentTo}</strong>. Toque nele para ativar sua conta e
+          receber {monthlyCredits} downloads grátis por mês.
         </p>
+        {embedded && (
+          <>
+            <Button size="lg" className="w-full" loading={checking} onClick={checkConfirmed}>
+              Já confirmei
+            </Button>
+            {error && <p className="text-sm text-red-300">{error}</p>}
+          </>
+        )}
       </div>
     );
   }
@@ -134,8 +198,10 @@ export function SignupForm({ freeDownloads }: { freeDownloads: number }) {
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
       <div>
-        <h1 className="font-display text-2xl font-semibold">Criar conta</h1>
-        <p className="mt-1 text-sm text-muted">Ganhe {freeDownloads} downloads grátis para testar.</p>
+        <h1 className="font-display text-2xl font-semibold">Criar conta grátis</h1>
+        <p className="mt-1 text-sm text-muted">
+          {monthlyCredits} downloads grátis todo mês. Ouvir e testar presets é ilimitado.
+        </p>
       </div>
       <label className="flex flex-col gap-1.5 text-sm">
         Nome
@@ -147,14 +213,22 @@ export function SignupForm({ freeDownloads }: { freeDownloads: number }) {
       </label>
       <label className="flex flex-col gap-1.5 text-sm">
         Senha
-        <input name="password" type="password" autoComplete="new-password" minLength={8} required className={inputCls} placeholder="Mínimo 8 caracteres" />
+        <input
+          name="password"
+          type="password"
+          autoComplete="new-password"
+          minLength={8}
+          required
+          className={inputCls}
+          placeholder="Mínimo 8 caracteres"
+        />
       </label>
       <label className="flex items-start gap-2 text-xs text-muted">
         <input type="checkbox" name="terms" className="mt-0.5 accent-violet-500" />
         <span>
           Li e aceito os <Link href="/termos" className="underline">termos de uso</Link> e a{" "}
           <Link href="/privacidade" className="underline">política de privacidade</Link>. Declaro possuir os direitos sobre os
-          áudios que enviar.
+          arquivos que usar.
         </span>
       </label>
       {error && (
@@ -167,12 +241,23 @@ export function SignupForm({ freeDownloads }: { freeDownloads: number }) {
       </Button>
       <p className="text-center text-sm text-muted">
         Já tem conta?{" "}
-        <Link href="/entrar" className="text-violet-300">
-          Entrar
-        </Link>
+        {embedded ? (
+          <button type="button" onClick={embedded.onSwitch} className="text-violet-300">
+            Entrar
+          </button>
+        ) : (
+          <Link href="/entrar" className="text-violet-300">
+            Entrar
+          </Link>
+        )}
       </p>
     </form>
   );
+}
+
+export function SignupForm({ monthlyCredits }: { monthlyCredits: number }) {
+  const params = useSearchParams();
+  return <SignupFields monthlyCredits={monthlyCredits} next={params.get("next")} refCode={params.get("ref")} />;
 }
 
 export function RecoverForm() {
@@ -219,7 +304,7 @@ export function NewPasswordForm() {
     const { error } = await supabaseBrowser().auth.updateUser({ password });
     setLoading(false);
     if (error) return setError(translate(error.message));
-    router.replace("/app");
+    router.replace("/");
   }
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4">

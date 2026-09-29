@@ -1,81 +1,76 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { Pause, Play, Repeat, Volume2 } from "lucide-react";
-import { ABEngine, loadBuffer } from "@/lib/audio/ab-engine";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Pause, Play, Volume2 } from "lucide-react";
+import { ABEngine } from "@/lib/audio/ab-engine";
 import { Waveform } from "@/components/audio/waveform";
 import { cn, formatDuration } from "@/lib/cn";
 
 export type ABSource = {
-  /** Chave estável p/ cache (id do arquivo). */
-  id: string;
-  url: string;
-  peaks: number[] | null;
+  /** Muda quando o conteúdo muda (preset/intensidade). */
+  key: string;
+  buffer: AudioBuffer;
+  peaks: number[];
   lufs: number | null;
 };
 
 type Props = {
   original: ABSource | null;
   processed: ABSource | null;
-  processedLabel?: string;
-  busy?: boolean;
+  busy?: string | null;
+  /** Início do trecho dentro do arquivo (s), para exibir o tempo real e sincronizar o vídeo. */
   offsetSeconds?: number;
+  /** Vídeo exibido sem som, acompanhando o áudio A/B. */
+  videoUrl?: string | null;
 };
 
 function useEngine(engine: ABEngine) {
-  const subscribe = (cb: () => void) => engine.subscribe(cb);
-  // Snapshot composto p/ re-render quando qualquer estado relevante muda
   const snap = () => `${engine.playing}|${engine.side}|${engine.levelMatch}|${engine.volume}|${engine.hasB}|${engine.duration}`;
-  useSyncExternalStore(subscribe, snap, () => "");
+  useSyncExternalStore((cb) => engine.subscribe(cb), snap, () => "");
 }
 
-export function ABPlayer({ original, processed, processedLabel = "Processado", busy, offsetSeconds = 0 }: Props) {
+export function ABPlayer({ original, processed, busy, offsetSeconds = 0, videoUrl }: Props) {
   const [engine] = useState(() => new ABEngine());
   useEngine(engine);
-
   const [time, setTime] = useState(0);
-  const sourceKey = original ? `${original.id}|${processed?.id ?? ""}` : null;
-  const [loaded, setLoaded] = useState<{ key: string | null; error: string | null }>({ key: null, error: null });
-  const loading = sourceKey !== null && loaded.key !== sourceKey;
-  const error = loaded.key === sourceKey ? loaded.error : null;
+  const video = useRef<HTMLVideoElement>(null);
 
-  // Carrega buffers quando as fontes mudam (mantém posição de reprodução)
+  const origKey = original?.key;
+  const procKey = processed?.key;
   useEffect(() => {
-    if (!original || !sourceKey) return;
-    let cancelled = false;
-    Promise.all([
-      loadBuffer(original.id, original.url),
-      processed ? loadBuffer(processed.id, processed.url) : Promise.resolve(null),
-    ])
-      .then(([a, b]) => {
-        if (cancelled) return;
-        engine.setBuffers(a, b);
-        setLoaded({ key: sourceKey, error: null });
-      })
-      .catch(() => !cancelled && setLoaded({ key: sourceKey, error: "Não foi possível carregar o áudio. Verifique sua conexão." }));
-    return () => {
-      cancelled = true;
-    };
-  }, [sourceKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    engine.setBuffers(original?.buffer ?? null, processed?.buffer ?? null);
+    if (processed) engine.setSide("B");
+  }, [origKey, procKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => engine.dispose(), [engine]);
 
-  // Relógio da UI
+  // Relógio da UI + vídeo seguindo o áudio (corrige deriva e o loop do trecho)
   useEffect(() => {
     let raf = 0;
     const tick = () => {
-      setTime(engine.currentTime());
+      const t = engine.currentTime();
+      setTime(t);
+      const v = video.current;
+      if (v) {
+        const target = offsetSeconds + t;
+        if (engine.playing) {
+          if (v.paused) void v.play().catch(() => {});
+          if (Math.abs(v.currentTime - target) > 0.2) v.currentTime = target;
+        } else {
+          if (!v.paused) v.pause();
+          if (Math.abs(v.currentTime - target) > 0.05) v.currentTime = target;
+        }
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [engine]);
+  }, [engine, offsetSeconds]);
 
-  // Atalhos: espaço = play/pause, A/B = lado, Tab-livre
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
-      if (t && ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName)) return;
+      if (t && ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(t.tagName)) return;
       if (e.code === "Space") {
         e.preventDefault();
         engine.toggle();
@@ -88,8 +83,13 @@ export function ABPlayer({ original, processed, processedLabel = "Processado", b
 
   const matchGain = useMemo(() => {
     if (original?.lufs == null || processed?.lufs == null) return 1;
+    if (!Number.isFinite(original.lufs) || !Number.isFinite(processed.lufs)) return 1;
     return Math.pow(10, (original.lufs - processed.lufs) / 20);
   }, [original?.lufs, processed?.lufs]);
+
+  useEffect(() => {
+    if (engine.levelMatch) engine.setLevelMatch(true, matchGain);
+  }, [engine, matchGain]);
 
   const duration = engine.duration;
   const progress = duration > 0 ? time / duration : 0;
@@ -98,10 +98,24 @@ export function ABPlayer({ original, processed, processedLabel = "Processado", b
 
   return (
     <div className="flex flex-col gap-4">
+      {videoUrl && (
+        <div className="relative mx-auto w-full max-w-sm overflow-hidden rounded-2xl bg-black">
+          <video ref={video} src={videoUrl} muted playsInline preload="auto" className="max-h-[50dvh] w-full object-contain" />
+          <span
+            className={cn(
+              "absolute left-2 top-2 rounded-full px-2.5 py-1 text-[11px] font-semibold backdrop-blur",
+              showB ? "bg-primary/70 text-white" : "bg-blue/70 text-white",
+            )}
+          >
+            {showB ? "Com Mix Pro" : "Original"}
+          </span>
+        </div>
+      )}
+
       <div className="relative rounded-2xl bg-black/25 p-3">
         <div className="mb-2 flex items-center justify-between text-xs text-muted">
           <span className={cn("font-medium", showB ? "text-violet-300" : "text-blue-300")}>
-            {showB ? processedLabel : "Original"}
+            {showB ? "Com Mix Pro" : "Original"}
           </span>
           <span className="tabular-nums">
             {formatDuration(offsetSeconds + time)} · trecho de {formatDuration(duration)}
@@ -112,29 +126,27 @@ export function ABPlayer({ original, processed, processedLabel = "Processado", b
           progress={progress}
           onSeek={(f) => engine.seek(f * duration)}
           variant={showB ? "brand" : "blue"}
-          height={84}
+          height={72}
           ariaLabel="Posição da reprodução"
         />
-        {(loading || busy) && (
-          <div className="absolute inset-0 grid place-items-center rounded-2xl bg-bg/50 text-sm text-muted backdrop-blur-[2px]">
-            {busy ? "Processando preview…" : "Carregando áudio…"}
+        {busy && (
+          <div className="absolute inset-0 grid place-items-center rounded-2xl bg-bg/55 text-sm text-muted backdrop-blur-[2px]">
+            {busy}
           </div>
         )}
       </div>
 
-      {error && <p className="text-sm text-red-300">{error}</p>}
-
       <div className="flex items-center gap-3">
         <button
           onClick={() => engine.toggle()}
-          disabled={!original || loading}
+          disabled={!original}
           aria-label={engine.playing ? "Pausar" : "Tocar"}
           className="bg-brand grid size-14 shrink-0 place-items-center rounded-full text-white shadow-[0_8px_30px_-6px_rgb(124_58_237/0.7)] transition hover:brightness-110 disabled:opacity-50"
         >
           {engine.playing ? <Pause className="size-6" /> : <Play className="size-6 translate-x-0.5" />}
         </button>
 
-        <div className="grid flex-1 grid-cols-2 rounded-2xl border border-border-strong p-1" role="group" aria-label="Comparar A/B">
+        <div className="grid flex-1 grid-cols-2 rounded-2xl border border-border-strong p-1" role="group" aria-label="Comparar antes e depois">
           {(["A", "B"] as const).map((s) => (
             <button
               key={s}
@@ -142,12 +154,12 @@ export function ABPlayer({ original, processed, processedLabel = "Processado", b
               disabled={s === "B" && !engine.hasB}
               aria-pressed={engine.side === s}
               className={cn(
-                "flex h-11 flex-col items-center justify-center rounded-xl text-xs font-semibold transition disabled:opacity-40",
+                "flex h-12 flex-col items-center justify-center rounded-xl text-xs font-semibold transition disabled:opacity-40",
                 engine.side === s ? (s === "A" ? "bg-blue/20 text-blue-200" : "bg-primary/25 text-violet-200") : "text-muted hover:text-text",
               )}
             >
-              <span className="text-sm">{s}</span>
-              <span className="text-[10px] font-normal opacity-80">{s === "A" ? "Original" : processedLabel}</span>
+              <span className="text-sm">{s === "A" ? "Antes" : "Depois"}</span>
+              <span className="text-[10px] font-normal opacity-80">{s === "A" ? "Original" : "Com Mix Pro"}</span>
             </button>
           ))}
         </div>
@@ -167,7 +179,7 @@ export function ABPlayer({ original, processed, processedLabel = "Processado", b
             className="w-24 accent-violet-500"
           />
         </label>
-        <label className="flex cursor-pointer items-center gap-2" title="Compensa a diferença de volume para comparar só a sonoridade">
+        <label className="flex cursor-pointer items-center gap-2" title="Compensa a diferença de volume para comparar só a qualidade do som">
           <input
             type="checkbox"
             checked={engine.levelMatch}
@@ -177,9 +189,6 @@ export function ABPlayer({ original, processed, processedLabel = "Processado", b
           />
           Comparar no mesmo volume
         </label>
-        <span className="flex items-center gap-1">
-          <Repeat className="size-3.5" aria-hidden /> Repetição ativa
-        </span>
         <span className="hidden md:inline">Atalhos: espaço, A, B</span>
       </div>
     </div>

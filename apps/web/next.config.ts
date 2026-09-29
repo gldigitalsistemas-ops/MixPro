@@ -3,6 +3,9 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   transpilePackages: ["@mixpro/contracts"],
   poweredByHeader: false,
+  async redirects() {
+    return [{ source: "/app/:path*", destination: "/", permanent: false }];
+  },
   async headers() {
     return [
       {

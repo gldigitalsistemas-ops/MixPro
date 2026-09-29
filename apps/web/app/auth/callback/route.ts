@@ -5,8 +5,8 @@ import { supabaseServer } from "@/lib/supabase/server";
 /** Retorno dos links de e-mail (confirmação, recuperação) e OAuth. */
 export async function GET(request: NextRequest) {
   const url = request.nextUrl;
-  const nextParam = url.searchParams.get("next") ?? "/app";
-  const next = nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/app";
+  const nextParam = url.searchParams.get("next") ?? "/";
+  const next = nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/";
   const supabase = await supabaseServer();
 
   const code = url.searchParams.get("code");

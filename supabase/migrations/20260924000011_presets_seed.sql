@@ -545,7 +545,7 @@ DO $$ DECLARE v_pid uuid; v_vid uuid; BEGIN
   INSERT INTO public.preset_versions (preset_id,version,chain,default_intensity,notes) VALUES (v_pid,1,
   '{"schema_version":1,"chain":[
     {"type":"highpass","params":{"frequency_hz":20,"slope_db_oct":"24"}},
-    {"type":"lowpass","params":{"frequency_hz":200,"slope_db_oct":"12"}},
+    {"type":"lowpass","params":{"frequency_hz":500,"slope_db_oct":"12"}},
     {"type":"eq_shelf","params":{"position":"low","frequency_hz":60,"gain_db":{"value":4,"neutral":0},"q":0.707}},
     {"type":"eq_peak","params":{"frequency_hz":80,"gain_db":{"value":2,"neutral":0},"q":2}},
     {"type":"eq_peak","params":{"frequency_hz":300,"gain_db":{"value":-4,"neutral":0},"q":1}},

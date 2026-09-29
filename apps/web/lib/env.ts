@@ -4,11 +4,6 @@ import { z } from "zod";
 /** Variáveis somente do servidor — nunca chegam ao navegador. */
 const serverSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
-  S3_ENDPOINT: z.url(),
-  S3_REGION: z.string().default("auto"),
-  S3_BUCKET: z.string().min(1),
-  S3_ACCESS_KEY_ID: z.string().min(1),
-  S3_SECRET_ACCESS_KEY: z.string().min(1),
 });
 
 let cached: z.infer<typeof serverSchema> | null = null;

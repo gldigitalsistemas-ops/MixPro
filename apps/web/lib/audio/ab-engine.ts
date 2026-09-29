@@ -15,25 +15,6 @@ function audioContext(): AudioContext {
   return sharedCtx;
 }
 
-const bufferCache = new Map<string, Promise<AudioBuffer>>();
-
-/** Baixa e decodifica (com cache por chave estável — a URL assinada muda a cada pedido). */
-export function loadBuffer(cacheKey: string, url: string): Promise<AudioBuffer> {
-  let p = bufferCache.get(cacheKey);
-  if (!p) {
-    p = fetch(url)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.arrayBuffer();
-      })
-      .then((data) => audioContext().decodeAudioData(data));
-    p.catch(() => bufferCache.delete(cacheKey));
-    bufferCache.set(cacheKey, p);
-    if (bufferCache.size > 24) bufferCache.delete(bufferCache.keys().next().value!);
-  }
-  return p;
-}
-
 export class ABEngine {
   private graph: { ctx: AudioContext; master: GainNode; gainA: GainNode; gainB: GainNode } | null = null;
   private srcA: AudioBufferSourceNode | null = null;

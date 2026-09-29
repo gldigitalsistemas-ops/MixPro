@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Mix Pro",
     short_name: "Mix Pro",
     description: "Mixagem e masterização de áudio online com presets profissionais.",
-    start_url: "/app",
+    start_url: "/",
     display: "standalone",
     background_color: "#06061a",
     theme_color: "#06061a",
