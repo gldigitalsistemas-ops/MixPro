@@ -3,7 +3,7 @@
 export type Word = { text: string; start: number; end: number };
 export type Caption = { start: number; end: number; words: Word[] };
 
-export type CaptionStyleId = "destaque" | "classica" | "caixa" | "karaoke";
+export type CaptionStyleId = "destaque" | "classica" | "caixa" | "karaoke" | "marca" | "neon" | "emoji";
 export type CaptionPosition = "top" | "middle" | "bottom";
 
 type StyleSpec = {
@@ -22,6 +22,12 @@ type StyleSpec = {
   upcoming?: string;
   stroke: number;
   box: string | null;
+  /** Caixa colorida atrás da palavra falada (estilo "marca-texto"). */
+  activeBox?: string;
+  /** Brilho em volta das letras (neon). */
+  glow?: string;
+  /** Emoji depois das palavras-chave. */
+  emoji?: boolean;
 };
 
 export const CAPTION_STYLES: Record<CaptionStyleId, StyleSpec> = {
@@ -37,6 +43,48 @@ export const CAPTION_STYLES: Record<CaptionStyleId, StyleSpec> = {
     active: "#ffe500",
     stroke: 0.18,
     box: null,
+  },
+  marca: {
+    label: "Marca-texto",
+    hint: "Palavra em destaque",
+    maxWords: 3,
+    maxChars: 22,
+    uppercase: true,
+    weight: 900,
+    size: 0.072,
+    fill: "#ffffff",
+    active: "#ffffff",
+    activeBox: "#7c3aed",
+    stroke: 0.14,
+    box: null,
+  },
+  emoji: {
+    label: "Emoji",
+    hint: "Emoji nas palavras-chave",
+    maxWords: 3,
+    maxChars: 22,
+    uppercase: true,
+    weight: 900,
+    size: 0.072,
+    fill: "#ffffff",
+    active: "#ffe500",
+    stroke: 0.18,
+    box: null,
+    emoji: true,
+  },
+  neon: {
+    label: "Neon",
+    hint: "Brilho colorido",
+    maxWords: 4,
+    maxChars: 26,
+    uppercase: true,
+    weight: 800,
+    size: 0.066,
+    fill: "#fdf4ff",
+    active: "#67e8f9",
+    stroke: 0,
+    box: null,
+    glow: "#d946ef",
   },
   karaoke: {
     label: "Karaokê",
@@ -81,6 +129,45 @@ export const CAPTION_STYLES: Record<CaptionStyleId, StyleSpec> = {
 };
 
 const POSITION_Y: Record<CaptionPosition, number> = { top: 0.17, middle: 0.52, bottom: 0.78 };
+
+/** Começo da palavra (sem acento) → emoji. A ordem importa: o primeiro que casar vence. */
+const EMOJI: [string, string][] = [
+  ["dinheir", "💰"], ["grana", "💰"], ["lucr", "💰"], ["reais", "💰"], ["pix", "💸"],
+  ["amor", "❤️"], ["amo", "❤️"], ["coracao", "❤️"], ["paix", "😍"],
+  ["deus", "🙏"], ["jesus", "🙏"], ["senhor", "🙏"], ["obrigad", "🙏"], ["gratid", "🙏"], ["ora", "🙏"],
+  ["louv", "🙌"], ["igreja", "⛪"], ["fe", "✨"],
+  ["fogo", "🔥"], ["incrive", "🔥"], ["top", "🔥"], ["brabo", "🔥"], ["insan", "🤯"],
+  ["music", "🎵"], ["cant", "🎤"], ["voz", "🎤"], ["bateri", "🥁"], ["violao", "🎸"], ["guitarr", "🎸"], ["piano", "🎹"],
+  ["dica", "💡"], ["ideia", "💡"], ["segred", "🤫"], ["aprend", "📚"], ["estud", "📚"], ["livro", "📚"],
+  ["sucess", "🚀"], ["cresc", "📈"], ["result", "📈"], ["meta", "🎯"], ["objetiv", "🎯"], ["foco", "🎯"],
+  ["vend", "🛒"], ["client", "🤝"], ["negoci", "💼"], ["trabalh", "💼"], ["empres", "🏢"],
+  ["tempo", "⏰"], ["hoje", "📅"], ["amanha", "📅"],
+  ["celular", "📱"], ["video", "🎬"], ["foto", "📸"], ["internet", "🌐"], ["instagram", "📲"], ["tiktok", "📲"],
+  ["casa", "🏠"], ["comid", "🍔"], ["cafe", "☕"], ["agua", "💧"], ["viag", "✈️"], ["praia", "🏖️"], ["carro", "🚗"],
+  ["feliz", "😄"], ["alegr", "😄"], ["risad", "😂"], ["engracad", "😂"], ["trist", "😢"], ["medo", "😱"], ["raiva", "😡"],
+  ["treino", "💪"], ["academi", "💪"], ["forc", "💪"], ["saude", "🩺"], ["dorm", "😴"], ["sono", "😴"],
+  ["atenc", "⚠️"], ["cuidado", "⚠️"], ["perig", "⚠️"], ["verdade", "✅"], ["certo", "✅"], ["erro", "❌"], ["errad", "❌"],
+  ["pergunt", "❓"], ["porque", "🤔"], ["pens", "🤔"], ["olha", "👀"], ["veja", "👀"],
+  ["famili", "👨‍👩‍👧"], ["filh", "👶"], ["mae", "👩"], ["pai", "👨"], ["amig", "🫂"],
+  ["mundo", "🌎"], ["brasil", "🇧🇷"], ["festa", "🎉"], ["parabens", "🎉"], ["presente", "🎁"],
+];
+
+const plain = (w: string) =>
+  w
+    .toLocaleLowerCase("pt-BR")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+
+/** Emoji para a palavra, ou null. Palavras curtas precisam ser exatas ("fe" não casa com "feira"). */
+export function emojiFor(word: string): string | null {
+  const w = plain(word);
+  if (w.length < 2) return null;
+  for (const [k, e] of EMOJI) {
+    if (k.length <= 3 ? w === k || w === `${k}s` : w.startsWith(k)) return e;
+  }
+  return null;
+}
 
 const endsSentence = (w: string) => /[.!?…]["”')]*$/.test(w);
 
@@ -174,7 +261,18 @@ export function drawCaptions(ctx: Ctx, width: number, height: number, t: number,
   ctx.textBaseline = "middle";
   ctx.lineJoin = "round";
 
-  const words = cap.words.map((w) => ({ ...w, label: s.uppercase ? w.text.toLocaleUpperCase("pt-BR") : w.text }));
+  type Token = Word & { label: string; emoji?: boolean };
+  const words: Token[] = [];
+  let emojiUsed = false;
+  for (const w of cap.words) {
+    words.push({ ...w, label: s.uppercase ? w.text.toLocaleUpperCase("pt-BR") : w.text });
+    // um emoji por legenda, logo depois da primeira palavra-chave
+    const e = s.emoji && !emojiUsed ? emojiFor(w.text) : null;
+    if (e) {
+      words.push({ text: e, label: e, start: w.end, end: w.end, emoji: true });
+      emojiUsed = true;
+    }
+  }
   const space = ctx.measureText(" ").width;
   const maxWidth = width * 0.86;
   const lines: (typeof words)[] = [[]];
@@ -211,13 +309,27 @@ export function drawCaptions(ctx: Ctx, width: number, height: number, t: number,
       let color = s.fill;
       if (s.upcoming && !spoken) color = s.upcoming;
       if (s.active && current) color = s.active;
-      if (s.stroke > 0) {
+      if (s.activeBox && current && !w.emoji) {
+        const pad = size * 0.16;
+        ctx.fillStyle = s.activeBox;
+        roundRect(ctx, x - pad, y - size * 0.62, widths[wi] + pad * 2, size * 1.24, size * 0.2);
+        ctx.fill();
+      }
+      if (s.stroke > 0 && !w.emoji) {
         ctx.lineWidth = size * s.stroke;
         ctx.strokeStyle = "#000000";
         ctx.strokeText(w.label, x, y);
       }
       ctx.fillStyle = color;
+      if (s.glow && !w.emoji) {
+        // duas passadas: halo largo colorido + núcleo mais nítido
+        ctx.shadowColor = current && s.active ? s.active : s.glow;
+        ctx.shadowBlur = size * 0.6;
+        ctx.fillText(w.label, x, y);
+        ctx.shadowBlur = size * 0.2;
+      }
       ctx.fillText(w.label, x, y);
+      ctx.shadowBlur = 0;
       x += widths[wi] + space;
     });
   });

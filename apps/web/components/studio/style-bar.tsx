@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { listStyles, saveStyle, type SavedStyle, type StyleSettings } from "@/lib/styles";
 import { supabaseBrowser } from "@/lib/supabase/client";
+import { track } from "@/lib/track";
 
 const MAX_STYLES = 10;
 
@@ -31,6 +32,7 @@ export function StyleBar({ current, onApply }: { current: StyleSettings; onApply
       const { data } = await supabaseBrowser().auth.getUser();
       await saveStyle(data.user!.id, n, current);
       setStyles(await listStyles());
+      track("style_saved");
       setNaming(false);
       setName("");
       toast.success(`Estilo “${n}” salvo. Aplique nos próximos vídeos com um toque.`);

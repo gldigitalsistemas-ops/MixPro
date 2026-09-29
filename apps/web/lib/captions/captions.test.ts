@@ -31,3 +31,25 @@ test("SRT no formato padrão", () => {
   const srt = toSrt(buildCaptions([{ text: "Olá!", start: 1.5, end: 62.25 }], "classica"));
   assert.equal(srt, "1\n00:00:01,500 --> 00:01:02,250\nOlá!\n");
 });
+
+test("Emoji: palavra-chave com acento e plural; palavra curta só exata", async () => {
+  const { emojiFor } = await import("./model");
+  assert.equal(emojiFor("Dinheiro!"), "💰");
+  assert.equal(emojiFor("CORAÇÃO"), "❤️");
+  assert.equal(emojiFor("fé"), "✨");
+  assert.equal(emojiFor("feira"), null);
+  assert.equal(emojiFor("de"), null);
+});
+
+test("Post: gancho com a primeira frase e hashtags das palavras mais repetidas", async () => {
+  const { buildPost } = await import("./post");
+  const text = buildPost(
+    words("Hoje eu vou mostrar como gravar voz no celular. O celular capta a voz muito bem, e a voz fica limpa com o Mix Pro."),
+    "video",
+  );
+  const [first, , tags] = text.split("\n");
+  assert.equal(first, "Hoje eu vou mostrar como gravar voz no celular.");
+  assert.match(tags, /^#celular /);
+  assert.ok(tags.includes("#reels") && !tags.includes("#muito") && !tags.includes("#voz"), tags);
+  assert.equal(buildPost(null, "audio"), "#musica #audio");
+});

@@ -19,6 +19,7 @@ import {
 import { transcribe, type AsrModel, type TranscribeProgress } from "@/lib/captions/transcribe";
 import type { LoadedMedia } from "@/lib/media/load";
 import { cn, formatDuration } from "@/lib/cn";
+import { track } from "@/lib/track";
 
 export type CaptionState = {
   captions: Caption[];
@@ -74,6 +75,7 @@ export function CaptionsPanel({
         toast.info("Não encontramos fala neste arquivo.");
         return;
       }
+      track("captions_generated", { model, language, translate, words: words.length });
       const style = value?.style ?? defaults?.style ?? "destaque";
       onChange({
         captions: buildCaptions(words, style),

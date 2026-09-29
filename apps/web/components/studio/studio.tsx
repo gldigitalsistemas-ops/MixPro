@@ -33,6 +33,8 @@ import type { StyleSettings } from "@/lib/styles";
 import { allWords, buildCaptions, type CaptionStyleId, type CaptionPosition } from "@/lib/captions/model";
 import { NOISE_AMOUNT, NoiseSelector, type NoiseLevel } from "./noise-selector";
 import { PresetPicker } from "./preset-picker";
+import { StudioTour } from "./tour";
+import { track } from "@/lib/track";
 
 const ACCEPT = "video/*,audio/*,.mp4,.mov,.m4a,.mp3,.wav,.aac,.flac,.ogg,.webm";
 
@@ -109,6 +111,7 @@ export function Studio() {
   );
   useEffect(() => {
     void loadCatalog();
+    track("studio_open");
   }, [loadCatalog]);
 
   // Vídeo recebido pelo menu "Compartilhar" da galeria (app instalado)
@@ -179,6 +182,7 @@ export function Studio() {
       });
       setVideoTools(defaultVideoTools(m));
       setMedia(m);
+      track("file_loaded", { kind: m.kind, seconds: Math.round(m.duration) });
     } catch (err) {
       toast.error(err instanceof MediaLoadError ? err.message : "Não foi possível abrir esse arquivo.");
     } finally {
@@ -399,6 +403,7 @@ export function Studio() {
         </section>
       ) : (
         <section className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
+          <StudioTour />
           <div className="flex flex-col gap-4 lg:sticky lg:top-[calc(5rem+env(safe-area-inset-top))]">
             <Card className="flex items-center gap-3 p-3">
               <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white/5">
@@ -547,6 +552,7 @@ export function Studio() {
                   look={look}
                   audiogram={media.kind === "audio" ? (videoTools?.audiogram ?? null) : null}
                   music={music}
+                  words={words}
                   social={social}
                   onSocialChange={setSocial}
                   balance={account?.balance ?? null}

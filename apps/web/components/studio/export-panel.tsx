@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AudioLines, Download, Film, Music, Share2, Sparkles } from "lucide-react";
+import { AudioLines, Copy, Download, Film, Music, Share2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/misc";
 import { useToast } from "@/components/ui/toast";
 import { NeedLoginError, NoCreditsError } from "@/lib/account";
 import { ensureCaptionFont } from "@/lib/captions/font";
+import type { Word } from "@/lib/captions/model";
+import { buildPost } from "@/lib/captions/post";
+import { track } from "@/lib/track";
 import { runDsp, type DspResult } from "@/lib/dsp/runner";
 import { needsRender, type AudiogramStyle, type Look } from "@/lib/media/compose";
 import { keptDuration, spliceAudio, type Segment } from "@/lib/media/cuts";
@@ -40,6 +43,8 @@ type Props = {
   /** Estilo do audiograma quando o arquivo é só áudio (null = não gerar vídeo). */
   audiogram: AudiogramStyle | null;
   music: MusicState | null;
+  /** Fala transcrita (legendas), para sugerir o texto do post. */
+  words: Word[] | null;
   balance: number | null;
   /** Debita 1 crédito (lança NoCreditsError quando não há saldo). */
   spend: (ref: string, kind: "video" | "audio") => Promise<void>;
@@ -72,11 +77,12 @@ function triggerDownload(url: string, filename: string) {
 
 export function ExportPanel(props: Props) {
   const { media, preset, chain, intensity, denoise, social, onSocialChange, segments, cutting, look, audiogram, music } = props;
-  const { balance, spend, onNeedCredits, signedIn, requireLogin } = props;
+  const { balance, spend, onNeedCredits, signedIn, requireLogin, words } = props;
   const toast = useToast();
   const [phase, setPhase] = useState<Phase>(null);
   const [lastResult, setResult] = useState<Result | null>(null);
   const cache = useRef<{ key: string; value: DspResult } | null>(null);
+  const [postText, setPostText] = useState<string | null>(null);
 
   // o áudio tratado (cache) só depende do som; o arquivo final depende também de cortes, formato e legendas
   const audioKey = preset
@@ -147,6 +153,7 @@ export function ExportPanel(props: Props) {
       }
 
       await spend(`${settingsKey}_${target}`, target === "video" ? "video" : "audio");
+      track("export", { target, preset: preset.slug, captions: Boolean(look.captions), music: Boolean(music) });
 
       const url = URL.createObjectURL(out.blob);
       setResult({ url, blob: out.blob, filename: out.filename, target, key: settingsKey });
@@ -164,17 +171,34 @@ export function ExportPanel(props: Props) {
     }
   }
 
+  async function copyPost(silent = false) {
+    try {
+      await navigator.clipboard.writeText(post);
+      if (!silent) toast.success("Legenda copiada. É só colar no post.");
+      return true;
+    } catch {
+      if (!silent) toast.error("Não foi possível copiar. Selecione o texto e copie.");
+      return false;
+    }
+  }
+
   async function shareResult() {
     if (!result) return;
     const file = new File([result.blob], result.filename, { type: result.blob.type });
+    // Instagram e TikTok ignoram o texto do compartilhamento: vai também para a área de transferência
+    // (sem await antes do share: o Safari exige que o share saia direto do toque)
+    const copied = copyPost(true);
     try {
-      await navigator.share({ files: [file], title: "Mix Pro" });
+      await navigator.share({ files: [file], title: "Mix Pro", text: post });
+      track("share", { target: result.target });
+      if (await copied) toast.success("A legenda do post está copiada: cole na descrição.");
     } catch (e) {
       if ((e as Error).name !== "AbortError") triggerDownload(result.url, result.filename);
     }
   }
 
   const busy = phase !== null;
+  const post = postText ?? buildPost(words, makesVideo ? "video" : "audio");
   const shareable = result ? canShareFiles(new File([result.blob], result.filename, { type: result.blob.type })) : false;
   const saved = cutting ? media.duration - keptDuration(segments) : 0;
   const summary = [
@@ -246,12 +270,27 @@ export function ExportPanel(props: Props) {
           ) : (
             <audio src={result.url} controls className="w-full" />
           )}
-          <div className="grid gap-2 sm:grid-cols-2">
+          <label className="flex flex-col gap-1.5 text-xs text-muted">
+            <span className="flex flex-wrap items-center justify-between gap-1">
+              Legenda do post
+              {!words?.length && <span className="text-subtle">gere as legendas para um texto a partir da sua fala</span>}
+            </span>
+            <textarea
+              value={post}
+              onChange={(e) => setPostText(e.target.value)}
+              rows={4}
+              className="rounded-xl border border-border-strong bg-black/20 p-3 text-sm text-text outline-none focus:border-violet-400"
+            />
+          </label>
+          <div className="grid gap-2 sm:grid-cols-3">
             {shareable && (
               <Button onClick={shareResult}>
-                <Share2 className="size-4" /> Salvar ou postar
+                <Share2 className="size-4" /> Postar
               </Button>
             )}
+            <Button variant="secondary" onClick={() => copyPost()}>
+              <Copy className="size-4" /> Copiar legenda
+            </Button>
             <Button variant={shareable ? "secondary" : "primary"} onClick={() => triggerDownload(result.url, result.filename)}>
               <Download className="size-4" /> Baixar arquivo
             </Button>

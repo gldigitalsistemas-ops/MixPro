@@ -20,7 +20,15 @@ export default async function AdminHome(props: PageProps<"/admin">) {
   const since = daysAgoIso(days);
   const supabase = await supabaseServer();
 
-  const [{ data }, exports, presets] = await Promise.all([
+  // contagens exatas (o Supabase devolve no máximo 1000 linhas por consulta)
+  const countEvent = async (event: string, prop?: [string, string]) => {
+    let q = supabase.from("analytics_events").select("id", { count: "exact", head: true }).eq("event", event).gte("created_at", since);
+    if (prop) q = q.eq(`props->>${prop[0]}`, prop[1]);
+    return (await q).count ?? 0;
+  };
+  const EVENTS = ["studio_open", "file_loaded", "captions_generated", "export", "share", "checkout_start", "tour_done", "style_saved"];
+
+  const [{ data }, exports, presets, eventCounts, videoFiles, withCaptions, withMusic] = await Promise.all([
     supabase.rpc("admin_metrics", { p_days: days }),
     supabase
       .from("credit_transactions")
@@ -29,7 +37,24 @@ export default async function AdminHome(props: PageProps<"/admin">) {
       .gte("created_at", since)
       .limit(10000),
     supabase.from("presets").select("slug, name"),
+    Promise.all(EVENTS.map((e) => countEvent(e))),
+    countEvent("file_loaded", ["kind", "video"]),
+    countEvent("export", ["captions", "true"]),
+    countEvent("export", ["music", "true"]),
   ]);
+  const count = (k: string) => eventCounts[EVENTS.indexOf(k)] ?? 0;
+  const funnel = [
+    { label: "Abriram o estúdio", n: count("studio_open") },
+    { label: "Enviaram um arquivo", n: count("file_loaded"), hint: `${videoFiles} vídeos · ${count("file_loaded") - videoFiles} áudios` },
+    { label: "Geraram legendas", n: count("captions_generated") },
+    { label: "Baixaram", n: count("export"), hint: `${withCaptions} com legendas · ${withMusic} com música` },
+    { label: "Postaram pelo app", n: count("share") },
+  ];
+  const extras: [string, number][] = [
+    ["Abriram o pagamento", count("checkout_start")],
+    ["Concluíram as dicas", count("tour_done")],
+    ["Salvaram um estilo", count("style_saved")],
+  ];
   const m = (data ?? {}) as Metrics;
   const rows = exports.data ?? [];
   const videos = rows.filter((r) => r.reason === "Vídeo exportado").length;
@@ -78,6 +103,40 @@ export default async function AdminHome(props: PageProps<"/admin">) {
           </Card>
         ))}
       </div>
+
+      <Card className="p-5">
+        <h2 className="font-medium">Uso do app</h2>
+        <p className="mb-4 text-xs text-muted">Do primeiro acesso ao post, no período (inclui visitantes sem conta).</p>
+        <ol className="flex flex-col gap-3">
+          {funnel.map((f, i) => {
+            const base = funnel[0].n || 1;
+            const prev = i > 0 ? funnel[i - 1].n : 0;
+            return (
+              <li key={f.label} className="text-sm">
+                <div className="flex flex-wrap justify-between gap-x-3">
+                  <span>{f.label}</span>
+                  <span className="tabular-nums text-muted">
+                    {f.n}
+                    {i > 0 && prev > 0 && <span className="text-subtle"> · {Math.round((f.n / prev) * 100)}% da etapa anterior</span>}
+                  </span>
+                </div>
+                <div className="mt-1 h-2 rounded-full bg-white/6">
+                  <div className="bg-brand h-full rounded-full" style={{ width: `${Math.min(100, (f.n / base) * 100)}%` }} />
+                </div>
+                {f.hint && <p className="mt-0.5 text-[11px] text-subtle">{f.hint}</p>}
+              </li>
+            );
+          })}
+        </ol>
+        <div className="mt-4 grid grid-cols-3 gap-2 border-t border-border pt-4">
+          {extras.map(([label, n]) => (
+            <div key={label}>
+              <p className="font-display text-lg font-semibold tabular-nums">{n}</p>
+              <p className="text-[11px] text-muted">{label}</p>
+            </div>
+          ))}
+        </div>
+      </Card>
 
       <Card className="p-5">
         <h2 className="mb-3 font-medium">Presets mais baixados</h2>
