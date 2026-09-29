@@ -32,10 +32,8 @@ type Props = {
   spend: (ref: string, kind: "video" | "audio") => Promise<void>;
   onNeedCredits: () => void;
   signedIn: boolean;
-  /** Pede login; o estúdio devolve o pedido em `autoStart` depois que a pessoa entrar. */
-  onNeedLogin: (target: Target) => void;
-  autoStart: Target | null;
-  onAutoStarted: () => void;
+  /** Abre o login/cadastro; resolve true quando a pessoa entrou. */
+  requireLogin: (reason: string) => Promise<boolean>;
 };
 
 function fnv(text: string): string {
@@ -63,9 +61,7 @@ export function ExportPanel({
   spend,
   onNeedCredits,
   signedIn,
-  onNeedLogin,
-  autoStart,
-  onAutoStarted,
+  requireLogin,
 }: Props) {
   const toast = useToast();
   const [phase, setPhase] = useState<Phase>(null);
@@ -98,20 +94,10 @@ export function ExportPanel({
     return value;
   }
 
-  // Continua a exportação pedida antes do login
-  useEffect(() => {
-    if (!autoStart || !signedIn) return;
-    const t = setTimeout(() => {
-      onAutoStarted();
-      void run(autoStart);
-    });
-    return () => clearTimeout(t);
-  }, [autoStart, signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
-
   async function run(target: Target) {
     if (!preset || !settingsKey || phase) return;
-    if (!signedIn) return onNeedLogin(target);
-    if (balance !== null && balance <= 0) return onNeedCredits();
+    if (!signedIn && !(await requireLogin("Crie sua conta grátis para baixar — os primeiros downloads são por nossa conta."))) return;
+    if (signedIn && balance !== null && balance <= 0) return onNeedCredits();
     try {
       setPhase({ label: "Aplicando o preset no arquivo inteiro…", progress: 0 });
       const processed = await processFull();
@@ -136,7 +122,7 @@ export function ExportPanel({
       if (!canShareFiles(new File([out.blob], out.filename, { type: out.blob.type }))) triggerDownload(url, out.filename);
     } catch (err) {
       if (err instanceof NoCreditsError) onNeedCredits();
-      else if (err instanceof NeedLoginError) onNeedLogin(target);
+      else if (err instanceof NeedLoginError) void requireLogin("Entre na sua conta para baixar.");
       else toast.error(err instanceof Error ? err.message : "Não foi possível gerar o arquivo.");
     } finally {
       setPhase(null);

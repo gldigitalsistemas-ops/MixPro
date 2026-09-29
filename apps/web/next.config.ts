@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@mixpro/contracts"],
   poweredByHeader: false,
   async redirects() {
-    return [{ source: "/app/:path*", destination: "/", permanent: false }];
+    return [{ source: "/app/:path*", destination: "/estudio", permanent: false }];
   },
   async headers() {
     return [

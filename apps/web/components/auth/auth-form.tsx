@@ -116,12 +116,12 @@ export function LoginForm() {
 }
 
 export function SignupFields({
-  monthlyCredits,
+  freeCredits,
   next,
   refCode,
   embedded,
 }: {
-  monthlyCredits: number;
+  freeCredits: number;
   next?: string | null;
   refCode?: string | null;
   embedded?: Embedded;
@@ -181,7 +181,7 @@ export function SignupFields({
         <h1 className="font-display text-xl font-semibold">Confirme seu e-mail</h1>
         <p className="text-sm text-muted">
           Enviamos um link para <strong className="text-text">{sentTo}</strong>. Toque nele para ativar sua conta e
-          receber {monthlyCredits} downloads grátis por mês.
+          ganhar {freeCredits} downloads grátis.
         </p>
         {embedded && (
           <>
@@ -200,7 +200,7 @@ export function SignupFields({
       <div>
         <h1 className="font-display text-2xl font-semibold">Criar conta grátis</h1>
         <p className="mt-1 text-sm text-muted">
-          {monthlyCredits} downloads grátis todo mês. Ouvir e testar presets é ilimitado.
+          Ganhe {freeCredits} downloads grátis para começar. Ouvir e testar presets é ilimitado.
         </p>
       </div>
       <label className="flex flex-col gap-1.5 text-sm">
@@ -255,9 +255,9 @@ export function SignupFields({
   );
 }
 
-export function SignupForm({ monthlyCredits }: { monthlyCredits: number }) {
+export function SignupForm({ freeCredits }: { freeCredits: number }) {
   const params = useSearchParams();
-  return <SignupFields monthlyCredits={monthlyCredits} next={params.get("next")} refCode={params.get("ref")} />;
+  return <SignupFields freeCredits={freeCredits} next={params.get("next")} refCode={params.get("ref")} />;
 }
 
 export function RecoverForm() {

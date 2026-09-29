@@ -108,8 +108,10 @@ export function useAccount() {
   /** Debita 1 crédito. `ref` identifica o resultado: repetir o mesmo download não cobra de novo. */
   const spend = useCallback(
     async (ref: string, kind: "video" | "audio"): Promise<void> => {
-      if (!user) throw new NeedLoginError();
-      const { data, error } = await supabaseBrowser().rpc("spend_export_credit", { p_ref: ref, p_kind: kind });
+      // lê a sessão na hora: quem chama pode ter acabado de entrar na conta
+      const sb = supabaseBrowser();
+      if (!(await sb.auth.getSession()).data.session) throw new NeedLoginError();
+      const { data, error } = await sb.rpc("spend_export_credit", { p_ref: ref, p_kind: kind });
       if (error) {
         if (String(error.message ?? "").includes("INSUFFICIENT_CREDITS")) throw new NoCreditsError();
         // Sem as funções de crédito no servidor, o usuário não é bloqueado.
@@ -118,7 +120,7 @@ export function useAccount() {
       }
       setAccount((a) => (a ? { ...a, balance: data as number } : a));
     },
-    [user, unavailable],
+    [unavailable],
   );
 
   const toggleFavorite = useCallback(

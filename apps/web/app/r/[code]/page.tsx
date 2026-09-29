@@ -21,7 +21,7 @@ export async function generateMetadata(props: PageProps<"/r/[code]">): Promise<M
   const reward = info?.reward ?? 10;
   return {
     title: "Você ganhou um convite para o Mix Pro",
-    description: `Deixe o som dos seus vídeos com qualidade de estúdio, grátis. Entrando pelo convite você ganha +${reward} créditos.`,
+    description: `Deixe o som dos seus vídeos com qualidade de estúdio, grátis. Entrando pelo convite você ganha +${reward} créditos na primeira compra.`,
     openGraph: {
       title: `Convite Mix Pro: +${reward} créditos grátis 🎧`,
       description: "Som de estúdio nos seus vídeos em um toque. Grátis e direto no celular.",
@@ -55,11 +55,11 @@ export default async function ReferralLandingPage(props: PageProps<"/r/[code]">)
               celular.
             </p>
           </div>
-          <ButtonLink href="/" className="w-full" size="lg">
+          <ButtonLink href="/estudio" className="w-full" size="lg">
             Começar grátis
           </ButtonLink>
           <p className="text-xs text-subtle">
-            Crie sua conta pelo convite: os +{info.reward} créditos entram quando você baixar seu primeiro vídeo ou áudio.
+            Você começa com 5 downloads grátis e ganha +{info.reward} créditos extras na sua primeira compra.
           </p>
         </div>
       </div>
