@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Pause, Play, Volume2 } from "lucide-react";
 import { ABEngine } from "@/lib/audio/ab-engine";
 import { Waveform } from "@/components/audio/waveform";
 import { cn, formatDuration } from "@/lib/cn";
+import { lookIsActive, lookMatrix, svgMatrixValues, type ColorLook } from "@/lib/media/color";
 
 export type ABSource = {
   /** Muda quando o conteúdo muda (preset/intensidade). */
@@ -24,6 +25,8 @@ type Props = {
   videoUrl?: string | null;
   /** Desenha por cima do vídeo (ex.: legendas) no tempo do quadro exibido. */
   overlay?: ((ctx: CanvasRenderingContext2D, width: number, height: number, t: number) => void) | null;
+  /** Tratamento de imagem mostrado no lado "Depois" (o "Antes" mostra a imagem original). */
+  colorLook?: ColorLook | null;
 };
 
 function useEngine(engine: ABEngine) {
@@ -57,7 +60,8 @@ function paintOverlay(v: HTMLVideoElement, canvas: HTMLCanvasElement, draw: Prop
   draw(ctx, pw, ph, v.currentTime);
 }
 
-export function ABPlayer({ original, processed, busy, offsetSeconds = 0, videoUrl, overlay }: Props) {
+export function ABPlayer({ original, processed, busy, offsetSeconds = 0, videoUrl, overlay, colorLook }: Props) {
+  const filterId = useId().replace(/:/g, "");
   const [engine] = useState(() => new ABEngine());
   useEngine(engine);
   const [time, setTime] = useState(0);
@@ -135,7 +139,29 @@ export function ABPlayer({ original, processed, busy, offsetSeconds = 0, videoUr
     <div className="flex flex-col gap-4">
       {videoUrl && (
         <div className="relative mx-auto w-full max-w-sm overflow-hidden rounded-2xl bg-black">
-          <video ref={video} src={videoUrl} muted playsInline preload="auto" className="max-h-[50dvh] w-full object-contain" />
+          {colorLook && (
+            <svg width="0" height="0" className="absolute" aria-hidden>
+              <filter id={`grade-${filterId}`} colorInterpolationFilters="sRGB">
+                <feColorMatrix type="matrix" values={svgMatrixValues(lookMatrix(colorLook))} />
+              </filter>
+            </svg>
+          )}
+          <video
+            ref={video}
+            src={videoUrl}
+            muted
+            playsInline
+            preload="auto"
+            className="max-h-[50dvh] w-full object-contain"
+            style={showB && colorLook && lookIsActive(colorLook) ? { filter: `url(#grade-${filterId})` } : undefined}
+          />
+          {showB && colorLook && colorLook.vignette > 0 && (
+            <div
+              className="pointer-events-none absolute inset-0"
+              style={{ background: `radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,${(colorLook.vignette / 100) * 0.55}) 100%)` }}
+              aria-hidden
+            />
+          )}
           <canvas ref={overlayCanvas} className="pointer-events-none absolute" aria-hidden />
           <span
             className={cn(

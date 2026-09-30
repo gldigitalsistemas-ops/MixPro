@@ -11,10 +11,11 @@ import type { DrumSampleSet } from "@/lib/dsp/drums/studio";
 import { runDsp } from "@/lib/dsp/runner";
 import type { DrumKit } from "@/lib/drums/library";
 import { ensureCaptionFont } from "@/lib/captions/font";
-import { needsRender, type Look } from "@/lib/media/compose";
+import { ctaSeconds, needsRender, type Look } from "@/lib/media/compose";
 import { speechSegments } from "@/lib/media/cuts";
 import { MediaError, exportAudio, exportVideo } from "@/lib/media/export";
 import { loadMedia, MediaLoadError } from "@/lib/media/load";
+import { analyzeVideoColor } from "@/lib/media/frames";
 import { renderVideo } from "@/lib/media/render";
 import { track } from "@/lib/track";
 
@@ -96,16 +97,23 @@ export function BatchExport(props: {
         let out;
         if (media.kind === "video") {
           patch(i, { label: "Montando o vídeo…" });
-          if (needsRender(look, false)) {
+          // cada vídeo tem a sua luz: a correção automática de cor é medida em cada um
+          const color = look.color?.auto ? { ...look.color, correction: await analyzeVideoColor(file, media.duration).catch(() => null) } : look.color;
+          // a chamada final vale para os últimos segundos de cada vídeo
+          const cta = look.cta
+            ? { ...look.cta, start: media.audioStart + media.duration - ctaSeconds(media.duration), end: media.audioStart + media.duration }
+            : null;
+          const fileLook: Look = { ...look, color, cta };
+          if (needsRender(fileLook, false)) {
             await ensureCaptionFont();
             const segments = speechSegments(media.channels, media.sampleRate, media.audioStart, "off", null);
-            out = await renderVideo({ media, audio: processed.channels, segments, look, audiogram: null, onProgress });
+            out = await renderVideo({ media, audio: processed.channels, segments, look: fileLook, audiogram: null, onProgress });
           } else out = await exportVideo(media, processed.channels, onProgress);
         } else {
           patch(i, { label: "Gerando o MP3…" });
           out = await exportAudio(media, processed.channels, "mp3", onProgress);
         }
-        const key = fnv(`${file.name}|${file.size}|${file.lastModified}|${JSON.stringify(props.chain)}|${props.intensity}|${props.denoise}|${look.format}|${look.watermark}`);
+        const key = fnv(`${file.name}|${file.size}|${file.lastModified}|${JSON.stringify(props.chain)}|${props.intensity}|${props.denoise}|${look.format}|${look.watermark}|${JSON.stringify(look.color ? [look.color.auto, look.color.filter, look.color.amount, look.color.sharpen, look.color.vignette] : 0)}|${look.cta?.text ?? ""}|${look.cta?.handle ?? ""}`);
         await props.spend(`lote_${props.presetSlug.slice(0, 40)}_${key}`, media.kind === "video" ? "video" : "audio");
         patch(i, { state: "done", progress: 100, result: { url: URL.createObjectURL(out.blob), blob: out.blob, filename: out.filename } });
         done++;

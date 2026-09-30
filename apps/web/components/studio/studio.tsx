@@ -27,8 +27,8 @@ import { MusicPicker, type MusicState } from "./music-picker";
 import { DrumPanel, drumDefaults, withDrumTweaks, type DrumTweaks } from "./drum-panel";
 import { mixMusic, safeCeiling } from "@/lib/media/music";
 import { VideoTools, defaultVideoTools, type VideoToolsState } from "./video-tools";
-import { mapToOutput, speechSegments } from "@/lib/media/cuts";
-import type { Look } from "@/lib/media/compose";
+import { keptDuration, mapToOutput, speechSegments } from "@/lib/media/cuts";
+import { ctaSeconds, type EndCta, type Look } from "@/lib/media/compose";
 import type { StyleSettings } from "@/lib/styles";
 import { allWords, buildCaptions, type CaptionStyleId, type CaptionPosition } from "@/lib/captions/model";
 import { NOISE_AMOUNT, NoiseSelector, type NoiseLevel } from "./noise-selector";
@@ -38,6 +38,11 @@ import { CustomizePanel } from "./customize-panel";
 import { AutoSetupCard } from "./auto-setup-card";
 import { analyzeAudio } from "@/lib/dsp/analyze";
 import { autoSetup, pickPreset, type AutoSetup } from "@/lib/auto-setup";
+import { analyzeVideoColor } from "@/lib/media/frames";
+import { ctaOptions, nicheById, suggestNiche, type NicheId, type Platform } from "@/lib/captions/niches";
+import { outputToSource } from "@/lib/media/before-after";
+import { composePost, coverTitle } from "@/lib/captions/post";
+import { PostComposer, storedNiche, storedPlatform } from "./post-composer";
 import { track } from "@/lib/track";
 import type { ChainDoc } from "@/lib/dsp/chain";
 import type { DrumSampleSet } from "@/lib/dsp/drums/studio";
@@ -130,6 +135,11 @@ export function Studio() {
   const [fullPreview, setFullPreview] = useState(false);
   // ajuste automático: o que a análise encontrou no arquivo e o que ela escolheu
   const [auto, setAuto] = useState<AutoSetup | null>(null);
+  // descrição do post: nicho, plataforma, variação ("Outra sugestão") e o texto editado pela pessoa
+  const [chosenNiche, setNiche] = useState<NicheId | null>(null);
+  const [chosenPlatform, setPlatform] = useState<Platform | null>(null);
+  const [postVariant, setPostVariant] = useState(0);
+  const [postEdit, setPostEdit] = useState<string | null>(null);
   // "Personalizar": cadeia editada pelo usuário (vale enquanto o mesmo preset estiver escolhido)
   const [custom, setCustom] = useState<{ presetId: string; chain: ChainDoc } | null>(null);
   const [userPresetList, setUserPresets] = useState<StudioPreset[]>([]);
@@ -343,6 +353,8 @@ export function Studio() {
     setDrumTweaks(null);
     setCustom(null);
     setFullPreview(false);
+    setPostEdit(null);
+    setPostVariant(0);
     setTab("som");
     try {
       const m = await loadMedia(file, (p) => setLoading(p * 100));
@@ -355,6 +367,15 @@ export function Studio() {
       }
       setAuto(setup);
       setVideoTools(defaultVideoTools(m));
+      // imagem: correção automática a partir de alguns quadros (sem travar a tela)
+      if (m.kind === "video") {
+        analyzeVideoColor(m.file, m.duration)
+          .then((correction) => {
+            if (!correction) return;
+            setVideoTools((v) => (v ? { ...v, color: { ...v.color, correction } } : v));
+          })
+          .catch(() => {});
+      }
       setMedia(m);
       track("file_loaded", { kind: m.kind, seconds: Math.round(m.duration), content: setup?.kind ?? "?" });
     } catch (err) {
@@ -437,11 +458,35 @@ export function Studio() {
   );
 
   const words = useMemo(() => (captionState ? allWords(captionState.captions) : null), [captionState]);
+
+  // Post: nicho (escolhido, lembrado no aparelho ou sugerido pela análise) e plataforma
+  const niche: NicheId | null = useMemo(
+    () => chosenNiche ?? (media ? storedNiche() : null) ?? suggestNiche(auto?.kind, preset?.categoryId),
+    [chosenNiche, media, auto?.kind, preset?.categoryId],
+  );
+  const platform: Platform = useMemo(() => chosenPlatform ?? (media ? storedPlatform() : null) ?? "instagram", [chosenPlatform, media]);
+  const postText = useMemo(
+    () =>
+      postEdit ??
+      composePost({ words, mediaKind: media?.kind === "video" || videoTools?.audiogram ? "video" : "audio", niche: nicheById(niche), platform, variant: postVariant }),
+    [postEdit, words, media?.kind, videoTools?.audiogram, niche, platform, postVariant],
+  );
+  const coverSuggestion = useMemo(() => coverTitle(words, nicheById(niche), postVariant), [words, niche, postVariant]);
   const segments = useMemo(
     () => (media ? speechSegments(media.channels, media.sampleRate, media.audioStart, videoTools?.cut ?? "off", words) : []),
     [media, videoTools?.cut, words],
   );
   const cutting = (videoTools?.cut ?? "off") !== "off";
+  // chamada final (CTA): sugestões conforme o nicho; aparece no fim do vídeo já cortado
+  const ctaChoices = useMemo(() => ctaOptions(nicheById(niche)), [niche]);
+  const endCta = useMemo<EndCta | null>(() => {
+    const c = videoTools?.cta;
+    const text = (c?.text ?? ctaChoices[0] ?? "").trim();
+    if (!c?.enabled || !text || !segments.length) return null;
+    const out = keptDuration(segments);
+    return { text, handle: c.handle, start: outputToSource(segments, out - ctaSeconds(out)), end: segments[segments.length - 1].end };
+  }, [videoTools?.cta, ctaChoices, segments]);
+
   const look = useMemo<Look>(
     () => ({
       format: videoTools?.format ?? "original",
@@ -449,8 +494,10 @@ export function Studio() {
       watermark: videoTools?.watermark ?? false,
       captions: captionState?.burnIn ? captionRender : null,
       fontFamily: captionRender?.fontFamily ?? (typeof window === "undefined" ? "sans-serif" : captionFontFamily()),
+      color: media?.kind === "video" ? (videoTools?.color ?? null) : null,
+      cta: endCta,
     }),
-    [videoTools, captionState?.burnIn, captionRender],
+    [videoTools, captionState?.burnIn, captionRender, media?.kind, endCta],
   );
 
   const styleSettings: StyleSettings = {
@@ -704,6 +751,7 @@ export function Studio() {
                 offsetSeconds={excerpt ? excerpt.start / media.sampleRate : 0}
                 videoUrl={videoUrl}
                 overlay={overlay}
+                colorLook={media.kind === "video" ? (videoTools?.color ?? null) : null}
               />
               {media.duration > 26 && media.duration <= 600 && (
                 <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs text-muted">
@@ -739,6 +787,7 @@ export function Studio() {
             {tab === "som" && auto && (
               <AutoSetupCard
                 setup={auto}
+                imageNotes={media.kind === "video" && videoTools?.color.auto ? (videoTools.color.correction?.notes ?? null) : null}
                 applied={!chosenPreset && !chosenNoise}
                 onReset={() => {
                   setPreset(null);
@@ -855,6 +904,8 @@ export function Studio() {
                     onChange={setVideoTools}
                     segments={segments}
                     hasWords={Boolean(words?.length)}
+                    coverSuggestion={coverSuggestion}
+                    ctaOptions={ctaChoices}
                     look={look}
                   />
                 </Card>
@@ -862,6 +913,30 @@ export function Studio() {
                   Próximo: baixar
                 </Button>
               </>
+            )}
+
+            {tab === "baixar" && (
+              <Card className="p-4">
+                <PostComposer
+                  niche={niche}
+                  onNiche={(n) => {
+                    setNiche(n);
+                    setPostEdit(null);
+                  }}
+                  platform={platform}
+                  onPlatform={(p) => {
+                    setPlatform(p);
+                    setPostEdit(null);
+                  }}
+                  text={postText}
+                  onText={setPostEdit}
+                  onAnother={() => {
+                    setPostVariant((v) => v + 1);
+                    setPostEdit(null);
+                  }}
+                  hasSpeech={Boolean(words?.length)}
+                />
+              </Card>
             )}
 
             {tab === "baixar" && (
@@ -884,6 +959,7 @@ export function Studio() {
                   audiogram={media.kind === "audio" ? (videoTools?.audiogram ?? null) : null}
                   music={music}
                   words={words}
+                  postText={postText}
                   social={social}
                   onSocialChange={setSocial}
                   balance={account?.balance ?? null}

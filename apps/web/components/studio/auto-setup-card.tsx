@@ -6,7 +6,18 @@ import { KIND_LABEL, type AutoSetup } from "@/lib/auto-setup";
 import { cn } from "@/lib/cn";
 
 /** Cartão "Ajuste automático": o que o app encontrou no arquivo e o que já aplicou. */
-export function AutoSetupCard({ setup, applied, onReset }: { setup: AutoSetup; applied: boolean; onReset: () => void }) {
+export function AutoSetupCard({
+  setup,
+  applied,
+  onReset,
+  imageNotes,
+}: {
+  setup: AutoSetup;
+  applied: boolean;
+  onReset: () => void;
+  /** O que a correção automática fez na imagem (vídeo). */
+  imageNotes?: string[] | null;
+}) {
   const [open, setOpen] = useState(true);
   return (
     <div className="rounded-2xl border border-violet-400/30 bg-primary/10 p-3">
@@ -30,7 +41,8 @@ export function AutoSetupCard({ setup, applied, onReset }: { setup: AutoSetup; a
             {setup.notes.map((n) => (
               <li key={n}>{n}</li>
             ))}
-            {setup.unsure && <li>Não temos certeza do tipo de som: se não for {KIND_LABEL[setup.kind]}, escolha a categoria certa abaixo.</li>}
+            {imageNotes && <li>Imagem: {imageNotes.length ? `${imageNotes.join(", ")}.` : "já estava equilibrada; mexemos pouco."} Filtros na aba Vídeo.</li>}
+            {setup.unsure &&<li>Não temos certeza do tipo de som: se não for {KIND_LABEL[setup.kind]}, escolha a categoria certa abaixo.</li>}
           </ul>
           {!applied && (
             <button type="button" onClick={onReset} className="flex items-center gap-1 self-start text-xs font-medium text-violet-200 hover:text-white">

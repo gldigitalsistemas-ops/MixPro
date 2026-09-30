@@ -1,7 +1,8 @@
 /** Composição de quadro (formato, enquadramento, legendas, selo, audiograma) — prévia e exportação usam a mesma. */
 import { drawCaptions, type CaptionRender } from "@/lib/captions/model";
+import { ColorGrader, lookIsActive, type ColorLook } from "./color";
 
-export type VideoFormat = "original" | "9:16" | "1:1" | "4:5";
+export type VideoFormat = "original" | "9:16" | "1:1" | "4:5" | "16:9";
 export type Fit = "blur" | "crop";
 
 export type Look = {
@@ -12,7 +13,79 @@ export type Look = {
   fontFamily: string;
   /** Vídeo "antes → depois": até `split` (s, tempo do original) toca o som original. */
   beforeAfter?: { split: number } | null;
+  /** Tratamento de imagem (correção automática, filtro, nitidez, vinheta). */
+  color?: ColorLook | null;
+  /** Chamada no final do vídeo (CTA); `start`/`end` em segundos do original. */
+  cta?: EndCta | null;
 };
+
+export type EndCta = { text: string; handle: string; start: number; end: number };
+
+/** Duração do CTA: os últimos 3,5 s (ou um quarto do vídeo, se ele for curto). */
+export const ctaSeconds = (outputDuration: number) => Math.min(3.5, outputDuration * 0.25);
+
+/**
+ * Cartão da chamada final: sobe de baixo com um leve "pulo", texto grande e o @ do perfil.
+ * Fica acima das legendas de baixo para não brigar com elas.
+ */
+export function drawEndCta(ctx: Ctx, W: number, H: number, t: number, cta: EndCta, fontFamily: string) {
+  if (t < cta.start || !cta.text.trim()) return;
+  const k = Math.min(1, (t - cta.start) / 0.45);
+  const ease = 1 - (1 - k) ** 3;
+  const m = Math.min(W, H);
+  const size = Math.round(m * 0.062);
+  ctx.save();
+  ctx.globalAlpha = ease;
+  ctx.font = `900 ${size}px ${fontFamily}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const maxW = W * 0.78;
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of cta.text.trim().split(/\s+/)) {
+    const next = cur ? `${cur} ${w}` : w;
+    if (cur && ctx.measureText(next).width > maxW) {
+      lines.push(cur);
+      cur = w;
+    } else cur = next;
+  }
+  if (cur) lines.push(cur);
+  const shown = lines.slice(0, 3);
+  const lineH = size * 1.2;
+  const handleSize = Math.round(size * 0.62);
+  const padY = size * 0.7;
+  const boxH = shown.length * lineH + (cta.handle ? handleSize * 1.6 : 0) + padY * 2;
+  const boxW = Math.min(W * 0.9, Math.max(...shown.map((l) => ctx.measureText(l).width)) + size * 1.6);
+  const cy = H * 0.6 + (1 - ease) * H * 0.08;
+  const x = (W - boxW) / 2;
+  const y = cy - boxH / 2;
+  const g = ctx.createLinearGradient(x, y, x + boxW, y + boxH);
+  g.addColorStop(0, "rgba(124,58,237,0.92)");
+  g.addColorStop(1, "rgba(219,39,119,0.92)");
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.roundRect(x, y, boxW, boxH, size * 0.5);
+  ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  shown.forEach((l, i) => ctx.fillText(l, W / 2, y + padY + lineH / 2 + i * lineH));
+  if (cta.handle) {
+    ctx.font = `800 ${handleSize}px ${fontFamily}`;
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillText(cta.handle, W / 2, y + padY + shown.length * lineH + handleSize * 0.8);
+  }
+  ctx.restore();
+}
+
+let grader: ColorGrader | null | undefined;
+
+/** Quadro com o tratamento de imagem aplicado (ou o próprio quadro, sem WebGL ou sem tratamento). */
+export function gradeFrame(src: Source, sw: number, sh: number, look: ColorLook | null | undefined): Source {
+  if (!look || !lookIsActive(look)) return src;
+  if (grader === undefined) grader = ColorGrader.create(Math.max(2, sw), Math.max(2, sh));
+  if (!grader) return src;
+  grader.resize(Math.max(2, Math.round(sw)), Math.max(2, Math.round(sh)));
+  return grader.apply(src as TexImageSource, look) as Source;
+}
 
 export type AudiogramStyle = {
   palette: number;
@@ -28,7 +101,7 @@ export const PALETTES: [string, string][] = [
   ["#16a34a", "#052e16"],
 ];
 
-const RATIO: Record<Exclude<VideoFormat, "original">, number> = { "9:16": 9 / 16, "1:1": 1, "4:5": 4 / 5 };
+const RATIO: Record<Exclude<VideoFormat, "original">, number> = { "9:16": 9 / 16, "1:1": 1, "4:5": 4 / 5, "16:9": 16 / 9 };
 const even = (v: number) => Math.max(2, Math.round(v / 2) * 2);
 
 /** Tamanho do vídeo final: 1080 no lado menor (ou menos, se o original for menor e o formato for o original). */
@@ -43,7 +116,9 @@ export function outputSize(srcW: number, srcH: number, format: VideoFormat): { w
 
 /** O vídeo precisa ser recodificado (não dá para só copiar)? */
 export function needsRender(look: Look, cutting: boolean): boolean {
-  return cutting || look.format !== "original" || look.watermark || Boolean(look.captions) || Boolean(look.beforeAfter);
+  return (
+    cutting || look.format !== "original" || look.watermark || Boolean(look.captions) || Boolean(look.beforeAfter) || lookIsActive(look.color) || Boolean(look.cta?.text.trim())
+  );
 }
 
 /** Selo "ANTES / DEPOIS" no alto do vídeo, com uma animação curta na virada. */
@@ -129,7 +204,8 @@ export function drawWatermark(ctx: Ctx, W: number, H: number, fontFamily: string
 }
 
 /** Desenha um quadro do vídeo no formato escolhido, com legendas e selo. `t` = tempo no arquivo original. */
-export function composeFrame(ctx: Ctx, W: number, H: number, src: Source, sw: number, sh: number, t: number, look: Look) {
+export function composeFrame(ctx: Ctx, W: number, H: number, raw: Source, sw: number, sh: number, t: number, look: Look) {
+  const src = gradeFrame(raw, sw, sh, look.color);
   const sameShape = look.format === "original" || Math.abs(sw / sh - W / H) < 0.01;
   if (sameShape) {
     ctx.drawImage(src, 0, 0, W, H);
@@ -144,6 +220,7 @@ export function composeFrame(ctx: Ctx, W: number, H: number, src: Source, sw: nu
   if (look.captions) drawCaptions(ctx, W, H, t, look.captions);
   if (look.beforeAfter) drawBeforeAfter(ctx, W, H, t, look.beforeAfter.split, look.fontFamily);
   else if (look.watermark) drawWatermark(ctx, W, H, look.fontFamily);
+  if (look.cta) drawEndCta(ctx, W, H, t, look.cta, look.fontFamily);
 }
 
 /** Envelope de volume por quadro (0–1) para animar a onda do audiograma. */
@@ -236,4 +313,5 @@ export function composeAudiogram(
   if (look.captions) drawCaptions(ctx, W, H, t, look.captions);
   if (look.beforeAfter) drawBeforeAfter(ctx, W, H, t, look.beforeAfter.split, look.fontFamily);
   else if (look.watermark) drawWatermark(ctx, W, H, look.fontFamily);
+  if (look.cta) drawEndCta(ctx, W, H, t, look.cta, look.fontFamily);
 }

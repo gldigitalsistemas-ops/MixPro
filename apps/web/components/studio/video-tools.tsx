@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ImageDown, ImagePlus, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ImagePlus, X } from "lucide-react";
 import { Chip } from "@/components/ui/misc";
 import { useToast } from "@/components/ui/toast";
 import { ensureCaptionFont } from "@/lib/captions/font";
@@ -20,6 +19,8 @@ import {
 } from "@/lib/media/compose";
 import { keptDuration, type CutLevel, type Segment } from "@/lib/media/cuts";
 import type { LoadedMedia } from "@/lib/media/load";
+import { DEFAULT_LOOK, FILTERS, type ColorLook } from "@/lib/media/color";
+import { CoverMaker } from "./cover-maker";
 
 export type VideoToolsState = {
   cut: CutLevel;
@@ -27,6 +28,10 @@ export type VideoToolsState = {
   fit: Fit;
   watermark: boolean;
   audiogram: AudiogramStyle | null;
+  /** Tratamento de imagem (só vídeo). */
+  color: ColorLook;
+  /** Chamada no final do vídeo: texto (null = a primeira sugestão do nicho) e @ do perfil. */
+  cta: { enabled: boolean; text: string | null; handle: string };
 };
 
 export const defaultVideoTools = (media: LoadedMedia): VideoToolsState => ({
@@ -35,13 +40,25 @@ export const defaultVideoTools = (media: LoadedMedia): VideoToolsState => ({
   fit: "blur",
   watermark: true,
   audiogram: null,
+  color: { ...DEFAULT_LOOK },
+  cta: { enabled: true, text: null, handle: storedHandle() },
 });
+
+const KEY_HANDLE = "mixpro.handle";
+function storedHandle(): string {
+  try {
+    return localStorage.getItem(KEY_HANDLE) ?? "";
+  } catch {
+    return "";
+  }
+}
 
 const FORMATS: { value: VideoFormat; label: string; hint: string }[] = [
   { value: "original", label: "Original", hint: "Como foi gravado" },
   { value: "9:16", label: "9:16", hint: "Reels, TikTok, Shorts" },
   { value: "1:1", label: "1:1", hint: "Feed quadrado" },
   { value: "4:5", label: "4:5", hint: "Feed do Instagram" },
+  { value: "16:9", label: "16:9", hint: "YouTube" },
 ];
 
 const CUTS: { value: CutLevel; label: string; hint: string }[] = [
@@ -88,6 +105,8 @@ export function VideoTools({
   segments,
   hasWords,
   look,
+  coverSuggestion,
+  ctaOptions,
 }: {
   media: LoadedMedia;
   videoUrl: string | null;
@@ -96,13 +115,16 @@ export function VideoTools({
   segments: Segment[];
   hasWords: boolean;
   look: Look;
+  /** Título sugerido para a capa (tirado da fala ou do nicho). */
+  coverSuggestion: string;
+  /** Chamadas sugeridas para o final (conforme o nicho). */
+  ctaOptions: string[];
 }) {
   const toast = useToast();
   const set = (patch: Partial<VideoToolsState>) => onChange({ ...value, ...patch });
   const isVideo = media.kind === "video";
   const kept = keptDuration(segments);
   const [time, setTime] = useState(Math.min(1, media.duration / 2));
-  const [coverTitle, setCoverTitle] = useState("");
   const canvas = useRef<HTMLCanvasElement>(null);
   const video = useRef<HTMLVideoElement>(null);
   const env = useMemo(() => (isVideo ? null : envelope(media.channels, media.sampleRate, 30)), [isVideo, media]);
@@ -138,29 +160,6 @@ export function VideoTools({
   useEffect(() => {
     if (video.current && Math.abs(video.current.currentTime - time) > 0.01) video.current.currentTime = time;
   }, [time]);
-
-  async function downloadCover() {
-    await ensureCaptionFont();
-    const v = video.current;
-    const src = isVideo && v && v.videoWidth ? { w: v.videoWidth, h: v.videoHeight } : null;
-    const size = src ? outputSize(src.w, src.h, value.format) : outputSize(1080, 1920, value.format === "original" ? "9:16" : value.format);
-    const c = document.createElement("canvas");
-    c.width = size.width;
-    c.height = size.height;
-    const ctx = c.getContext("2d")!;
-    const coverLook: Look = { ...look, captions: null };
-    if (src && v) composeFrame(ctx, c.width, c.height, v, src.w, src.h, time, coverLook);
-    else if (env && value.audiogram) composeAudiogram(ctx, c.width, c.height, Math.floor(time * 30), env, time, value.audiogram, coverLook);
-    if (coverTitle.trim()) drawCoverTitle(ctx, c.width, c.height, coverTitle.trim(), look.fontFamily);
-    c.toBlob((blob) => {
-      if (!blob) return toast.error("Não foi possível gerar a capa.");
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `${media.file.name.replace(/\.[^.]+$/, "")}-capa.jpg`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    }, "image/jpeg", 0.92);
-  }
 
   async function pickImage(file: File | undefined) {
     if (!file || !value.audiogram) return;
@@ -230,6 +229,8 @@ export function VideoTools({
         </section>
       )}
 
+      {isVideo && <ImageSection value={value.color} onChange={(color) => set({ color })} />}
+
       <section className="flex flex-col gap-2">
         <h3 className="text-sm font-medium">Cortar pausas {hasWords && "e “é…”, “hã…”"}</h3>
         <Segmented options={CUTS} value={value.cut} onChange={(cut) => set({ cut })} />
@@ -246,6 +247,13 @@ export function VideoTools({
 
       {(isVideo || value.audiogram) && (
       <>
+      <CtaSection
+        value={value.cta}
+        options={ctaOptions}
+        onChange={(cta) => set({ cta })}
+        onPreview={() => setTime(Math.max(0, media.duration - 1))}
+      />
+
       <section className="flex flex-col gap-2">
         <h3 className="text-sm font-medium">Formato</h3>
         <Segmented options={isVideo ? FORMATS : FORMATS.slice(1)} value={value.format} onChange={(format) => set({ format })} />
@@ -271,7 +279,7 @@ export function VideoTools({
       </label>
 
       <section className="flex flex-col gap-3">
-        <h3 className="text-sm font-medium">Prévia do quadro e capa</h3>
+        <h3 className="text-sm font-medium">Prévia do quadro</h3>
         <div className="flex justify-center rounded-2xl bg-black/40 p-3">
           <canvas ref={canvas} className="max-h-[360px] max-w-full rounded-lg" aria-label="Prévia do quadro final" />
         </div>
@@ -289,18 +297,7 @@ export function VideoTools({
           />
           <span className="w-10 tabular-nums">{formatDuration(time)}</span>
         </label>
-        <div className="flex gap-2">
-          <input
-            value={coverTitle}
-            onChange={(e) => setCoverTitle(e.target.value.slice(0, 60))}
-            placeholder="Título da capa (opcional)"
-            className="h-10 min-w-0 flex-1 rounded-xl border border-border-strong bg-black/20 px-3 text-sm outline-none focus:border-violet-400"
-          />
-          <Button variant="secondary" onClick={() => void downloadCover()}>
-            <ImageDown className="size-4" /> Capa
-          </Button>
-        </div>
-        <p className="text-xs text-subtle">A capa é grátis: use como thumbnail no YouTube, Reels ou TikTok.</p>
+        {isVideo && <CoverMaker media={media} look={look} suggestion={coverSuggestion} />}
       </section>
       </>
       )}
@@ -308,37 +305,130 @@ export function VideoTools({
   );
 }
 
-/** Título grande da capa, no estilo das legendas (branco com contorno e a última palavra em amarelo). */
-function drawCoverTitle(ctx: CanvasRenderingContext2D, W: number, H: number, title: string, fontFamily: string) {
-  const size = Math.round(Math.min(W, H) * 0.11);
-  ctx.save();
-  ctx.font = `900 ${size}px ${fontFamily}`;
-  ctx.textBaseline = "middle";
-  ctx.lineJoin = "round";
-  const words = title.toLocaleUpperCase("pt-BR").split(/\s+/);
-  const lines: string[][] = [[]];
-  for (const w of words) {
-    const cur = lines[lines.length - 1];
-    if (cur.length && ctx.measureText([...cur, w].join(" ")).width > W * 0.86) lines.push([w]);
-    else cur.push(w);
-  }
-  const lineH = size * 1.1;
-  const top = H * 0.2 - ((lines.length - 1) * lineH) / 2;
-  const last = words.length - 1;
-  let idx = 0;
-  lines.forEach((line, li) => {
-    const text = line.join(" ");
-    let x = (W - ctx.measureText(text).width) / 2;
-    const y = top + li * lineH;
-    for (const w of line) {
-      ctx.lineWidth = size * 0.2;
-      ctx.strokeStyle = "#000";
-      ctx.strokeText(w, x, y);
-      ctx.fillStyle = idx === last ? "#ffe500" : "#fff";
-      ctx.fillText(w, x, y);
-      x += ctx.measureText(w + " ").width;
-      idx++;
-    }
-  });
-  ctx.restore();
+/** Chamada no final (CTA): sugestões conforme o vídeo, texto livre e o @ do perfil. */
+function CtaSection({
+  value,
+  options,
+  onChange,
+  onPreview,
+}: {
+  value: VideoToolsState["cta"];
+  options: string[];
+  onChange: (v: VideoToolsState["cta"]) => void;
+  onPreview: () => void;
+}) {
+  const text = value.text ?? options[0] ?? "";
+  return (
+    <section className="flex flex-col gap-2">
+      <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-border p-3 text-sm">
+        <input type="checkbox" checked={value.enabled} onChange={(e) => onChange({ ...value, enabled: e.target.checked })} className="mt-0.5 size-4 accent-violet-500" />
+        <span>
+          Chamada no final do vídeo (CTA)
+          <span className="block text-xs text-muted">Nos últimos segundos aparece um cartão pedindo para comentar, seguir ou salvar. Aumenta o engajamento.</span>
+        </span>
+      </label>
+      {value.enabled && (
+        <>
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Sugestões de chamada">
+            {options.map((o) => (
+              <button
+                key={o}
+                type="button"
+                aria-pressed={text === o}
+                onClick={() => onChange({ ...value, text: o })}
+                className={cn("rounded-full border px-3 py-1 text-xs", text === o ? "border-violet-400 bg-primary/20 text-text" : "border-border text-muted hover:text-text")}
+              >
+                {o}
+              </button>
+            ))}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-[1fr_12rem]">
+            <input
+              value={text}
+              onChange={(e) => onChange({ ...value, text: e.target.value.slice(0, 70) })}
+              aria-label="Texto da chamada final"
+              placeholder="Ex.: Comenta a próxima música 👇"
+              className="h-10 rounded-xl border border-border-strong bg-black/20 px-3 text-sm outline-none focus:border-violet-400"
+            />
+            <input
+              value={value.handle}
+              onChange={(e) => {
+                const raw = e.target.value.replace(/\s/g, "").slice(0, 31);
+                const handle = raw && !raw.startsWith("@") ? `@${raw}` : raw;
+                try {
+                  localStorage.setItem(KEY_HANDLE, handle);
+                } catch {}
+                onChange({ ...value, handle });
+              }}
+              aria-label="Seu @ nas redes"
+              placeholder="@seuperfil (opcional)"
+              className="h-10 rounded-xl border border-border-strong bg-black/20 px-3 text-sm outline-none focus:border-violet-400"
+            />
+          </div>
+          <button type="button" onClick={onPreview} className="self-start text-xs text-violet-200 hover:text-white">
+            Ver na prévia do quadro ↓
+          </button>
+        </>
+      )}
+    </section>
+  );
+}
+
+function LookSlider({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  return (
+    <label className="flex flex-col gap-1 text-xs text-muted">
+      <span className="flex justify-between">
+        {label}
+        <span className="tabular-nums text-text">{value}%</span>
+      </span>
+      <input type="range" min={0} max={100} step={5} value={value} onChange={(e) => onChange(Number(e.target.value))} className="accent-violet-500" />
+    </label>
+  );
+}
+
+/** Imagem: correção automática (brilho, contraste, cor da luz) + filtro, nitidez e vinheta. */
+function ImageSection({ value, onChange }: { value: ColorLook; onChange: (v: ColorLook) => void }) {
+  const set = (patch: Partial<ColorLook>) => onChange({ ...value, ...patch });
+  const notes = value.correction?.notes ?? [];
+  return (
+    <section className="flex flex-col gap-3">
+      <h3 className="text-sm font-medium">Imagem</h3>
+      <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-border p-3 text-sm">
+        <input type="checkbox" checked={value.auto} onChange={(e) => set({ auto: e.target.checked })} className="mt-0.5 size-4 accent-violet-500" />
+        <span>
+          Correção automática
+          <span className="block text-xs text-muted">
+            {!value.correction
+              ? "Analisando a imagem do vídeo…"
+              : notes.length
+                ? `${notes.join(", ")}.`
+                : "A imagem já estava equilibrada: mexemos pouco."}
+          </span>
+        </span>
+      </label>
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" role="group" aria-label="Filtro">
+        {FILTERS.map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            aria-pressed={value.filter === f.id}
+            onClick={() => set({ filter: f.id, amount: value.filter === f.id ? value.amount : f.id === "natural" ? 100 : 70 })}
+            className={cn(
+              "flex shrink-0 flex-col items-center rounded-xl border px-3 py-2 text-xs transition",
+              value.filter === f.id ? "border-violet-400 bg-primary/15" : "border-border hover:bg-white/5",
+            )}
+          >
+            <span className="font-semibold">{f.label}</span>
+            <span className="text-[10px] text-muted">{f.hint}</span>
+          </button>
+        ))}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {value.filter !== "natural" && <LookSlider label="Força do filtro" value={value.amount} onChange={(amount) => set({ amount })} />}
+        <LookSlider label="Nitidez" value={value.sharpen} onChange={(sharpen) => set({ sharpen })} />
+        <LookSlider label="Vinheta" value={value.vignette} onChange={(vignette) => set({ vignette })} />
+      </div>
+      <p className="text-[11px] text-subtle">No player aparece a cor e a vinheta; a nitidez aparece na prévia do quadro abaixo e no vídeo final.</p>
+    </section>
+  );
 }

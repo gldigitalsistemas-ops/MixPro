@@ -8,7 +8,6 @@ import { useToast } from "@/components/ui/toast";
 import { NeedLoginError, NoCreditsError } from "@/lib/account";
 import { ensureCaptionFont } from "@/lib/captions/font";
 import type { Word } from "@/lib/captions/model";
-import { buildPost } from "@/lib/captions/post";
 import { track } from "@/lib/track";
 import { runDsp, type DspResult } from "@/lib/dsp/runner";
 import { needsRender, type AudiogramStyle, type Look } from "@/lib/media/compose";
@@ -24,6 +23,7 @@ import type { ChainDoc } from "@/lib/dsp/chain";
 import type { DrumSampleSet } from "@/lib/dsp/drums/studio";
 import type { DrumKit } from "@/lib/drums/library";
 import { beforeAfterAudio } from "@/lib/media/before-after";
+import { FILTERS, lookIsActive, lookMatrix } from "@/lib/media/color";
 import { BatchExport } from "./batch-export";
 import { cn, formatDuration } from "@/lib/cn";
 
@@ -56,6 +56,8 @@ type Props = {
   music: MusicState | null;
   /** Fala transcrita (legendas), para sugerir o texto do post. */
   words: Word[] | null;
+  /** Descrição do post (montada no cartão "Descrição do post"). */
+  postText: string;
   balance: number | null;
   /** Debita 1 crédito (lança NoCreditsError quando não há saldo). */
   spend: (ref: string, kind: "video" | "audio") => Promise<void>;
@@ -88,7 +90,7 @@ function triggerDownload(url: string, filename: string) {
 
 export function ExportPanel(props: Props) {
   const { media, preset, chain, intensity, denoise, social, onSocialChange, segments, cutting, look, audiogram, music } = props;
-  const { balance, spend, onNeedCredits, signedIn, requireLogin, words, drumSamples, impulses, lockedKits, onUnlock } = props;
+  const { balance, spend, onNeedCredits, signedIn, requireLogin, drumSamples, impulses, lockedKits, onUnlock } = props;
   const toast = useToast();
   const [phase, setPhase] = useState<Phase>(null);
   // vídeo "antes → depois" (só para vídeo)
@@ -96,7 +98,6 @@ export function ExportPanel(props: Props) {
   const comparing = beforeAfter && media.kind === "video";
   const [lastResult, setResult] = useState<Result | null>(null);
   const cache = useRef<{ key: string; value: DspResult } | null>(null);
-  const [postText, setPostText] = useState<string | null>(null);
 
   // o áudio tratado (cache) só depende do som; o arquivo final depende também de cortes, formato e legendas
   const audioKey = preset && chain
@@ -112,6 +113,8 @@ export function ExportPanel(props: Props) {
       audiogram ? [audiogram.palette, audiogram.title, Boolean(audiogram.image)] : 0,
       music ? [music.name, music.level] : 0,
       comparing ? "antes-depois" : 0,
+      look.cta ? [look.cta.text, look.cta.handle] : 0,
+      lookIsActive(look.color) ? [lookMatrix(look.color!).map((v) => v.toFixed(3)), look.color!.sharpen, look.color!.vignette] : 0,
     ]),
   );
   const settingsKey = audioKey && `${audioKey}_e${editKey}`;
@@ -223,18 +226,20 @@ export function ExportPanel(props: Props) {
   }
 
   const busy = phase !== null;
-  const post = postText ?? buildPost(words, makesVideo ? "video" : "audio");
+  const post = props.postText;
   const shareable = result ? canShareFiles(new File([result.blob], result.filename, { type: result.blob.type })) : false;
   const saved = cutting ? media.duration - keptDuration(segments) : 0;
   const summary = [
     preset?.name,
     denoise > 0 && (denoise >= 1 ? "ruído removido" : "ruído reduzido"),
     look.captions && "legendas",
+    makesVideo && look.cta && "chamada no final",
     makesVideo && look.format !== "original" && `formato ${look.format}`,
     cutting && saved >= 0.5 && `${formatDuration(saved)} de pausas cortadas`,
     music && "música de fundo",
     makesVideo && look.watermark && !comparing && "selo Mix Pro",
     comparing && "antes → depois",
+    media.kind === "video" && lookIsActive(look.color) && (look.color!.filter === "natural" ? "imagem corrigida" : `imagem: ${FILTERS.find((f) => f.id === look.color!.filter)?.label}`),
     lockedKits.length > 0 && `kit premium: ${lockedKits.map((k) => k.name).join(", ")}`,
   ].filter(Boolean) as string[];
 
@@ -317,18 +322,7 @@ export function ExportPanel(props: Props) {
           ) : (
             <audio src={result.url} controls className="w-full" />
           )}
-          <label className="flex flex-col gap-1.5 text-xs text-muted">
-            <span className="flex flex-wrap items-center justify-between gap-1">
-              Legenda do post
-              {!words?.length && <span className="text-subtle">gere as legendas para um texto a partir da sua fala</span>}
-            </span>
-            <textarea
-              value={post}
-              onChange={(e) => setPostText(e.target.value)}
-              rows={4}
-              className="rounded-xl border border-border-strong bg-black/20 p-3 text-sm text-text outline-none focus:border-violet-400"
-            />
-          </label>
+          <p className="text-xs text-muted">Ao postar, a descrição do post já vai copiada: é só colar.</p>
           <div className="grid gap-2 sm:grid-cols-3">
             {shareable && (
               <Button onClick={shareResult}>
@@ -336,7 +330,7 @@ export function ExportPanel(props: Props) {
               </Button>
             )}
             <Button variant="secondary" onClick={() => copyPost()}>
-              <Copy className="size-4" /> Copiar legenda
+              <Copy className="size-4" /> Copiar descrição
             </Button>
             <Button variant={shareable ? "secondary" : "primary"} onClick={() => triggerDownload(result.url, result.filename)}>
               <Download className="size-4" /> Baixar arquivo

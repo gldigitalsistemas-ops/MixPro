@@ -53,3 +53,25 @@ test("Post: gancho com a primeira frase e hashtags das palavras mais repetidas",
   assert.ok(tags.includes("#reels") && !tags.includes("#muito") && !tags.includes("#voz"), tags);
   assert.equal(buildPost(null, "audio"), "#musica #audio");
 });
+
+test("Post por nicho: sem fala usa a abertura do nicho; hashtags na medida da plataforma", async () => {
+  const { composePost, coverTitle } = await import("./post");
+  const { nicheById } = await import("./niches");
+  const bateria = nicheById("bateria");
+  const ig = composePost({ words: null, mediaKind: "video", niche: bateria, platform: "instagram", variant: 0 });
+  const [opening, cta, tags] = ig.split("\n\n");
+  assert.ok(opening.includes("🥁") && cta.length > 5, ig);
+  assert.equal(tags.split(" ").length, 5, tags);
+  assert.ok(tags.includes("#reels") && tags.includes("#bateria"), tags);
+  const yt = composePost({ words: null, mediaKind: "video", niche: bateria, platform: "youtube", variant: 0 });
+  assert.ok(yt.endsWith("#shorts #bateria #baterista") || yt.split("\n\n")[2].split(" ").length <= 4, yt);
+  // outra sugestão muda o texto
+  assert.notEqual(composePost({ words: null, mediaKind: "video", niche: bateria, platform: "instagram", variant: 1 }), ig);
+  // com fala: a frase dita abre o post e as palavras-chave entram nas hashtags
+  const w = words("Hoje eu vou mostrar como afinar a bateria. Afinar bem muda tudo na bateria.");
+  const withSpeech = composePost({ words: w, mediaKind: "video", niche: bateria, platform: "instagram", variant: 0 });
+  assert.ok(withSpeech.startsWith("Hoje eu vou mostrar como afinar a bateria."), withSpeech);
+  assert.ok(withSpeech.includes("#afinar"), withSpeech);
+  assert.equal(coverTitle(w, bateria), "Hoje eu vou mostrar como…");
+  assert.equal(coverTitle(null, bateria), "Groove pesado");
+});
