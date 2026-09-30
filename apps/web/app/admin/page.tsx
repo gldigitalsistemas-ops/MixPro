@@ -115,7 +115,7 @@ export default async function AdminHome(props: PageProps<"/admin">) {
 
       <Card className="p-5">
         <h2 className="font-medium">Uso do app</h2>
-        <p className="mb-4 text-xs text-muted">Do primeiro acesso ao post, no período (inclui visitantes sem conta).</p>
+        <p className="mb-4 text-xs text-muted">Do primeiro acesso ao post, no período (inclui visitantes sem conta). Os detalhes ficam guardados por 90 dias; depois viram um resumo diário.</p>
         <ol className="flex flex-col gap-3">
           {funnel.map((f, i) => {
             const base = funnel[0].n || 1;
