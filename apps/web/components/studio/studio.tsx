@@ -38,8 +38,29 @@ import { CustomizePanel } from "./customize-panel";
 import { track } from "@/lib/track";
 import type { ChainDoc } from "@/lib/dsp/chain";
 import type { DrumSampleSet } from "@/lib/dsp/drums/studio";
-import { fetchDrumLibrary, loadSampleSet, type DrumLibraryItem } from "@/lib/drums/library";
-import { deleteUserPreset, freezeChain, listUserPresets, PresetLimitError, saveUserPreset } from "@/lib/user-presets";
+import {
+  fetchDrumKits,
+  fetchDrumLibrary,
+  fetchIRs,
+  fetchUnlockedKits,
+  loadIR,
+  loadSampleSet,
+  lockedKitsFor,
+  unlockKit,
+  type CabIR,
+  type DrumKit,
+  type DrumLibraryItem,
+} from "@/lib/drums/library";
+import {
+  deleteUserPreset,
+  freezeChain,
+  getSharedPreset,
+  listUserPresets,
+  PresetLimitError,
+  saveUserPreset,
+  sharedToStudioPreset,
+  shareUserPreset,
+} from "@/lib/user-presets";
 
 const ACCEPT = "video/*,audio/*,.mp4,.mov,.m4a,.mp3,.wav,.aac,.flac,.ogg,.webm";
 
@@ -75,7 +96,7 @@ const TABS: { id: Tab; label: string; audioLabel?: string; icon: typeof SlidersH
 
 export function Studio() {
   const toast = useToast();
-  const { user, account, favorites, spend, toggleFavorite, requireLogin, showNoCredits } = useAccountCtx();
+  const { user, account, favorites, spend, toggleFavorite, requireLogin, showNoCredits, refresh } = useAccountCtx();
   const [tab, setTab] = useState<Tab>("som");
 
   const [catalog, setCatalog] = useState<{ presets: StudioPreset[]; categories: StudioCategory[] } | null>(null);
@@ -98,6 +119,12 @@ export function Studio() {
   const [drumTweaks, setDrumTweaks] = useState<DrumTweaks | null>(null);
   const [drumLibrary, setDrumLibrary] = useState<DrumLibraryItem[] | null>(null);
   const [drumSet, setDrumSet] = useState<{ key: string; set: DrumSampleSet } | null>(null);
+  const [drumKits, setDrumKits] = useState<DrumKit[]>([]);
+  const [unlockedList, setUnlocked] = useState<Set<string>>(new Set());
+  const [irList, setIrList] = useState<CabIR[] | null>(null);
+  const [irSet, setIrSet] = useState<{ key: string; map: Record<string, Float32Array> } | null>(null);
+  // prévia do arquivo inteiro (em vez do melhor trecho de 20 s)
+  const [fullPreview, setFullPreview] = useState(false);
   // "Personalizar": cadeia editada pelo usuário (vale enquanto o mesmo preset estiver escolhido)
   const [custom, setCustom] = useState<{ presetId: string; chain: ChainDoc } | null>(null);
   const [userPresetList, setUserPresets] = useState<StudioPreset[]>([]);
@@ -130,6 +157,22 @@ export function Studio() {
     window.history.replaceState(null, "", "/estudio");
     takeSharedFile()
       .then((f) => f && void openFile(f))
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Preset compartilhado por link (/p/<código> → /estudio?preset=<código>)
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("preset");
+    if (!code) return;
+    window.history.replaceState(null, "", "/estudio");
+    getSharedPreset(code)
+      .then((s) => {
+        if (!s) return toast.error("Esse link de preset não existe mais.");
+        setPreset(sharedToStudioPreset(code, s));
+        setCategoryId(s.category_id);
+        track("shared_preset_opened", { code });
+        toast.success(`Timbre “${s.name}” carregado. Escolha seu vídeo ou áudio para ouvir.`);
+      })
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -173,11 +216,22 @@ export function Studio() {
   );
   useEffect(() => {
     if (!drumParams || drumLibrary) return;
-    fetchDrumLibrary()
-      .then(setDrumLibrary)
+    Promise.all([fetchDrumLibrary(), fetchDrumKits()])
+      .then(([lib, kits]) => {
+        setDrumKits(kits);
+        setDrumLibrary(lib);
+      })
       .catch(() => setDrumLibrary([]));
   }, [drumParams, drumLibrary]);
-  const drumBase = useMemo(() => (drumParams ? drumDefaults(drumParams, drumLibrary ?? []) : null), [drumParams, drumLibrary]);
+  // kits premium que a pessoa já desbloqueou
+  useEffect(() => {
+    if (!user || !drumKits.some((k) => k.price_credits > 0)) return;
+    fetchUnlockedKits()
+      .then(setUnlocked)
+      .catch(() => {});
+  }, [user, drumKits]);
+  const unlocked = useMemo(() => (user ? unlockedList : new Set<string>()), [user, unlockedList]);
+  const drumBase = useMemo(() => (drumParams ? drumDefaults(drumParams, drumLibrary ?? [], drumKits) : null), [drumParams, drumLibrary, drumKits]);
   const drumEff = drumParams ? (drumTweaks ?? drumBase) : null;
   const chain = useMemo(() => (baseChain ? withDrumTweaks(baseChain, drumEff) : null), [baseChain, drumEff]);
 
@@ -199,6 +253,41 @@ export function Studio() {
   }, [drumKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const drumReady = !drumParams || (drumLibrary !== null && drumSet?.key === drumKey);
   const drumSamples = drumParams && drumSet?.key === drumKey ? drumSet.set : undefined;
+  const lockedKits = useMemo(
+    () => (drumEff && drumLibrary ? lockedKitsFor(drumEff.samples, drumKits, unlocked) : []),
+    [drumEff, drumLibrary, drumKits, unlocked],
+  );
+
+  // Amplificador com caixa gravada (IR): baixa as IRs usadas pela cadeia
+  const irIds = useMemo(
+    () => [...new Set((chain?.chain ?? []).filter((m) => m.type === "amp" && m.params?.ir).map((m) => String(m.params!.ir)))].sort(),
+    [chain],
+  );
+  const usesAmp = Boolean(chain?.chain.some((m) => m.type === "amp"));
+  useEffect(() => {
+    if (!usesAmp || irList) return;
+    fetchIRs()
+      .then(setIrList)
+      .catch(() => setIrList([]));
+  }, [usesAmp, irList]);
+  const irKey = irIds.length && media ? `${irIds.join(",")}@${media.sampleRate}` : "";
+  useEffect(() => {
+    if (!irKey || !irList || !media) return;
+    let alive = true;
+    Promise.all(irIds.map(async (id) => [id, await loadIR(irList.find((x) => x.id === id)!, media.sampleRate)] as const))
+      .then((pairs) => alive && setIrSet({ key: irKey, map: Object.fromEntries(pairs) }))
+      .catch(() => {
+        if (!alive) return;
+        setIrSet({ key: irKey, map: {} });
+        toast.error("Não foi possível baixar a caixa gravada. Usando a caixa simulada.");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [irKey, irList?.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const irReady = !irKey || (irList !== null && (irIds.every((id) => !irList.some((x) => x.id === id)) || irSet?.key === irKey));
+  const impulses = irKey && irSet?.key === irKey ? irSet.map : undefined;
+  const assetsReady = drumReady && irReady;
 
   // Vídeos quase sempre têm ruído de ambiente; áudios de estúdio não
   const noise: NoiseLevel = chosenNoise ?? (media?.kind === "video" ? "light" : "off");
@@ -207,32 +296,50 @@ export function Studio() {
     chosenIntensity ?? ([25, 50, 75, 100].includes(preset?.defaultIntensity ?? 0) ? (preset!.defaultIntensity as Intensity) : 50);
   const dspIntensity = customizing ? 100 : intensity;
 
+  /** Trecho que toca na prévia antes/depois (o "antes" é o mesmo trecho do original). */
+  function applyExcerpt(m: LoadedMedia, ex: Excerpt) {
+    const a = m.channels.map((c) => c.slice(ex.start, ex.end));
+    setExcerpt(ex);
+    setOriginal({
+      key: `orig-${m.file.name}-${m.file.size}-${m.file.lastModified}-${ex.start}-${ex.end}`,
+      buffer: toAudioBuffer(a, m.sampleRate),
+      peaks: waveformPeaks(a),
+      lufs: integratedLoudness(a, m.sampleRate),
+    });
+  }
+
+  /** Alterna entre o melhor trecho de 20 s e o arquivo inteiro. */
+  function toggleFullPreview() {
+    if (!media) return;
+    const next = !fullPreview;
+    setFullPreview(next);
+    setProcessed(null);
+    applyExcerpt(media, next ? { start: 0, end: media.channels[0].length, preroll: 0 } : pickExcerpt(media.channels, media.sampleRate));
+  }
+
   async function openFile(file: File) {
     setLoading(0);
     setMedia(null);
     setProcessed(null);
     setOriginal(null);
-    setPreset(null);
+    // preset vindo de um link compartilhado continua escolhido; os outros voltam ao sugerido
+    const keep = chosenPreset?.id.startsWith("s-");
+    if (!keep) {
+      setPreset(null);
+      setCategoryId(null);
+    }
     setIntensity(null);
-    setCategoryId(null);
     setNoise(null);
     setCaptionState(null);
     setVideoTools(null);
     setMusic(null);
     setDrumTweaks(null);
     setCustom(null);
+    setFullPreview(false);
     setTab("som");
     try {
       const m = await loadMedia(file, (p) => setLoading(p * 100));
-      const ex = pickExcerpt(m.channels, m.sampleRate);
-      const a = m.channels.map((c) => c.slice(ex.start, ex.end));
-      setExcerpt(ex);
-      setOriginal({
-        key: `orig-${file.name}-${file.size}-${file.lastModified}`,
-        buffer: toAudioBuffer(a, m.sampleRate),
-        peaks: waveformPeaks(a),
-        lufs: integratedLoudness(a, m.sampleRate),
-      });
+      applyExcerpt(m, pickExcerpt(m.channels, m.sampleRate));
       setVideoTools(defaultVideoTools(m));
       setMedia(m);
       track("file_loaded", { kind: m.kind, seconds: Math.round(m.duration) });
@@ -245,7 +352,7 @@ export function Studio() {
 
   // Prévia do trecho com o preset atual (cancela a anterior se o usuário trocar rápido)
   useEffect(() => {
-    if (!media || !excerpt || !preset || !chain || !drumReady) return;
+    if (!media || !excerpt || !preset || !chain || !assetsReady) return;
     const ctrl = new AbortController();
     const timer = setTimeout(() => {
       setPreviewBusy("Aplicando o preset…");
@@ -260,6 +367,7 @@ export function Studio() {
           denoise: denoiseAmount,
           preroll: excerpt.preroll,
           drumSamples,
+          impulses,
         },
         (p) => setPreviewBusy(`${denoiseAmount > 0 && p < 0.5 ? "Removendo ruído" : "Aplicando o preset"}… ${Math.round(p * 100)}%`),
         ctrl.signal,
@@ -289,7 +397,7 @@ export function Studio() {
       clearTimeout(timer);
       ctrl.abort();
     };
-  }, [media, excerpt, preset, chain, dspIntensity, social, denoiseAmount, music, drumReady, drumSamples]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [media, excerpt, preset, chain, dspIntensity, social, denoiseAmount, music, assetsReady, drumSamples, impulses]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const captionRender = useMemo<CaptionRender | null>(
     () =>
@@ -394,7 +502,8 @@ export function Studio() {
       const saved = await saveUserPreset({
         name,
         categoryId: preset.categoryId,
-        basePresetId: preset.userPresetId ? (preset.basePresetId ?? null) : preset.id,
+        // preset do usuário herda a base; preset compartilhado por link não tem base no catálogo
+        basePresetId: preset.userPresetId ? (preset.basePresetId ?? null) : preset.id.startsWith("s-") ? null : preset.id,
         chain: freezeChain(chain, dspIntensity),
       });
       setUserPresets((list) => [...list.filter((p) => p.id !== saved.id), saved]);
@@ -421,6 +530,60 @@ export function Studio() {
     },
     [chosenPreset, toast],
   );
+
+  /** Link público do preset: quem abre ouve no próprio vídeo (e conta como indicação). */
+  const onShareUserPreset = useCallback(
+    async (p: StudioPreset) => {
+      if (!p.userPresetId) return;
+      try {
+        const code = await shareUserPreset(p.userPresetId);
+        const url = `${window.location.origin}/p/${code}`;
+        const text = `Montei esse timbre no Mix Pro: “${p.name}”. Testa no seu vídeo:`;
+        track("preset_shared", { preset: p.slug });
+        if (navigator.share) {
+          await navigator.share({ title: p.name, text, url }).catch(() => {});
+        } else {
+          await navigator.clipboard.writeText(`${text} ${url}`);
+          toast.success("Link copiado. Mande para quem quiser.");
+        }
+      } catch {
+        toast.error("Não foi possível criar o link. A migração 20261001000005 já foi rodada?");
+      }
+    },
+    [toast],
+  );
+
+  /** Samples e IRs escolhidos, carregados na taxa de outro arquivo (aplicar em vários vídeos). */
+  async function assetsAt(sampleRate: number) {
+    const drums = drumEff && drumLibrary ? await loadSampleSet(drumEff.samples, drumLibrary, sampleRate) : undefined;
+    const known = irList ? irIds.filter((id) => irList.some((x) => x.id === id)) : [];
+    const irs = known.length
+      ? Object.fromEntries(await Promise.all(known.map(async (id) => [id, await loadIR(irList!.find((x) => x.id === id)!, sampleRate)] as const)))
+      : undefined;
+    return { drumSamples: drums, impulses: irs };
+  }
+
+  /** Kit premium: desbloqueia com créditos (uma vez só) antes de baixar. */
+  async function unlockKits(kits: DrumKit[]): Promise<boolean> {
+    if (!(await requireLogin("Entre na sua conta para desbloquear o kit e baixar."))) return false;
+    const total = kits.reduce((s, k) => s + k.price_credits, 0);
+    const names = kits.map((k) => `“${k.name}”`).join(" e ");
+    if (!confirm(`Este som usa o kit premium ${names}. Desbloquear para sempre por ${total} ${total === 1 ? "crédito" : "créditos"}?`)) return false;
+    try {
+      for (const k of kits) {
+        await unlockKit(k.id);
+        track("kit_unlocked", { kit: k.name, price: k.price_credits });
+      }
+      setUnlocked((s) => new Set([...s, ...kits.map((k) => k.id)]));
+      await refresh();
+      toast.success(`Kit ${names} desbloqueado. É seu para sempre.`);
+      return true;
+    } catch (err) {
+      if (String((err as Error).message ?? "").includes("INSUFFICIENT_CREDITS")) showNoCredits();
+      else toast.error("Não foi possível desbloquear o kit.");
+      return false;
+    }
+  }
 
   const pick = () => inputRef.current?.click();
 
@@ -520,11 +683,17 @@ export function Studio() {
               <ABPlayer
                 original={original}
                 processed={processed}
-                busy={previewBusy ?? (preset && !drumReady ? "Baixando os samples de bateria…" : !processed ? "Escolha um preset" : null)}
+                busy={previewBusy ?? (preset && !assetsReady ? "Baixando os sons do preset…" : !processed ? "Escolha um preset" : null)}
                 offsetSeconds={excerpt ? excerpt.start / media.sampleRate : 0}
                 videoUrl={videoUrl}
                 overlay={overlay}
               />
+              {media.duration > 26 && media.duration <= 600 && (
+                <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs text-muted">
+                  <input type="checkbox" checked={fullPreview} onChange={toggleFullPreview} className="size-4 accent-violet-500" />
+                  Ouvir o arquivo inteiro na prévia ({formatDuration(media.duration)}) — demora um pouco mais para aplicar
+                </label>
+              )}
             </Card>
           </div>
 
@@ -564,8 +733,9 @@ export function Studio() {
                       onSelect={choosePreset}
                       favorites={favorites}
                       onToggleFavorite={onToggleFavorite}
-                      userPresets={userPresets}
+                      userPresets={preset?.id.startsWith("s-") ? [preset, ...userPresets] : userPresets}
                       onDeleteUserPreset={onDeleteUserPreset}
+                      onShareUserPreset={onShareUserPreset}
                     />
                   ) : catalogError ? (
                     <div className="flex flex-col items-center gap-3 py-6 text-center text-sm text-muted">
@@ -590,6 +760,8 @@ export function Studio() {
                     <DrumPanel
                       media={media}
                       library={drumLibrary}
+                      kits={drumKits}
+                      unlocked={unlocked}
                       value={drumEff}
                       defaults={drumBase}
                       onChange={setDrumTweaks}
@@ -606,6 +778,7 @@ export function Studio() {
                       onChange={(c) => setCustom({ presetId: preset.id, chain: c })}
                       onDiscard={() => setCustom(null)}
                       onSave={saveCustom}
+                      irs={irList ?? []}
                     />
                   </Card>
                 )}
@@ -665,8 +838,12 @@ export function Studio() {
                 <ExportPanel
                   media={media}
                   preset={preset}
-                  chain={drumReady ? chain : null}
+                  chain={assetsReady ? chain : null}
                   drumSamples={drumSamples}
+                  impulses={impulses}
+                  lockedKits={lockedKits}
+                  onUnlock={unlockKits}
+                  assetsAt={assetsAt}
                   intensity={dspIntensity}
                   denoise={denoiseAmount}
                   segments={segments}

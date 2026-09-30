@@ -5,16 +5,20 @@
  * gravados. Sem sample escolhido, usa o timbre sintetizado do estilo.
  */
 import { applySections, butterworth } from "../filters";
+import { resample } from "../resample";
 import { reverb } from "../space";
 import type { Signal } from "../types";
 import { detectDrums, type Hit } from "./detect";
 import { KITS, kickSample, snareSample, tomSample, type KitId } from "./kits";
 
-export type DrumSlot = "kick" | "snare" | "tom1" | "tom2" | "floor";
-export const DRUM_SLOTS: DrumSlot[] = ["kick", "snare", "tom1", "tom2", "floor"];
+export type DrumSlot = "kick" | "snare" | "tom1" | "tom2" | "floor" | "rimshot";
+export const DRUM_SLOTS: DrumSlot[] = ["kick", "snare", "tom1", "tom2", "floor", "rimshot"];
 
-/** Camadas de cada peça (mono, pico 1), da batida mais leve para a mais forte. */
-export type DrumSampleSet = Partial<Record<DrumSlot, Float32Array[]>>;
+/**
+ * Camadas de cada peça (mono, da batida mais leve para a mais forte) e, opcionalmente, as mesmas
+ * batidas gravadas pelos microfones de sala (`rooms`, mesma ordem).
+ */
+export type DrumSampleSet = Partial<Record<DrumSlot, Float32Array[]>> & { rooms?: Partial<Record<DrumSlot, Float32Array[]>> };
 
 let SAMPLES: DrumSampleSet = {};
 
@@ -30,11 +34,32 @@ type Params = {
   snare: number;
   toms: number;
   floor: number;
+  kick_tune: number;
+  snare_tune: number;
+  toms_tune: number;
+  floor_tune: number;
+  rimshot: number;
+  room: number;
   reverb_size: string;
   reverb: number;
 };
 
-const LEVEL: Record<DrumSlot, number> = { kick: 1, snare: 0.9, tom1: 0.8, tom2: 0.8, floor: 0.85 };
+const LEVEL: Record<DrumSlot, number> = { kick: 1, snare: 0.9, tom1: 0.8, tom2: 0.8, floor: 0.85, rimshot: 0.9 };
+
+const tuned = new WeakMap<Float32Array, Map<number, Float32Array>>();
+
+/** Afina o sample (semitons): tocar mais rápido sobe a nota e encurta, como afinar a pele. */
+export function tuneSample(x: Float32Array<ArrayBuffer>, semitones: number, sr: number): Float32Array {
+  if (Math.abs(semitones) < 0.01) return x;
+  let byTune = tuned.get(x);
+  if (!byTune) tuned.set(x, (byTune = new Map()));
+  let y = byTune.get(semitones);
+  if (!y) {
+    y = resample(x, Math.round(sr * 2 ** (semitones / 12)), sr);
+    byTune.set(semitones, y);
+  }
+  return y;
+}
 
 export const REVERB_SIZES: Record<string, { room: number; damping: number; predelay: number }> = {
   small: { room: 35, damping: 60, predelay: 4 },
@@ -106,7 +131,7 @@ export function analyzeDrums(audio: Signal, sr: number): { hits: SlotHit[]; coun
     const t = tomSlot.get(h);
     out.push(t ? { slot: t.slot, sample: h.sample, velocity: h.velocity, pitch: t.pitch } : { slot: h.piece as DrumSlot, sample: h.sample, velocity: h.velocity });
   }
-  const counts = { kick: 0, snare: 0, tom1: 0, tom2: 0, floor: 0 } as Record<DrumSlot, number>;
+  const counts = { kick: 0, snare: 0, tom1: 0, tom2: 0, floor: 0, rimshot: 0 } as Record<DrumSlot, number>;
   for (const h of out) counts[h.slot]++;
   return { hits: out, counts };
 }
@@ -119,11 +144,19 @@ function refPeak(x: Float32Array): number {
 }
 
 /** Camada pela força da batida, alternando com a vizinha (evita o som de "metralhadora"). */
-function pickLayer(layers: Float32Array[], velocity: number, turn: number): Float32Array {
+function layerIndex(count: number, velocity: number, turn: number): number {
   const v = Math.min(1, Math.max(0, (velocity - 0.2) / 0.9));
-  let idx = Math.round(v * (layers.length - 1));
-  if (layers.length > 1 && turn % 2 === 1) idx = idx > 0 ? idx - 1 : idx + 1;
-  return layers[idx];
+  let idx = Math.round(v * (count - 1));
+  if (count > 1 && turn % 2 === 1) idx = idx > 0 ? idx - 1 : idx + 1;
+  return idx;
+}
+
+/** Caixas mais fortes (a fração `share` do topo) viram rimshot. */
+function rimshotCut(hits: SlotHit[], share: number): number {
+  if (share <= 0) return Infinity;
+  const v = hits.filter((h) => h.slot === "snare").map((h) => h.velocity).sort((a, b) => b - a);
+  if (!v.length) return Infinity;
+  return v[Math.min(v.length - 1, Math.max(0, Math.ceil(v.length * Math.min(1, share)) - 1))];
 }
 
 export function drumStudio(audio: Signal, sr: number, p: Params): Signal {
@@ -131,6 +164,8 @@ export function drumStudio(audio: Signal, sr: number, p: Params): Signal {
   const kit = KITS[(p.kit as KitId) in KITS ? (p.kit as KitId) : "poprock"];
   const n = audio[0].length;
   const reinf = new Float32Array(n);
+  const roomBus = new Float32Array(n);
+  let hasRoom = false;
 
   if (mix > 0.001) {
     const { hits } = analyzeDrums(audio, sr);
@@ -141,31 +176,54 @@ export function drumStudio(audio: Signal, sr: number, p: Params): Signal {
     const synthKick = SAMPLES.kick?.length ? null : kickSample(sr, kit.kick);
     const synthSnare = SAMPLES.snare?.length ? null : snareSample(sr, kit.snare);
     const tomCache = new Map<number, Float32Array>();
-    const gainDb: Record<DrumSlot, number> = { kick: p.kick, snare: p.snare, tom1: p.toms, tom2: p.toms, floor: p.floor };
-    const turns: Record<DrumSlot, number> = { kick: 0, snare: 0, tom1: 0, tom2: 0, floor: 0 };
+    const gainDb: Record<DrumSlot, number> = { kick: p.kick, snare: p.snare, tom1: p.toms, tom2: p.toms, floor: p.floor, rimshot: p.snare };
+    const tune: Record<DrumSlot, number> = {
+      kick: p.kick_tune,
+      snare: p.snare_tune,
+      tom1: p.toms_tune,
+      tom2: p.toms_tune,
+      floor: p.floor_tune,
+      rimshot: p.snare_tune,
+    };
+    const turns: Record<DrumSlot, number> = { kick: 0, snare: 0, tom1: 0, tom2: 0, floor: 0, rimshot: 0 };
+    const rimCut = SAMPLES.rimshot?.length ? rimshotCut(hits, p.rimshot / 100) : Infinity;
 
-    for (const h of hits) {
-      const layers = SAMPLES[h.slot];
+    const place = (bus: Float32Array, smp: Float32Array, start: number, g: number) => {
+      const len = Math.min(smp.length, n - start);
+      for (let i = 0; i < len; i++) bus[start + i] += smp[i] * g;
+    };
+
+    for (const hit of hits) {
+      const slot: DrumSlot = hit.slot === "snare" && hit.velocity >= rimCut ? "rimshot" : hit.slot;
+      const layers = SAMPLES[slot];
+      const start = Math.max(0, hit.sample - Math.round(sr * 0.001));
+      const g = peak * Math.min(1.2, hit.velocity) * LEVEL[slot] * 10 ** (gainDb[slot] / 20);
       let smp: Float32Array;
-      if (layers?.length) smp = pickLayer(layers, h.velocity, turns[h.slot]++);
-      else if (h.slot === "kick") smp = synthKick!;
-      else if (h.slot === "snare") smp = synthSnare!;
+      if (layers?.length) {
+        const idx = layerIndex(layers.length, hit.velocity, turns[slot]++);
+        smp = tuneSample(layers[idx] as Float32Array<ArrayBuffer>, tune[slot], sr);
+        const rooms = SAMPLES.rooms?.[slot];
+        if (rooms?.length) {
+          const r = rooms[Math.min(idx, rooms.length - 1)] as Float32Array<ArrayBuffer>;
+          place(roomBus, tuneSample(r, tune[slot], sr), start, g);
+          hasRoom = true;
+        }
+      } else if (slot === "kick") smp = tuneSample(synthKick as Float32Array<ArrayBuffer>, tune.kick, sr);
+      else if (slot === "snare") smp = tuneSample(synthSnare as Float32Array<ArrayBuffer>, tune.snare, sr);
       else {
-        const f = Math.round((h.pitch ?? 120) / 5) * 5;
+        const f = Math.round(((hit.pitch ?? 120) * 2 ** (tune[slot] / 12)) / 5) * 5;
         if (!tomCache.has(f)) tomCache.set(f, tomSample(sr, kit.tom, f));
         smp = tomCache.get(f)!;
       }
-      const g = peak * Math.min(1.2, h.velocity) * LEVEL[h.slot] * 10 ** (gainDb[h.slot] / 20);
-      const start = Math.max(0, h.sample - Math.round(sr * 0.001));
-      const len = Math.min(smp.length, n - start);
-      for (let i = 0; i < len; i++) reinf[start + i] += smp[i] * g;
+      place(reinf, smp, start, g);
     }
   }
 
   // mistura: a gravação continua por baixo (pratos, chimbal e a sala real) e os samples dão o corpo
   const keep = 1 - 0.45 * mix;
+  const roomG = hasRoom ? Math.min(1, Math.max(0, p.room / 100)) : 0;
   const out = audio.map((ch) => {
-    for (let i = 0; i < n; i++) ch[i] = ch[i] * keep + reinf[i] * mix;
+    for (let i = 0; i < n; i++) ch[i] = ch[i] * keep + (reinf[i] + roomBus[i] * roomG) * mix;
     return ch;
   });
 

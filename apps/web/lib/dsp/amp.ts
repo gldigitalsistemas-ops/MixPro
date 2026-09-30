@@ -5,6 +5,7 @@
  */
 import { applySections, butterworth, peakingBiquad, shelfBiquad, type Biquad } from "./filters";
 import { oversampled } from "./tone";
+import { convolve } from "./convolve";
 import type { Signal } from "./types";
 
 type Params = {
@@ -15,9 +16,17 @@ type Params = {
   treble: number;
   presence: number;
   cabinet: string;
+  ir: string;
   blend: number;
   level_db: number;
 };
+
+let IRS: Record<string, Float32Array> = {};
+
+/** Caixas gravadas (IR) carregadas pelo app para esta execução, por id. */
+export function setImpulses(map: Record<string, Float32Array> | null | undefined) {
+  IRS = map ?? {};
+}
 
 type Model = {
   /** Passa-altas na entrada (Hz). */
@@ -181,7 +190,9 @@ export function amp(audio: Signal, sr: number, p: Params): Signal {
   const driveDb = m.drive[0] + (m.drive[1] - m.drive[0]) * g;
   const drive = 10 ** (driveDb / 20);
   const blend = Math.min(1, Math.max(0, p.blend / 100));
-  const cab = cabinet(p.cabinet === "auto" || !p.cabinet ? m.cab : p.cabinet, sr);
+  // caixa gravada (IR) tem prioridade sobre a caixa simulada por filtros
+  const ir = p.ir ? IRS[p.ir] : undefined;
+  const cab = ir ? [] : cabinet(p.cabinet === "auto" || !p.cabinet ? m.cab : p.cabinet, sr);
   const stack: Biquad[] = [
     shelfBiquad(sr, m.stack.bass, knob(p.bass) * 12, 0.7, "low"),
     peakingBiquad(sr, m.stack.mid, knob(p.mid) * 10 + m.stack.midOffset, m.stack.midQ),
@@ -233,13 +244,15 @@ export function amp(audio: Signal, sr: number, p: Params): Signal {
       const pg = 10 ** (m.power / 20);
       oversampled(x, (v) => Math.tanh(pg * v) / pg);
     }
-    applySections(x, cab);
+    let y: Float32Array = x;
+    if (ir) y = convolve(x, ir);
+    else applySections(x, cab);
 
     // volume de saída igual ao da entrada (o ganho muda o timbre, não o volume)
-    const outRms = activeRms(x);
+    const outRms = activeRms(y);
     const back = outRms > 1e-9 ? inRms / outRms : 1;
     const level = 10 ** (p.level_db / 20);
-    for (let i = 0; i < ch.length; i++) ch[i] = (x[i] * back * blend + dry[i] * (1 - blend)) * level;
+    for (let i = 0; i < ch.length; i++) ch[i] = (y[i] * back * blend + dry[i] * (1 - blend)) * level;
     return ch;
   }
 }

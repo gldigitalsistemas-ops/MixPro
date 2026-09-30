@@ -22,7 +22,7 @@ function diGuitar(freq = 196, seconds = 2) {
 }
 
 const rms = (x: Float32Array) => Math.sqrt(x.reduce((s, v) => s + v * v, 0) / x.length);
-const base = { gain: 5, bass: 5, mid: 5, treble: 5, presence: 5, cabinet: "auto", blend: 100, level_db: 0 };
+const base = { gain: 5, bass: 5, mid: 5, treble: 5, presence: 5, cabinet: "auto", ir: "", blend: 100, level_db: 0 };
 
 /** Energia acima de 1,5 kHz em relação ao total: mede os harmônicos criados pela distorção. */
 function brightness(x: Float32Array) {

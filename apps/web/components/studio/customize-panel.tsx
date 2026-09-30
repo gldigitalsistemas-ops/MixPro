@@ -5,6 +5,7 @@ import { Save, SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ChainDoc } from "@/lib/dsp/chain";
 import type { StudioPreset } from "@/lib/presets";
+import type { CabIR } from "@/lib/drums/library";
 import { PresetCustomizer } from "./preset-customizer";
 
 /** "Personalizar": abre a cadeia do preset para o usuário mexer e salvar em "Meus presets". */
@@ -15,6 +16,7 @@ export function CustomizePanel({
   onChange,
   onDiscard,
   onSave,
+  irs = [],
 }: {
   preset: StudioPreset;
   /** Cadeia em edição (null = ainda não personalizando). */
@@ -23,6 +25,8 @@ export function CustomizePanel({
   onChange: (c: ChainDoc) => void;
   onDiscard: () => void;
   onSave: (name: string) => Promise<boolean>;
+  /** Caixas gravadas (IR) disponíveis para o amplificador. */
+  irs?: CabIR[];
 }) {
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -55,7 +59,7 @@ export function CustomizePanel({
           <X className="size-3.5" /> Descartar
         </button>
       </div>
-      <PresetCustomizer chain={chain} onChange={onChange} />
+      <PresetCustomizer chain={chain} irs={irs} onChange={onChange} />
       <form
         className="flex flex-col gap-2 rounded-2xl border border-border p-3 sm:flex-row"
         onSubmit={async (e) => {

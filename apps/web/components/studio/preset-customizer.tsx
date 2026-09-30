@@ -5,16 +5,38 @@ import { ChevronDown, Plus, Trash2 } from "lucide-react";
 import { AMP_MODELS, MODULES, type ModuleType, type NumberParam, type ParamSpec } from "@mixpro/contracts";
 import type { ChainDoc, ChainStep } from "@/lib/dsp/chain";
 import { cn } from "@/lib/cn";
+import type { CabIR } from "@/lib/drums/library";
 
 /** Ajustes técnicos que ficam em "Mais ajustes" para não assustar quem está começando. */
 const ADVANCED = new Set(["knee_db", "lookahead_ms", "hold_ms", "predelay_ms", "width", "damping", "bass_mono_hz", "output_db", "slope_db_oct", "lowpass_hz", "blend", "level_db", "cabinet"]);
 
 /** Efeitos que o usuário pode acrescentar (o amplificador entra no começo da cadeia). */
-const ADDABLE: ModuleType[] = ["amp", "gate", "eq_peak", "eq_shelf", "highpass", "lowpass", "compressor", "saturation", "delay", "reverb", "stereo_width"];
+const ADDABLE: ModuleType[] = [
+  "amp",
+  "overdrive",
+  "chorus",
+  "octaver",
+  "gate",
+  "eq_peak",
+  "eq_shelf",
+  "highpass",
+  "lowpass",
+  "compressor",
+  "saturation",
+  "delay",
+  "reverb",
+  "stereo_width",
+];
+
+/** Pedais entram antes do amplificador, como na pedaleira. */
+const PEDALS = new Set<string>(["overdrive", "chorus", "octaver"]);
 
 /** Descrição curta de cada efeito, na língua do músico. */
 const HINT: Partial<Record<ModuleType, string>> = {
   amp: "Guitarra ou baixo ligado direto: escolha o amplificador e gire os botões como num amp de verdade.",
+  overdrive: "Pedal de drive antes do amp: aperta o grave e dá mais sustain.",
+  chorus: "Dobra o som com leve variação: guitarra mais larga e brilhante.",
+  octaver: "Soma uma oitava abaixo: baixo mais gordo ou guitarra com peso.",
   gate: "Corta o chiado e o ruído entre as notas.",
   highpass: "Tira o grave que embola.",
   lowpass: "Tira o agudo que fere.",
@@ -127,7 +149,42 @@ function AmpPicker({ value, onChange }: { value: string; onChange: (v: string) =
   );
 }
 
-function ModuleCard({ step, onChange, onRemove }: { step: ChainStep; onChange: (s: ChainStep) => void; onRemove: () => void }) {
+function IrPicker({ value, irs, group, onChange }: { value: string; irs: CabIR[]; group: "guitar" | "bass"; onChange: (v: string) => void }) {
+  const list = irs.filter((i) => i.kind === group);
+  if (!list.length) return null;
+  return (
+    <label className="flex flex-col gap-1 text-xs text-muted">
+      Caixa gravada (IR)
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-9 rounded-lg border border-border-strong bg-black/20 px-2 text-sm text-text outline-none focus:border-violet-400"
+      >
+        <option value="">Caixa simulada (do amplificador)</option>
+        {list.map((i) => (
+          <option key={i.id} value={i.id}>
+            {i.name}
+          </option>
+        ))}
+      </select>
+      <span className="text-[11px] text-subtle">
+        {list.find((i) => i.id === value)?.description ?? "Caixa e microfone de verdade, gravados em estúdio: o som fica mais real."}
+      </span>
+    </label>
+  );
+}
+
+function ModuleCard({
+  step,
+  irs,
+  onChange,
+  onRemove,
+}: {
+  step: ChainStep;
+  irs: CabIR[];
+  onChange: (s: ChainStep) => void;
+  onRemove: () => void;
+}) {
   const [more, setMore] = useState(false);
   const type = step.type as ModuleType;
   const spec = MODULES[type];
@@ -163,6 +220,14 @@ function ModuleCard({ step, onChange, onRemove }: { step: ChainStep; onChange: (
       {on && (
         <div className="mt-3 flex flex-col gap-3">
           {type === "amp" && <AmpPicker value={String(step.params?.model ?? "clean_us")} onChange={(v) => set("model", v)} />}
+          {type === "amp" && (
+            <IrPicker
+              value={String(step.params?.ir ?? "")}
+              irs={irs}
+              group={AMP_MODELS.find((m) => m.value === step.params?.model)?.group ?? "guitar"}
+              onChange={(v) => set("ir", v)}
+            />
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
             {basic.map(([name, p]) => (
               <ParamControl key={name} name={name} spec={p} value={step.params?.[name]} onChange={(v) => set(name, v)} />
@@ -189,7 +254,7 @@ function ModuleCard({ step, onChange, onRemove }: { step: ChainStep; onChange: (
 }
 
 /** Editor da cadeia para o usuário: cada efeito com botões de verdade, sem jargão de JSON. */
-export function PresetCustomizer({ chain, onChange }: { chain: ChainDoc; onChange: (c: ChainDoc) => void }) {
+export function PresetCustomizer({ chain, irs = [], onChange }: { chain: ChainDoc; irs?: CabIR[]; onChange: (c: ChainDoc) => void }) {
   const steps = chain.chain;
   const update = (i: number, s: ChainStep) => onChange({ ...chain, chain: steps.map((x, j) => (j === i ? s : x)) });
   const remove = (i: number) => onChange({ ...chain, chain: steps.filter((_, j) => j !== i) });
@@ -206,9 +271,17 @@ export function PresetCustomizer({ chain, onChange }: { chain: ChainDoc; onChang
       }
       next.splice(i, 0, s);
     } else if (type === "amp") {
-      // o amplificador vem antes da equalização e da compressão (só o gate fica antes dele)
+      // o amplificador vem antes da equalização e da compressão (gate e pedais ficam antes dele)
       let i = 0;
-      while (i < next.length && (next[i].type === "gate" || next[i].type === "drum_studio")) i++;
+      while (i < next.length && (next[i].type === "gate" || next[i].type === "drum_studio" || PEDALS.has(next[i].type))) i++;
+      next.splice(i, 0, s);
+    } else if (PEDALS.has(type)) {
+      // pedal: logo antes do amplificador (ou no começo, depois do gate)
+      let i = next.findIndex((x) => x.type === "amp");
+      if (i < 0) {
+        i = 0;
+        while (i < next.length && (next[i].type === "gate" || next[i].type === "drum_studio" || PEDALS.has(next[i].type))) i++;
+      }
       next.splice(i, 0, s);
     } else {
       // antes do limiter final, se houver
@@ -224,7 +297,7 @@ export function PresetCustomizer({ chain, onChange }: { chain: ChainDoc; onChang
       <ul className="flex flex-col gap-2">
         {steps.map((s, i) =>
           s.type === "drum_studio" || !(s.type in MODULES) ? null : (
-            <ModuleCard key={`${s.type}-${i}`} step={s} onChange={(x) => update(i, x)} onRemove={() => remove(i)} />
+            <ModuleCard key={`${s.type}-${i}`} step={s} irs={irs} onChange={(x) => update(i, x)} onRemove={() => remove(i)} />
           ),
         )}
       </ul>

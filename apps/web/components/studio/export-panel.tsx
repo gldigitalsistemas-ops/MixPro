@@ -22,6 +22,9 @@ import type { Signal } from "@/lib/dsp/types";
 import type { StudioPreset } from "@/lib/presets";
 import type { ChainDoc } from "@/lib/dsp/chain";
 import type { DrumSampleSet } from "@/lib/dsp/drums/studio";
+import type { DrumKit } from "@/lib/drums/library";
+import { beforeAfterAudio } from "@/lib/media/before-after";
+import { BatchExport } from "./batch-export";
 import { cn, formatDuration } from "@/lib/cn";
 
 export type Target = "video" | AudioFormat;
@@ -34,6 +37,12 @@ type Props = {
   /** Cadeia efetiva (preset + ajustes finos, ex.: bateria); null enquanto os samples carregam. */
   chain: ChainDoc | null;
   drumSamples?: DrumSampleSet;
+  impulses?: Record<string, Float32Array>;
+  /** Kits premium usados que ainda precisam ser desbloqueados para baixar. */
+  lockedKits: DrumKit[];
+  onUnlock: (kits: DrumKit[]) => Promise<boolean>;
+  /** Samples e IRs na taxa de outro arquivo (para aplicar em vários vídeos). */
+  assetsAt: (sampleRate: number) => Promise<{ drumSamples?: DrumSampleSet; impulses?: Record<string, Float32Array> }>;
   intensity: number;
   denoise: number;
   social: boolean;
@@ -79,9 +88,12 @@ function triggerDownload(url: string, filename: string) {
 
 export function ExportPanel(props: Props) {
   const { media, preset, chain, intensity, denoise, social, onSocialChange, segments, cutting, look, audiogram, music } = props;
-  const { balance, spend, onNeedCredits, signedIn, requireLogin, words, drumSamples } = props;
+  const { balance, spend, onNeedCredits, signedIn, requireLogin, words, drumSamples, impulses, lockedKits, onUnlock } = props;
   const toast = useToast();
   const [phase, setPhase] = useState<Phase>(null);
+  // vídeo "antes → depois" (só para vídeo)
+  const [beforeAfter, setBeforeAfter] = useState(false);
+  const comparing = beforeAfter && media.kind === "video";
   const [lastResult, setResult] = useState<Result | null>(null);
   const cache = useRef<{ key: string; value: DspResult } | null>(null);
   const [postText, setPostText] = useState<string | null>(null);
@@ -99,6 +111,7 @@ export function ExportPanel(props: Props) {
       look.captions ? [look.captions.captions, look.captions.style, look.captions.position] : 0,
       audiogram ? [audiogram.palette, audiogram.title, Boolean(audiogram.image)] : 0,
       music ? [music.name, music.level] : 0,
+      comparing ? "antes-depois" : 0,
     ]),
   );
   const settingsKey = audioKey && `${audioKey}_e${editKey}`;
@@ -111,7 +124,7 @@ export function ExportPanel(props: Props) {
   async function processFull(): Promise<DspResult> {
     if (cache.current?.key === audioKey) return cache.current.value;
     const value = await runDsp(
-      { channels: media.channels, sampleRate: media.sampleRate, chain: chain!, intensity, social, denoise, drumSamples },
+      { channels: media.channels, sampleRate: media.sampleRate, chain: chain!, intensity, social, denoise, drumSamples, impulses },
       (p) =>
         setPhase({
           label: denoise > 0 && p < 0.5 ? "Removendo o ruído de fundo…" : "Aplicando o som no arquivo inteiro…",
@@ -130,18 +143,28 @@ export function ExportPanel(props: Props) {
     if (!preset || !settingsKey || phase) return;
     if (!signedIn && !(await requireLogin("Crie sua conta grátis para baixar — os primeiros downloads são por nossa conta."))) return;
     if (signedIn && balance !== null && balance <= 0) return onNeedCredits();
+    // kit premium: desbloqueia uma vez (ouvir e testar continuam livres)
+    if (lockedKits.length && !(await onUnlock(lockedKits))) return;
     try {
       setPhase({ label: "Aplicando o som no arquivo inteiro…", progress: 0 });
       const processed = await processFull();
       let out;
       if (target === "video") {
-        const render = media.kind === "audio" || needsRender(look, cutting);
+        const compare = comparing && target === "video";
+        const render = media.kind === "audio" || compare || needsRender(look, cutting);
         const label = media.kind === "audio" ? "Criando o audiograma…" : render ? "Montando o vídeo quadro a quadro…" : "Montando o vídeo com o som novo…";
         setPhase({ label, progress: 0 });
         const onProgress = (p: number) => setPhase({ label, progress: p * 100 });
         if (render) {
           await ensureCaptionFont();
-          out = await renderVideo({ media, audio: processed.channels, segments, look, audiogram, postAudio: withMusic, onProgress });
+          let audio = processed.channels;
+          let finalLook = look;
+          if (compare) {
+            const ba = beforeAfterAudio(media.channels, processed.channels, media.sampleRate, media.audioStart, segments);
+            audio = ba.audio;
+            finalLook = { ...look, beforeAfter: { split: ba.split } };
+          }
+          out = await renderVideo({ media, audio, segments, look: finalLook, audiogram, postAudio: withMusic, onProgress });
         } else {
           out = await exportVideo(media, withMusic(processed.channels), onProgress);
         }
@@ -155,7 +178,7 @@ export function ExportPanel(props: Props) {
       }
 
       await spend(`${settingsKey}_${target}`, target === "video" ? "video" : "audio");
-      track("export", { target, preset: preset.slug, captions: Boolean(look.captions), music: Boolean(music) });
+      track("export", { target, preset: preset.slug, captions: Boolean(look.captions), music: Boolean(music), before_after: comparing });
 
       const url = URL.createObjectURL(out.blob);
       setResult({ url, blob: out.blob, filename: out.filename, target, key: settingsKey });
@@ -210,7 +233,9 @@ export function ExportPanel(props: Props) {
     makesVideo && look.format !== "original" && `formato ${look.format}`,
     cutting && saved >= 0.5 && `${formatDuration(saved)} de pausas cortadas`,
     music && "música de fundo",
-    makesVideo && look.watermark && "selo Mix Pro",
+    makesVideo && look.watermark && !comparing && "selo Mix Pro",
+    comparing && "antes → depois",
+    lockedKits.length > 0 && `kit premium: ${lockedKits.map((k) => k.name).join(", ")}`,
   ].filter(Boolean) as string[];
 
   return (
@@ -234,6 +259,26 @@ export function ExportPanel(props: Props) {
           </span>
         </span>
       </label>
+
+      {media.kind === "video" && (
+        <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-violet-400/30 bg-primary/5 p-3">
+          <input type="checkbox" checked={beforeAfter} onChange={(e) => setBeforeAfter(e.target.checked)} className="mt-1 size-4 accent-violet-500" />
+          <span>
+            <span className="block text-sm font-medium">Vídeo “antes → depois” para Reels</span>
+            <span className="block text-xs text-muted">
+              O começo toca o som original do celular com o selo ANTES; na virada entra o som de estúdio com o selo DEPOIS. O formato
+              que mais chama atenção — e mostra o seu trabalho.
+            </span>
+          </span>
+        </label>
+      )}
+
+      {lockedKits.length > 0 && (
+        <p className="rounded-2xl border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-100">
+          Você está usando o kit premium {lockedKits.map((k) => `“${k.name}” (${k.price_credits} créditos)`).join(" e ")}. Ouvir é
+          grátis; ao baixar, você desbloqueia o kit para sempre.
+        </p>
+      )}
 
       {phase ? (
         <div className="flex flex-col gap-2 rounded-2xl bg-white/5 p-4" aria-live="polite">
@@ -298,6 +343,25 @@ export function ExportPanel(props: Props) {
             </Button>
           </div>
         </div>
+      )}
+
+      {!busy && preset && chain && (
+        <BatchExport
+          presetSlug={preset.slug}
+          chain={chain}
+          intensity={intensity}
+          denoise={denoise}
+          social={social}
+          look={look}
+          assetsAt={props.assetsAt}
+          lockedKits={lockedKits}
+          onUnlock={onUnlock}
+          spend={spend}
+          balance={balance}
+          signedIn={signedIn}
+          requireLogin={requireLogin}
+          onNeedCredits={onNeedCredits}
+        />
       )}
     </div>
   );

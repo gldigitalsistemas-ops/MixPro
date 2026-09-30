@@ -25,10 +25,10 @@ export type ParamSpec =
       default: string;
     }
   | {
-      /** Sample da biblioteca (id), "synth" = timbre sintetizado, "" = automático pelo estilo. */
+      /** Arquivo da biblioteca (id): sample de bateria ou caixa (IR). "synth"/"" = padrão. */
       kind: "sample";
       label: string;
-      piece: DrumPiece;
+      piece: DrumPiece | "ir";
       default: string;
     };
 
@@ -37,10 +37,11 @@ export type EnumParam = Extract<ParamSpec, { kind: "enum" }>;
 export type SampleParam = Extract<ParamSpec, { kind: "sample" }>;
 
 /** Tipos de peça da biblioteca de samples de bateria. */
-export const DRUM_PIECES = ["kick", "snare", "tom", "floor"] as const;
+export const DRUM_PIECES = ["kick", "snare", "tom", "floor", "rimshot"] as const;
 export type DrumPiece = (typeof DRUM_PIECES)[number];
 
-const sample = (label: string, piece: DrumPiece): SampleParam => ({ kind: "sample", label, piece, default: "" });
+const sample = (label: string, piece: DrumPiece | "ir"): SampleParam => ({ kind: "sample", label, piece, default: "" });
+const tune = (label: string) => num(label, "st", -6, 6, 0.5, 0, false);
 
 /** Modelos de amplificador (guitarra e baixo). */
 export const AMP_MODELS = [
@@ -263,8 +264,36 @@ export const MODULES = {
       treble: num("Agudos", undefined, 0, 10, 0.1, 5, false),
       presence: num("Presença", undefined, 0, 10, 0.1, 5, false),
       cabinet: { kind: "enum", label: "Caixa", options: CABINETS, default: "auto" },
+      ir: sample("Caixa gravada (IR)", "ir"),
       blend: num("Amp x linha", "%", 0, 100, 1, 100, true, 0),
       level_db: num("Volume", "dB", -12, 12, 0.1, 0, false),
+    },
+  },
+  overdrive: {
+    label: "Pedal overdrive",
+    description: "Drive de pedal antes do amplificador: aperta o grave e empurra os médios.",
+    params: {
+      drive: num("Drive", undefined, 0, 10, 0.1, 4, true, 0),
+      tone: num("Tone", undefined, 0, 10, 0.1, 5, false),
+      level_db: num("Volume", "dB", -12, 12, 0.1, 0, false),
+    },
+  },
+  chorus: {
+    label: "Pedal chorus",
+    description: "Dobra o som com leve variação de afinação: guitarra mais larga e brilhante.",
+    params: {
+      rate_hz: num("Velocidade", "Hz", 0.1, 5, 0.05, 0.8, false),
+      depth: num("Profundidade", "%", 0, 100, 1, 40, false),
+      mix: num("Mix", "%", 0, 100, 1, 40, true, 0),
+    },
+  },
+  octaver: {
+    label: "Pedal oitavador",
+    description: "Soma uma oitava abaixo: baixo mais gordo ou guitarra com peso de baixo.",
+    params: {
+      octave: num("Oitava abaixo", "%", 0, 100, 1, 60, true, 0),
+      dry: num("Som original", "%", 0, 100, 1, 100, false),
+      tone_hz: num("Tom da oitava", "Hz", 100, 2000, 1, 500, false),
     },
   },
   drum_studio: {
@@ -291,10 +320,19 @@ export const MODULES = {
       tom1_sample: sample("Tom 1", "tom"),
       tom2_sample: sample("Tom 2", "tom"),
       floor_sample: sample("Surdo", "floor"),
+      rimshot_sample: sample("Caixa com aro", "rimshot"),
       kick: num("Volume do bumbo", "dB", -12, 12, 0.5, 0, false),
       snare: num("Volume da caixa", "dB", -12, 12, 0.5, 0, false),
       toms: num("Volume dos tons", "dB", -12, 12, 0.5, 0, false),
       floor: num("Volume do surdo", "dB", -12, 12, 0.5, 0, false),
+      kick_tune: tune("Afinação do bumbo"),
+      snare_tune: tune("Afinação da caixa"),
+      toms_tune: tune("Afinação dos tons"),
+      floor_tune: tune("Afinação do surdo"),
+      /** Parte das caixas mais fortes que vira rimshot (0 = nunca). */
+      rimshot: num("Caixas fortes com aro", "%", 0, 100, 5, 0, false),
+      /** Microfones de sala gravados junto com os samples. */
+      room: num("Microfones de sala", "%", 0, 100, 1, 40, true, 0),
       reverb_size: {
         kind: "enum",
         label: "Reverb",

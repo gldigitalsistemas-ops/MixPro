@@ -10,6 +10,8 @@ export type Look = {
   watermark: boolean;
   captions: CaptionRender | null;
   fontFamily: string;
+  /** Vídeo "antes → depois": até `split` (s, tempo do original) toca o som original. */
+  beforeAfter?: { split: number } | null;
 };
 
 export type AudiogramStyle = {
@@ -41,7 +43,37 @@ export function outputSize(srcW: number, srcH: number, format: VideoFormat): { w
 
 /** O vídeo precisa ser recodificado (não dá para só copiar)? */
 export function needsRender(look: Look, cutting: boolean): boolean {
-  return cutting || look.format !== "original" || look.watermark || Boolean(look.captions);
+  return cutting || look.format !== "original" || look.watermark || Boolean(look.captions) || Boolean(look.beforeAfter);
+}
+
+/** Selo "ANTES / DEPOIS" no alto do vídeo, com uma animação curta na virada. */
+export function drawBeforeAfter(ctx: Ctx, W: number, H: number, t: number, split: number, fontFamily: string) {
+  const after = t >= split;
+  const size = Math.round(Math.min(W, H) * 0.052);
+  const text = after ? "DEPOIS · COM MIX PRO" : "ANTES · SOM DO CELULAR";
+  // "pulo" de 0,4 s quando vira para o depois
+  const pop = after ? Math.max(0, 1 - (t - split) / 0.4) : 0;
+  ctx.save();
+  ctx.font = `900 ${Math.round(size * (1 + pop * 0.25))}px ${fontFamily}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const tw = ctx.measureText(text).width;
+  const w = tw + size * 1.6;
+  const h = size * 1.9;
+  const x = (W - w) / 2;
+  const y = H * 0.1;
+  if (after) {
+    const g = ctx.createLinearGradient(x, 0, x + w, 0);
+    g.addColorStop(0, "#d946ef");
+    g.addColorStop(1, "#6366f1");
+    ctx.fillStyle = g;
+  } else ctx.fillStyle = "rgba(20,20,20,0.78)";
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, h / 2);
+  ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(text, W / 2, y + h / 2 + size * 0.04);
+  ctx.restore();
 }
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -110,7 +142,8 @@ export function composeFrame(ctx: Ctx, W: number, H: number, src: Source, sw: nu
     ctx.drawImage(src, (W - sw * s) / 2, (H - sh * s) / 2, sw * s, sh * s);
   }
   if (look.captions) drawCaptions(ctx, W, H, t, look.captions);
-  if (look.watermark) drawWatermark(ctx, W, H, look.fontFamily);
+  if (look.beforeAfter) drawBeforeAfter(ctx, W, H, t, look.beforeAfter.split, look.fontFamily);
+  else if (look.watermark) drawWatermark(ctx, W, H, look.fontFamily);
 }
 
 /** Envelope de volume por quadro (0–1) para animar a onda do audiograma. */
@@ -201,5 +234,6 @@ export function composeAudiogram(
   }
 
   if (look.captions) drawCaptions(ctx, W, H, t, look.captions);
-  if (look.watermark) drawWatermark(ctx, W, H, look.fontFamily);
+  if (look.beforeAfter) drawBeforeAfter(ctx, W, H, t, look.beforeAfter.split, look.fontFamily);
+  else if (look.watermark) drawWatermark(ctx, W, H, look.fontFamily);
 }

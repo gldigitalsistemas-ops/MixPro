@@ -156,6 +156,34 @@ test("Com samples reais carregados, o reforço usa o sample e não o timbre sint
   assert.ok(band(real) > band(synth) * 3, `energia em 1 kHz: sample ${band(real)} x sintetizado ${band(synth)}`);
 });
 
+test("Afinação: +12 semitons = sample com metade do comprimento (uma oitava acima)", async () => {
+  const { tuneSample } = await import("./studio");
+  const x = Float32Array.from({ length: 4800 }, (_, i) => Math.sin((2 * Math.PI * 100 * i) / SR));
+  assert.equal(tuneSample(x, 12, SR).length, 2400);
+  assert.equal(tuneSample(x, -12, SR).length, 9600);
+  assert.equal(tuneSample(x, 0, SR), x);
+});
+
+test("Rimshot nas caixas mais fortes e microfones de sala somados", async () => {
+  const { setDrumSamples } = await import("./studio");
+  const { audio } = phoneGroove();
+  const tone = (f: number) => Float32Array.from({ length: SR * 0.15 }, (_, i) => Math.sin((2 * Math.PI * f * i) / SR) * Math.exp(-i / (SR * 0.04)));
+  const energyAt = (x: Float32Array[], lo: number, hi: number) => {
+    const y = x[0].slice();
+    applySections(y, [...butterworth("hp", 4, lo, SR), ...butterworth("lp", 4, hi, SR)]);
+    return y.reduce((s, v) => s + v * v, 0);
+  };
+  const run = (params: Record<string, unknown>) => runChain(audio.map((c) => c.slice()), SR, drumChain({ kit: "poprock", sample_mix: 100, reverb: 0, ...params }), 100);
+  // caixa = 2 kHz, rimshot = 5 kHz, sala do bumbo = 700 Hz
+  setDrumSamples({ snare: [tone(2000)], rimshot: [tone(5000)], kick: [tone(60)], rooms: { kick: [tone(700)] } });
+  const noRim = run({ rimshot: 0, room: 0 });
+  const allRim = run({ rimshot: 100, room: 0 });
+  const withRoom = run({ rimshot: 0, room: 100 });
+  setDrumSamples(null);
+  assert.ok(energyAt(allRim, 4000, 6500) > energyAt(noRim, 4000, 6500) * 3, "rimshot usa o sample do aro");
+  assert.ok(energyAt(withRoom, 550, 900) > energyAt(noRim, 550, 900) * 3, "sala entra na mistura");
+});
+
 test("Reverb: Large deixa mais cauda que Small", () => {
   const { audio } = phoneGroove();
   const tail = (reverb_size: string) => {

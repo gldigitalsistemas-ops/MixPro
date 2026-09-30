@@ -18,6 +18,7 @@ const PIECES: { value: DrumPiece; label: string; hint: string }[] = [
   { value: "snare", label: "Caixa", hint: "Caixa (centro; aro/rimshot como outro item)" },
   { value: "tom", label: "Tom", hint: "Tons de rack — ordene do mais agudo ao mais grave" },
   { value: "floor", label: "Surdo", hint: "Surdo (floor tom)" },
+  { value: "rimshot", label: "Caixa com aro", hint: "Rimshot: o app usa nas caixas mais fortes, se o usuário quiser" },
 ];
 
 const STYLES = [
@@ -59,6 +60,8 @@ export function SampleManager() {
   const [items, setItems] = useState<DrumLibraryItem[] | null>(null);
   const [form, setForm] = useState({ piece: "kick" as DrumPiece, name: "", description: "", styles: [] as string[] });
   const [files, setFiles] = useState<File[]>([]);
+  const [roomFiles, setRoomFiles] = useState<File[]>([]);
+  const roomInput = useRef<HTMLInputElement>(null);
   const [progress, setProgress] = useState<{ label: string; value: number } | null>(null);
   const [playing, setPlaying] = useState<string | null>(null);
   const audio = useRef<HTMLAudioElement | null>(null);
@@ -91,16 +94,32 @@ export function SampleManager() {
     if (!form.name.trim()) return toast.error("Dê um nome ao tambor (ex.: Bumbo 22 Vintage).");
     if (!files.length) return toast.error("Escolha os arquivos de áudio.");
     if (files.length > 12) return toast.error("No máximo 12 batidas por tambor.");
+    if (roomFiles.length && roomFiles.length !== files.length)
+      return toast.error(`A sala precisa ter o mesmo número de arquivos que o microfone de perto (${files.length}), na mesma ordem.`);
     const id = crypto.randomUUID();
     const paths: string[] = [];
+    const roomPaths: string[] = [];
+    // mesma ordem nos dois campos: ordena por nome (01, 02, 03…)
+    const byName = (a: File, b: File) => a.name.localeCompare(b.name, undefined, { numeric: true });
+    const closeSorted = [...files].sort(byName);
+    const roomSorted = [...roomFiles].sort(byName);
+    const up = async (path: string, blob: Blob, name: string) => {
+      const { error } = await sb.storage.from(BUCKET).upload(path, blob, { contentType: "audio/wav", cacheControl: "31536000", upsert: true });
+      if (error) throw new Error(`Envio de ${name}: ${error.message}`);
+    };
     try {
-      for (const [i, f] of files.entries()) {
+      for (const [i, f] of closeSorted.entries()) {
         setProgress({ label: `Preparando e enviando ${i + 1} de ${files.length}: ${f.name}`, value: (i / files.length) * 100 });
-        const { blob } = await prepareForUpload(f);
-        const path = `${form.piece}/${id}/${String(i + 1).padStart(2, "0")}.wav`;
-        const { error } = await sb.storage.from(BUCKET).upload(path, blob, { contentType: "audio/wav", cacheControl: "31536000", upsert: true });
-        if (error) throw new Error(`Envio de ${f.name}: ${error.message}`);
+        const { blob, roomBlob } = await prepareForUpload(f, roomSorted[i]);
+        const n = String(i + 1).padStart(2, "0");
+        const path = `${form.piece}/${id}/${n}.wav`;
+        await up(path, blob, f.name);
         paths.push(path);
+        if (roomBlob) {
+          const rp = `${form.piece}/${id}/sala-${n}.wav`;
+          await up(rp, roomBlob, roomSorted[i].name);
+          roomPaths.push(rp);
+        }
       }
       const position = Math.max(0, ...(items ?? []).filter((s) => s.piece === form.piece).map((s) => s.position)) + 1;
       const { error } = await sb.from("drum_samples").insert({
@@ -110,16 +129,19 @@ export function SampleManager() {
         description: form.description.trim() || null,
         styles: form.styles,
         files: paths,
+        ...(roomPaths.length ? { room_files: roomPaths } : {}),
         position,
       });
       if (error) throw new Error(error.message);
       toast.success(`“${form.name.trim()}” adicionado com ${paths.length} ${paths.length === 1 ? "batida" : "batidas"}.`);
       setForm({ ...form, name: "", description: "" });
       setFiles([]);
+      setRoomFiles([]);
       if (fileInput.current) fileInput.current.value = "";
+      if (roomInput.current) roomInput.current.value = "";
       await reload();
     } catch (err) {
-      if (paths.length) await sb.storage.from(BUCKET).remove(paths);
+      if (paths.length || roomPaths.length) await sb.storage.from(BUCKET).remove([...paths, ...roomPaths]);
       toast.error(err instanceof Error ? err.message : "Falha no envio.");
     } finally {
       setProgress(null);
@@ -149,7 +171,7 @@ export function SampleManager() {
     if (!confirm(`Apagar “${item.name}” e os ${item.files.length} arquivos? Presets que usam este sample voltam para o padrão do estilo.`)) return;
     const { error } = await sb.from("drum_samples").delete().eq("id", item.id);
     if (error) return toast.error("Não foi possível apagar.");
-    await sb.storage.from(BUCKET).remove(item.files);
+    await sb.storage.from(BUCKET).remove([...item.files, ...(item.room_files ?? [])]);
     setItems((list) => list?.filter((s) => s.id !== item.id) ?? null);
   }
 
@@ -198,7 +220,21 @@ export function SampleManager() {
               className="text-sm text-text file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-text"
             />
             <span className="text-[11px] text-subtle">
-              Uma batida por arquivo, da mais leve à mais forte. O app corta o silêncio, junta em mono e salva em WAV 48 kHz.
+              Uma batida por arquivo; nomeie em ordem (01, 02, 03…). O app corta o silêncio, junta em mono e salva em WAV 48 kHz.
+            </span>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-muted">
+            Microfones de sala das mesmas batidas (opcional)
+            <input
+              ref={roomInput}
+              type="file"
+              multiple
+              accept="audio/*,.wav,.mp3,.flac,.ogg,.m4a"
+              onChange={(e) => setRoomFiles([...(e.target.files ?? [])])}
+              className="text-sm text-text file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-text"
+            />
+            <span className="text-[11px] text-subtle">
+              Overhead/room exportados da mesma batida, com os mesmos nomes em ordem. São cortados no mesmo ponto do microfone de perto.
             </span>
           </label>
           {progress ? (
@@ -267,7 +303,9 @@ export function SampleManager() {
                         />
                         <StyleToggles value={s.styles} onChange={(styles) => update(s, { styles })} />
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-[11px] text-subtle">Batidas:</span>
+                          <span className="text-[11px] text-subtle">
+                            Batidas{s.room_files?.length ? ` (+ sala em ${s.room_files.length})` : ""}:
+                          </span>
                           {s.files.map((path, k) => (
                             <button
                               key={path}

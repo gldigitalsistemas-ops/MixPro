@@ -7,6 +7,7 @@ import { reverb, delay, stereoWidth } from "./space";
 import { gain, normalize, saturation, softClip } from "./tone";
 import { drumStudio } from "./drums/studio";
 import { amp } from "./amp";
+import { chorus, octaver, overdrive } from "./pedals";
 import type { Signal } from "./types";
 
 type Params = Record<string, number | string>;
@@ -29,6 +30,9 @@ const REGISTRY: Record<ModuleType, ModuleFn> = {
   normalize,
   drum_studio: drumStudio,
   amp,
+  overdrive,
+  chorus,
+  octaver,
 };
 
 export type ChainStep = { type: string; bypass?: boolean; params?: Record<string, unknown> };

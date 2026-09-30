@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, Star, Trash2 } from "lucide-react";
+import { Check, Share2, Star, Trash2 } from "lucide-react";
 import { Chip } from "@/components/ui/misc";
 import { cn } from "@/lib/cn";
 import type { StudioCategory, StudioPreset } from "@/lib/presets";
@@ -44,6 +44,7 @@ type Props = {
   /** Presets personalizados do usuário (aba "Meus"). */
   userPresets: StudioPreset[];
   onDeleteUserPreset: (p: StudioPreset) => void;
+  onShareUserPreset: (p: StudioPreset) => void;
 };
 
 export function PresetPicker({
@@ -57,6 +58,7 @@ export function PresetPicker({
   onToggleFavorite,
   userPresets,
   onDeleteUserPreset,
+  onShareUserPreset,
 }: Props) {
   // abre em "Meus" quando o preset em uso é um preset do usuário
   const [favMode, setFavMode] = useState(() => userPresets.some((p) => p.id === selectedId));
@@ -120,13 +122,24 @@ export function PresetPicker({
                 selected={p.id === selectedId}
                 onSelect={onSelect}
                 action={
-                  <button
-                    onClick={() => onDeleteUserPreset(p)}
-                    aria-label={`Apagar ${p.name}`}
-                    className="m-1.5 rounded-full p-2 text-subtle hover:bg-white/5 hover:text-red-300"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
+                  !p.userPresetId ? null : (
+                  <span className="flex flex-col">
+                    <button
+                      onClick={() => onShareUserPreset(p)}
+                      aria-label={`Compartilhar ${p.name}`}
+                      className="m-1.5 mb-0 rounded-full p-2 text-subtle hover:bg-white/5 hover:text-violet-200"
+                    >
+                      <Share2 className="size-4" />
+                    </button>
+                    <button
+                      onClick={() => onDeleteUserPreset(p)}
+                      aria-label={`Apagar ${p.name}`}
+                      className="m-1.5 rounded-full p-2 text-subtle hover:bg-white/5 hover:text-red-300"
+                    >
+                      <Trash2 className="size-4" />
+                    </button>
+                  </span>
+                  )
                 }
               />
             ))}

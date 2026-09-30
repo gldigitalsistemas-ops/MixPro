@@ -56,6 +56,33 @@ export async function saveUserPreset(p: { name: string; categoryId: string; base
   return toStudioPreset(data as Row);
 }
 
+/** Cria (ou reaproveita) o código do link público do preset. */
+export async function shareUserPreset(userPresetId: string): Promise<string> {
+  const { data, error } = await supabaseBrowser().rpc("share_user_preset", { p_id: userPresetId });
+  if (error) throw error;
+  return data as string;
+}
+
+export type SharedPreset = { name: string; category_id: string; chain: ChainDoc; owner_name: string; referral_code: string | null };
+
+export async function getSharedPreset(code: string): Promise<SharedPreset | null> {
+  if (!/^[a-z0-9]{8}$/.test(code)) return null;
+  const { data, error } = await supabaseBrowser().rpc("get_shared_preset", { p_code: code });
+  if (error || !data) return null;
+  return data as SharedPreset;
+}
+
+export const sharedToStudioPreset = (code: string, s: SharedPreset): StudioPreset => ({
+  id: `s-${code}`,
+  slug: `compartilhado-${code}`,
+  name: s.name,
+  description: `Compartilhado por ${s.owner_name}`,
+  style: null,
+  categoryId: s.category_id,
+  chain: s.chain,
+  defaultIntensity: 100,
+});
+
 export async function deleteUserPreset(userPresetId: string) {
   const { error } = await supabaseBrowser().from("user_presets").delete().eq("id", userPresetId);
   if (error) throw error;

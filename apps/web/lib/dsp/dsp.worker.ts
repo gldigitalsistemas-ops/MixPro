@@ -3,6 +3,7 @@ import { finalizeForSocial, runChain, type ChainDoc } from "./chain";
 import { denoise } from "./denoise";
 import { integratedLoudness, samplePeak } from "./loudness";
 import { setDrumSamples, type DrumSampleSet } from "./drums/studio";
+import { setImpulses } from "./amp";
 import type { Signal } from "./types";
 
 export type DspRequest = {
@@ -19,6 +20,8 @@ export type DspRequest = {
   preroll: number;
   /** Samples de bateria escolhidos (já na taxa de amostragem do áudio). */
   drumSamples?: DrumSampleSet;
+  /** Caixas gravadas (IR) do amplificador, por id. */
+  impulses?: Record<string, Float32Array>;
 };
 
 export type DspResponse =
@@ -34,6 +37,7 @@ self.onmessage = async (e: MessageEvent<DspRequest>) => {
   const split = e.data.denoise > 0 ? 0.5 : 0;
   try {
     setDrumSamples(e.data.drumSamples);
+    setImpulses(e.data.impulses);
     const clean = await denoise(channels, sampleRate, e.data.denoise, (v) =>
       post({ id, type: "progress", value: v * split }),
     );

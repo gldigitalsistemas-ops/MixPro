@@ -16,6 +16,7 @@ export type DspJob = {
   denoise?: number;
   preroll?: number;
   drumSamples?: DrumSampleSet;
+  impulses?: Record<string, Float32Array>;
 };
 
 export class DspAbortError extends Error {
@@ -69,6 +70,7 @@ export function runDsp(job: DspJob, onProgress?: (v: number) => void, signal?: A
       denoise: job.denoise ?? 0,
       preroll: job.preroll ?? 0,
       drumSamples: job.drumSamples,
+      impulses: job.impulses,
     };
     worker.postMessage(req, channels.map((c) => c.buffer));
   });
