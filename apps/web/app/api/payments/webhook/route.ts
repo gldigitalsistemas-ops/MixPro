@@ -48,16 +48,26 @@ export async function POST(req: Request) {
     }
   }
 
-  const eventKey = `mp_${kind}_${dataId}`;
-  const { data: seen } = await admin.from("webhook_events").select("processed").eq("id", eventKey).maybeSingle();
-  if (seen?.processed) return new Response("OK");
-  await admin.from("webhook_events").upsert({ id: eventKey, payload: body });
-
   try {
-    const result: Settlement =
-      kind === "payment"
-        ? await settlePayment(await getPayment(dataId))
-        : await settleAuthorizedPayment(await getAuthorizedPayment(dataId));
+    // o mesmo pagamento avisa de novo quando muda de status (aprovado → estornado/contestado):
+    // o controle de "já processado" é por pagamento + status, não só pelo número
+    let status: string;
+    let settle: () => Promise<Settlement>;
+    if (kind === "payment") {
+      const p = await getPayment(dataId);
+      status = p.status;
+      settle = () => settlePayment(p);
+    } else {
+      const ap = await getAuthorizedPayment(dataId);
+      status = ap.status;
+      settle = () => settleAuthorizedPayment(ap);
+    }
+    const eventKey = `mp_${kind}_${dataId}_${status}`;
+    const { data: seen } = await admin.from("webhook_events").select("processed").eq("id", eventKey).maybeSingle();
+    if (seen?.processed) return new Response("OK");
+    await admin.from("webhook_events").upsert({ id: eventKey, payload: body });
+
+    const result = await settle();
     // pendente: o Mercado Pago avisa de novo quando o status mudar
     if (result !== "pending") await admin.from("webhook_events").update({ processed: true }).eq("id", eventKey);
     return new Response("OK");

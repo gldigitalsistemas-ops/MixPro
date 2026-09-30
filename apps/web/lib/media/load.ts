@@ -24,16 +24,27 @@ export class MediaLoadError extends Error {
   }
 }
 
-export const MAX_DURATION_S = 15 * 60;
+/**
+ * Duração máxima: todo o áudio fica na memória (e é copiado ao processar e exportar).
+ * No celular o navegador fecha a página perto de 1 GB, então o limite é menor.
+ */
+const isPhone = () => typeof navigator !== "undefined" && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+export const maxDurationS = () => (isPhone() ? 10 : 15) * 60;
 
 const MESSAGES = {
   no_audio: "Esse vídeo não tem som. Escolha um vídeo com áudio.",
   unsupported: "Não conseguimos abrir esse arquivo. Tente um vídeo MP4/MOV ou um áudio MP3, WAV ou M4A.",
-  too_long: "O arquivo tem mais de 15 minutos. Corte um trecho menor e tente de novo.",
+  too_long: "",
   decode: "Não foi possível ler o áudio desse arquivo neste navegador. Tente pelo Chrome ou envie outro formato.",
 };
 
-const fail = (code: keyof typeof MESSAGES) => new MediaLoadError(code, MESSAGES[code]);
+const fail = (code: keyof typeof MESSAGES) =>
+  new MediaLoadError(
+    code,
+    code === "too_long"
+      ? `O arquivo tem mais de ${maxDurationS() / 60} minutos${isPhone() ? " (limite no celular)" : ""}. Corte um trecho menor e tente de novo.`
+      : MESSAGES[code],
+  );
 
 /** Mantém no máximo 2 canais (estéreo); mono continua mono. */
 function toStereoAtMost(chs: Signal): Signal {
@@ -49,7 +60,7 @@ async function decodeWithMediabunny(
   if (!(await track.canDecode())) throw fail("decode");
 
   const duration = await track.computeDuration();
-  if (duration > MAX_DURATION_S) throw fail("too_long");
+  if (duration > maxDurationS()) throw fail("too_long");
   const start = Math.max(0, await track.getFirstTimestamp());
   const sr = track.sampleRate;
   const nch = Math.min(2, track.numberOfChannels);
@@ -82,7 +93,7 @@ async function decodeWithWebAudio(file: File) {
   const buffer = await ctx.decodeAudioData(await file.arrayBuffer()).catch(() => {
     throw fail("decode");
   });
-  if (buffer.duration > MAX_DURATION_S) throw fail("too_long");
+  if (buffer.duration > maxDurationS()) throw fail("too_long");
   const channels = Array.from({ length: Math.min(2, buffer.numberOfChannels) }, (_, c) => buffer.getChannelData(c).slice());
   return { channels, sampleRate: buffer.sampleRate, start: 0, duration: buffer.duration };
 }

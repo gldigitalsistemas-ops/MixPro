@@ -120,8 +120,21 @@ export async function settlePayment(payment: MpPayment): Promise<Settlement> {
     if (error) throw error;
     return "approved";
   }
-  if (["rejected", "cancelled", "refunded", "charged_back"].includes(payment.status)) {
+  if (["rejected", "cancelled"].includes(payment.status)) {
     await admin.rpc("fail_payment_order", { p_external_ref: ref, p_mp_payment_id: String(payment.id), p_reason: payment.status });
+    return "failed";
+  }
+  if (["refunded", "charged_back"].includes(payment.status)) {
+    // estorno/contestação depois de aprovado: retira os créditos ainda não usados
+    const { error } = await admin.rpc("reverse_payment_order", {
+      p_external_ref: ref,
+      p_mp_payment_id: String(payment.id),
+      p_reason: payment.status,
+    });
+    if (error) {
+      // sem a migração nova, mantém o comportamento antigo
+      await admin.rpc("fail_payment_order", { p_external_ref: ref, p_mp_payment_id: String(payment.id), p_reason: payment.status });
+    }
     return "failed";
   }
   return "pending";

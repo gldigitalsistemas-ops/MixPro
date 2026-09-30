@@ -155,6 +155,60 @@ export function AccountView() {
       >
         <LogOut className="size-4" /> Sair da conta
       </Button>
+
+      <details className="rounded-2xl border border-border p-4 text-sm">
+        <summary className="cursor-pointer text-muted">Excluir minha conta</summary>
+        <div className="mt-3 flex flex-col gap-3">
+          <p className="text-xs text-muted">
+            Cancela o plano mensal (se houver), apaga seu nome, presets, estilos e favoritos e desativa o login. Créditos que ainda estiverem na
+            conta são perdidos. Os registros de pagamento são mantidos pelo prazo legal, sem seus dados pessoais. Não dá para desfazer.
+          </p>
+          <DeleteAccount
+            onDone={async () => {
+              await signOut();
+              router.push("/");
+            }}
+          />
+        </div>
+      </details>
     </div>
+  );
+}
+
+function DeleteAccount({ onDone }: { onDone: () => Promise<void> }) {
+  const toast = useToast();
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="flex flex-col gap-2 sm:flex-row"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        const res = await fetch("/api/account/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirm: text.trim() }),
+        }).catch(() => null);
+        setBusy(false);
+        if (!res?.ok) {
+          const msg = ((await res?.json().catch(() => null)) as { error?: string } | null)?.error;
+          return toast.error(msg ?? "Não foi possível excluir agora. Tente de novo.");
+        }
+        toast.success("Sua conta foi excluída.");
+        await onDone();
+      }}
+    >
+      <input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="Digite EXCLUIR"
+        aria-label="Digite EXCLUIR para confirmar"
+        className="h-10 min-w-0 flex-1 rounded-xl border border-border-strong bg-black/20 px-3 text-sm outline-none focus:border-red-400"
+      />
+      <Button type="submit" variant="danger" loading={busy} disabled={text.trim() !== "EXCLUIR"}>
+        <Trash2 className="size-4" /> Excluir conta
+      </Button>
+    </form>
   );
 }

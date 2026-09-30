@@ -35,6 +35,9 @@ import { NOISE_AMOUNT, NoiseSelector, type NoiseLevel } from "./noise-selector";
 import { PresetPicker } from "./preset-picker";
 import { StudioTour } from "./tour";
 import { CustomizePanel } from "./customize-panel";
+import { AutoSetupCard } from "./auto-setup-card";
+import { analyzeAudio } from "@/lib/dsp/analyze";
+import { autoSetup, pickPreset, type AutoSetup } from "@/lib/auto-setup";
 import { track } from "@/lib/track";
 import type { ChainDoc } from "@/lib/dsp/chain";
 import type { DrumSampleSet } from "@/lib/dsp/drums/studio";
@@ -125,6 +128,8 @@ export function Studio() {
   const [irSet, setIrSet] = useState<{ key: string; map: Record<string, Float32Array> } | null>(null);
   // prévia do arquivo inteiro (em vez do melhor trecho de 20 s)
   const [fullPreview, setFullPreview] = useState(false);
+  // ajuste automático: o que a análise encontrou no arquivo e o que ela escolheu
+  const [auto, setAuto] = useState<AutoSetup | null>(null);
   // "Personalizar": cadeia editada pelo usuário (vale enquanto o mesmo preset estiver escolhido)
   const [custom, setCustom] = useState<{ presetId: string; chain: ChainDoc } | null>(null);
   const [userPresetList, setUserPresets] = useState<StudioPreset[]>([]);
@@ -201,9 +206,10 @@ export function Studio() {
   // Preset sugerido: voz falada para vídeos, vocal para áudios
   const preset = useMemo(() => {
     if (chosenPreset || !media || !catalog) return chosenPreset;
-    const byCat = (id: string) => catalog.presets.find((p) => p.categoryId === id);
-    return (media.kind === "video" ? (byCat("vocal-criador") ?? byCat("vocal-podcast")) : null) ?? byCat("vocal-pop") ?? catalog.presets[0] ?? null;
-  }, [chosenPreset, media, catalog]);
+    // preset escolhido pela análise automática do arquivo (ou o padrão por tipo de mídia)
+    const fallback = media.kind === "video" ? ["vocal-criador", "vocal-podcast", "vocal-pop"] : ["vocal-pop"];
+    return pickPreset(catalog.presets, [...(auto?.categories ?? []), ...fallback]) ?? catalog.presets[0] ?? null;
+  }, [chosenPreset, media, catalog, auto]);
   // cadeia base: a do preset, ou a que o usuário está personalizando
   const baseChain = custom && preset && custom.presetId === preset.id ? custom.chain : (preset?.chain ?? null);
   // com a cadeia personalizada os valores já estão fixos (congelados na intensidade escolhida)
@@ -290,7 +296,8 @@ export function Studio() {
   const assetsReady = drumReady && irReady;
 
   // Vídeos quase sempre têm ruído de ambiente; áudios de estúdio não
-  const noise: NoiseLevel = chosenNoise ?? (media?.kind === "video" ? "light" : "off");
+  // remoção de ruído só onde tem voz (em música e instrumentos ela estraga o som)
+  const noise: NoiseLevel = chosenNoise ?? auto?.noise ?? "off";
   const denoiseAmount = NOISE_AMOUNT[noise];
   const intensity: Intensity =
     chosenIntensity ?? ([25, 50, 75, 100].includes(preset?.defaultIntensity ?? 0) ? (preset!.defaultIntensity as Intensity) : 50);
@@ -340,9 +347,16 @@ export function Studio() {
     try {
       const m = await loadMedia(file, (p) => setLoading(p * 100));
       applyExcerpt(m, pickExcerpt(m.channels, m.sampleRate));
+      let setup: AutoSetup | null = null;
+      try {
+        setup = autoSetup(analyzeAudio(m.channels, m.sampleRate), m.kind);
+      } catch {
+        // análise é só uma ajuda: sem ela, valem os padrões
+      }
+      setAuto(setup);
       setVideoTools(defaultVideoTools(m));
       setMedia(m);
-      track("file_loaded", { kind: m.kind, seconds: Math.round(m.duration) });
+      track("file_loaded", { kind: m.kind, seconds: Math.round(m.duration), content: setup?.kind ?? "?" });
     } catch (err) {
       toast.error(err instanceof MediaLoadError ? err.message : "Não foi possível abrir esse arquivo.");
     } finally {
@@ -683,7 +697,10 @@ export function Studio() {
               <ABPlayer
                 original={original}
                 processed={processed}
-                busy={previewBusy ?? (preset && !assetsReady ? "Baixando os sons do preset…" : !processed ? "Escolha um preset" : null)}
+                busy={
+                  previewBusy ??
+                  (preset && !assetsReady ? "Baixando os sons do preset…" : !processed ? (preset ? "Preparando a prévia…" : "Escolha um preset") : null)
+                }
                 offsetSeconds={excerpt ? excerpt.start / media.sampleRate : 0}
                 videoUrl={videoUrl}
                 overlay={overlay}
@@ -718,6 +735,21 @@ export function Studio() {
             </div>
 
             <StyleBar current={styleSettings} onApply={applyStyle} />
+
+            {tab === "som" && auto && (
+              <AutoSetupCard
+                setup={auto}
+                applied={!chosenPreset && !chosenNoise}
+                onReset={() => {
+                  setPreset(null);
+                  setCategoryId(null);
+                  setNoise(null);
+                  setIntensity(null);
+                  setCustom(null);
+                  setDrumTweaks(null);
+                }}
+              />
+            )}
 
             {tab === "som" && (
               <>

@@ -8,6 +8,7 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { publicEnv } from "@/lib/public-env";
 import { Button } from "@/components/ui/button";
 import { REF_STORAGE_KEY } from "@/lib/account";
+import { safeNext } from "@/lib/safe-next";
 
 const inputCls =
   "h-12 w-full rounded-xl border border-border-strong bg-black/20 px-4 text-sm outline-none transition placeholder:text-subtle focus:border-violet-400";
@@ -21,9 +22,6 @@ function translate(msg: string): string {
   return "Não foi possível concluir. Tente novamente.";
 }
 
-function safeNext(next: string | null | undefined) {
-  return next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
-}
 
 function storedRef(): string | null {
   try {

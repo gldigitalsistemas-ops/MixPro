@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { BusinessFooter } from "@/components/layout/business-footer";
 import {
   AudioLines,
   Captions,
@@ -18,6 +18,9 @@ import {
 import { ButtonLink } from "@/components/ui/button";
 import { Logo } from "@/components/ui/misc";
 import { DemoPlayer } from "@/components/landing/demo-player";
+
+// página estática, refeita a cada hora (o rodapé lê os dados da empresa do admin)
+export const revalidate = 3600;
 
 export const metadata: Metadata = {
   title: "Mix Pro — Som de estúdio e legendas nos seus vídeos",
@@ -233,10 +236,7 @@ export default function Landing() {
         </section>
       </main>
 
-      <footer className="border-t border-border px-4 py-6 text-center text-xs text-subtle">
-        Mix Pro · <Link href="/termos" className="hover:text-text">Termos</Link> ·{" "}
-        <Link href="/privacidade" className="hover:text-text">Privacidade</Link>
-      </footer>
+      <BusinessFooter />
     </div>
   );
 }
