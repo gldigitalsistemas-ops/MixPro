@@ -21,6 +21,7 @@ import type { MusicState } from "./music-picker";
 import type { Signal } from "@/lib/dsp/types";
 import type { StudioPreset } from "@/lib/presets";
 import type { ChainDoc } from "@/lib/dsp/chain";
+import type { DrumSampleSet } from "@/lib/dsp/drums/studio";
 import { cn, formatDuration } from "@/lib/cn";
 
 export type Target = "video" | AudioFormat;
@@ -30,8 +31,9 @@ type Result = { url: string; blob: Blob; filename: string; target: Target; key: 
 type Props = {
   media: LoadedMedia;
   preset: StudioPreset | null;
-  /** Cadeia efetiva (preset + ajustes finos, ex.: bateria). */
+  /** Cadeia efetiva (preset + ajustes finos, ex.: bateria); null enquanto os samples carregam. */
   chain: ChainDoc | null;
+  drumSamples?: DrumSampleSet;
   intensity: number;
   denoise: number;
   social: boolean;
@@ -77,7 +79,7 @@ function triggerDownload(url: string, filename: string) {
 
 export function ExportPanel(props: Props) {
   const { media, preset, chain, intensity, denoise, social, onSocialChange, segments, cutting, look, audiogram, music } = props;
-  const { balance, spend, onNeedCredits, signedIn, requireLogin, words } = props;
+  const { balance, spend, onNeedCredits, signedIn, requireLogin, words, drumSamples } = props;
   const toast = useToast();
   const [phase, setPhase] = useState<Phase>(null);
   const [lastResult, setResult] = useState<Result | null>(null);
@@ -85,7 +87,7 @@ export function ExportPanel(props: Props) {
   const [postText, setPostText] = useState<string | null>(null);
 
   // o áudio tratado (cache) só depende do som; o arquivo final depende também de cortes, formato e legendas
-  const audioKey = preset
+  const audioKey = preset && chain
     ? `${fileKey(media.file)}_${preset.slug}_${intensity}_${social ? 1 : 0}_n${Math.round(denoise * 100)}_x${fnv(JSON.stringify(chain))}`
     : null;
   const editKey = fnv(
@@ -109,7 +111,7 @@ export function ExportPanel(props: Props) {
   async function processFull(): Promise<DspResult> {
     if (cache.current?.key === audioKey) return cache.current.value;
     const value = await runDsp(
-      { channels: media.channels, sampleRate: media.sampleRate, chain: chain ?? preset!.chain, intensity, social, denoise },
+      { channels: media.channels, sampleRate: media.sampleRate, chain: chain!, intensity, social, denoise, drumSamples },
       (p) =>
         setPhase({
           label: denoise > 0 && p < 0.5 ? "Removendo o ruído de fundo…" : "Aplicando o som no arquivo inteiro…",
@@ -241,13 +243,13 @@ export function ExportPanel(props: Props) {
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          <Button size="lg" onClick={() => run(makesVideo ? "video" : "mp3")} disabled={!preset || busy} className="w-full">
+          <Button size="lg" onClick={() => run(makesVideo ? "video" : "mp3")} disabled={!preset || !chain || busy} className="w-full">
             {media.kind === "video" ? <Film className="size-5" /> : audiogram ? <AudioLines className="size-5" /> : <Music className="size-5" />}
             {media.kind === "video" ? "Gerar vídeo pronto para postar" : audiogram ? "Gerar audiograma (vídeo)" : "Gerar áudio pronto (MP3)"}
           </Button>
           <div className="grid grid-cols-3 gap-2">
             {(makesVideo ? (["mp3", "wav", "m4a"] as const) : (["wav", "m4a"] as const)).map((f) => (
-              <Button key={f} variant="secondary" size="sm" onClick={() => run(f)} disabled={!preset || busy}>
+              <Button key={f} variant="secondary" size="sm" onClick={() => run(f)} disabled={!preset || !chain || busy}>
                 <Download className="size-4" /> {f.toUpperCase()}
               </Button>
             ))}

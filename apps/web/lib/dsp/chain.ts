@@ -6,6 +6,7 @@ import { integratedLoudness } from "./loudness";
 import { reverb, delay, stereoWidth } from "./space";
 import { gain, normalize, saturation, softClip } from "./tone";
 import { drumStudio } from "./drums/studio";
+import { amp } from "./amp";
 import type { Signal } from "./types";
 
 type Params = Record<string, number | string>;
@@ -27,6 +28,7 @@ const REGISTRY: Record<ModuleType, ModuleFn> = {
   reverb,
   normalize,
   drum_studio: drumStudio,
+  amp,
 };
 
 export type ChainStep = { type: string; bypass?: boolean; params?: Record<string, unknown> };
@@ -36,7 +38,7 @@ export function resolveParams(type: ModuleType, raw: Record<string, unknown>, in
   const out: Params = {};
   for (const [name, spec] of Object.entries(MODULES[type].params) as [string, ParamSpec][]) {
     const v = raw[name];
-    if (spec.kind === "enum") {
+    if (spec.kind === "enum" || spec.kind === "sample") {
       out[name] = typeof v === "string" ? v : spec.default;
       continue;
     }

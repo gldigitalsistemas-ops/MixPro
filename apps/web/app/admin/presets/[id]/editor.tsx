@@ -48,7 +48,7 @@ function slugify(s: string) {
 function defaultModule(type: ModuleType): EditableModule {
   const params: EditableModule["params"] = {};
   for (const [name, p] of Object.entries(MODULES[type].params) as [string, ParamSpec][]) {
-    params[name] = p.kind === "enum" ? p.default : p.interpolable ? { value: p.default, neutral: p.neutral } : p.default;
+    params[name] = p.kind !== "number" ? p.default : p.interpolable ? { value: p.default, neutral: p.neutral } : p.default;
   }
   return { type, params };
 }
@@ -518,6 +518,19 @@ function ModuleEditor({
       <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {(Object.entries(spec.params) as [string, ParamSpec][]).map(([name, p]) => {
           const raw = mod.params[name];
+          if (p.kind === "sample") {
+            return (
+              <label key={name} className="flex flex-col gap-1 text-xs text-muted">
+                {p.label} (id do sample)
+                <input
+                  className={input}
+                  value={String(raw ?? "")}
+                  placeholder="vazio = automático pelo estilo"
+                  onChange={(e) => setParam(name, e.target.value.trim().toLowerCase())}
+                />
+              </label>
+            );
+          }
           if (p.kind === "enum") {
             return (
               <label key={name} className="flex flex-col gap-1 text-xs text-muted">

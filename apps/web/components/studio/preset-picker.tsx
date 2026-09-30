@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, Star } from "lucide-react";
+import { Check, Star, Trash2 } from "lucide-react";
 import { Chip } from "@/components/ui/misc";
 import { cn } from "@/lib/cn";
 import type { StudioCategory, StudioPreset } from "@/lib/presets";
@@ -41,6 +41,9 @@ type Props = {
   onSelect: (p: StudioPreset) => void;
   favorites: Set<string>;
   onToggleFavorite: (p: StudioPreset) => void;
+  /** Presets personalizados do usuário (aba "Meus"). */
+  userPresets: StudioPreset[];
+  onDeleteUserPreset: (p: StudioPreset) => void;
 };
 
 export function PresetPicker({
@@ -52,8 +55,11 @@ export function PresetPicker({
   onSelect,
   favorites,
   onToggleFavorite,
+  userPresets,
+  onDeleteUserPreset,
 }: Props) {
-  const [favMode, setFavMode] = useState(false);
+  // abre em "Meus" quando o preset em uso é um preset do usuário
+  const [favMode, setFavMode] = useState(() => userPresets.some((p) => p.id === selectedId));
   const used = useMemo(() => {
     const ids = new Set(presets.map((p) => p.categoryId));
     return categories.filter((c) => ids.has(c.id));
@@ -99,13 +105,39 @@ export function PresetPicker({
             favMode ? "bg-brand text-white" : "text-muted hover:text-text",
           )}
         >
-          <Star className="size-3.5" aria-hidden /> Favoritos
+          <Star className="size-3.5" aria-hidden /> Meus
         </button>
       </div>
 
-      {favMode && visible.length === 0 && (
+      {favMode && userPresets.length > 0 && (
+        <>
+          <p className="text-xs font-medium uppercase tracking-wider text-muted">Meus presets</p>
+          <ul className="grid gap-2 sm:grid-cols-2">
+            {userPresets.map((p) => (
+              <PresetItem
+                key={p.id}
+                preset={p}
+                selected={p.id === selectedId}
+                onSelect={onSelect}
+                action={
+                  <button
+                    onClick={() => onDeleteUserPreset(p)}
+                    aria-label={`Apagar ${p.name}`}
+                    className="m-1.5 rounded-full p-2 text-subtle hover:bg-white/5 hover:text-red-300"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                }
+              />
+            ))}
+          </ul>
+          {visible.length > 0 && <p className="text-xs font-medium uppercase tracking-wider text-muted">Favoritos</p>}
+        </>
+      )}
+
+      {favMode && visible.length === 0 && userPresets.length === 0 && (
         <p className="rounded-2xl border border-dashed border-border p-4 text-center text-sm text-muted">
-          Toque na estrela de um preset para guardar aqui. Seus favoritos ficam salvos na sua conta.
+          Aqui ficam os presets que você criar em “Personalizar” e os que você marcar com a estrela. Tudo salvo na sua conta.
         </p>
       )}
 
@@ -120,35 +152,13 @@ export function PresetPicker({
       )}
 
       <ul className="grid gap-2 sm:grid-cols-2">
-        {visible.map((p) => {
-          const selected = p.id === selectedId;
-          return (
-            <li
-              key={p.id}
-              className={cn(
-                "flex h-full items-start rounded-2xl border transition",
-                selected ? "border-violet-400 bg-primary/12 shadow-[0_0_0_1px] shadow-violet-400/40" : "border-border hover:bg-white/[0.04]",
-              )}
-            >
-              <button
-                onClick={() => onSelect(p)}
-                aria-pressed={selected}
-                className="flex min-w-0 flex-1 items-start gap-3 p-3 text-left"
-              >
-                <span
-                  className={cn(
-                    "grid size-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br to-transparent text-white",
-                    STYLE_HUE[p.style ?? ""] ?? "from-violet-500/50",
-                  )}
-                  aria-hidden
-                >
-                  {selected ? <Check className="size-5" /> : <span className="text-xs font-semibold uppercase">{p.name.slice(0, 2)}</span>}
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold">{p.name}</span>
-                  <span className="line-clamp-2 text-xs text-muted">{p.description}</span>
-                </span>
-              </button>
+        {visible.map((p) => (
+          <PresetItem
+            key={p.id}
+            preset={p}
+            selected={p.id === selectedId}
+            onSelect={onSelect}
+            action={
               <button
                 onClick={() => onToggleFavorite(p)}
                 aria-label={favorites.has(p.id) ? `Remover ${p.name} dos favoritos` : `Favoritar ${p.name}`}
@@ -157,10 +167,48 @@ export function PresetPicker({
               >
                 <Star className={cn("size-4", favorites.has(p.id) && "fill-amber-300 text-amber-300")} />
               </button>
-            </li>
-          );
-        })}
+            }
+          />
+        ))}
       </ul>
     </div>
+  );
+}
+
+function PresetItem({
+  preset: p,
+  selected,
+  onSelect,
+  action,
+}: {
+  preset: StudioPreset;
+  selected: boolean;
+  onSelect: (p: StudioPreset) => void;
+  action: React.ReactNode;
+}) {
+  return (
+    <li
+      className={cn(
+        "flex h-full items-start rounded-2xl border transition",
+        selected ? "border-violet-400 bg-primary/12 shadow-[0_0_0_1px] shadow-violet-400/40" : "border-border hover:bg-white/[0.04]",
+      )}
+    >
+      <button onClick={() => onSelect(p)} aria-pressed={selected} className="flex min-w-0 flex-1 items-start gap-3 p-3 text-left">
+        <span
+          className={cn(
+            "grid size-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br to-transparent text-white",
+            p.userPresetId ? "from-fuchsia-500/60" : (STYLE_HUE[p.style ?? ""] ?? "from-violet-500/50"),
+          )}
+          aria-hidden
+        >
+          {selected ? <Check className="size-5" /> : <span className="text-xs font-semibold uppercase">{p.name.slice(0, 2)}</span>}
+        </span>
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold">{p.name}</span>
+          <span className="line-clamp-2 text-xs text-muted">{p.description}</span>
+        </span>
+      </button>
+      {action}
+    </li>
   );
 }

@@ -21,6 +21,7 @@ function paramSchema(spec: ParamSpec) {
     const values = spec.options.map((o) => o.value) as [string, ...string[]];
     return z.enum(values);
   }
+  if (spec.kind === "sample") return z.string().regex(/^[a-z0-9-]{0,64}$/);
   return numberParamSchema(spec);
 }
 

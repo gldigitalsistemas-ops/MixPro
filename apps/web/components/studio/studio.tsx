@@ -34,7 +34,12 @@ import { allWords, buildCaptions, type CaptionStyleId, type CaptionPosition } fr
 import { NOISE_AMOUNT, NoiseSelector, type NoiseLevel } from "./noise-selector";
 import { PresetPicker } from "./preset-picker";
 import { StudioTour } from "./tour";
+import { CustomizePanel } from "./customize-panel";
 import { track } from "@/lib/track";
+import type { ChainDoc } from "@/lib/dsp/chain";
+import type { DrumSampleSet } from "@/lib/dsp/drums/studio";
+import { fetchDrumLibrary, loadSampleSet, type DrumLibraryItem } from "@/lib/drums/library";
+import { deleteUserPreset, freezeChain, listUserPresets, PresetLimitError, saveUserPreset } from "@/lib/user-presets";
 
 const ACCEPT = "video/*,audio/*,.mp4,.mov,.m4a,.mp3,.wav,.aac,.flac,.ogg,.webm";
 
@@ -91,6 +96,11 @@ export function Studio() {
   const [videoTools, setVideoTools] = useState<VideoToolsState | null>(null);
   const [music, setMusic] = useState<MusicState | null>(null);
   const [drumTweaks, setDrumTweaks] = useState<DrumTweaks | null>(null);
+  const [drumLibrary, setDrumLibrary] = useState<DrumLibraryItem[] | null>(null);
+  const [drumSet, setDrumSet] = useState<{ key: string; set: DrumSampleSet } | null>(null);
+  // "Personalizar": cadeia editada pelo usuário (vale enquanto o mesmo preset estiver escolhido)
+  const [custom, setCustom] = useState<{ presetId: string; chain: ChainDoc } | null>(null);
+  const [userPresetList, setUserPresets] = useState<StudioPreset[]>([]);
   // preferências de legenda vindas de "Meu estilo" (usadas quando as legendas forem geradas)
   const [captionPrefs, setCaptionPrefs] = useState<{ style: CaptionStyleId; position: CaptionPosition } | null>(null);
 
@@ -133,7 +143,17 @@ export function Studio() {
     setCategoryId(p.categoryId);
     setIntensity(null);
     setDrumTweaks(null);
+    setCustom(null);
   }, []);
+
+  // presets personalizados da conta
+  useEffect(() => {
+    if (!user) return;
+    listUserPresets()
+      .then(setUserPresets)
+      .catch(() => {});
+  }, [user]);
+  const userPresets = useMemo(() => (user ? userPresetList : []), [user, userPresetList]);
 
   // Preset sugerido: voz falada para vídeos, vocal para áudios
   const preset = useMemo(() => {
@@ -141,19 +161,51 @@ export function Studio() {
     const byCat = (id: string) => catalog.presets.find((p) => p.categoryId === id);
     return (media.kind === "video" ? (byCat("vocal-criador") ?? byCat("vocal-podcast")) : null) ?? byCat("vocal-pop") ?? catalog.presets[0] ?? null;
   }, [chosenPreset, media, catalog]);
-  // Bateria de estúdio: ajustes finos entram na cadeia do preset
+  // cadeia base: a do preset, ou a que o usuário está personalizando
+  const baseChain = custom && preset && custom.presetId === preset.id ? custom.chain : (preset?.chain ?? null);
+  // com a cadeia personalizada os valores já estão fixos (congelados na intensidade escolhida)
+  const customizing = baseChain !== null && baseChain !== preset?.chain;
+
+  // Bateria de estúdio: samples escolhidos e ajustes entram na cadeia do preset
   const drumParams = useMemo(
-    () => (preset?.chain.chain.find((m) => m.type === "drum_studio")?.params as Record<string, unknown> | undefined) ?? null,
-    [preset],
+    () => (baseChain?.chain.find((m) => m.type === "drum_studio")?.params as Record<string, unknown> | undefined) ?? null,
+    [baseChain],
   );
-  const drumBase = useMemo(() => (drumParams ? drumDefaults(drumParams) : null), [drumParams]);
-  const chain = useMemo(() => (preset ? withDrumTweaks(preset.chain, drumParams ? drumTweaks : null) : null), [preset, drumParams, drumTweaks]);
+  useEffect(() => {
+    if (!drumParams || drumLibrary) return;
+    fetchDrumLibrary()
+      .then(setDrumLibrary)
+      .catch(() => setDrumLibrary([]));
+  }, [drumParams, drumLibrary]);
+  const drumBase = useMemo(() => (drumParams ? drumDefaults(drumParams, drumLibrary ?? []) : null), [drumParams, drumLibrary]);
+  const drumEff = drumParams ? (drumTweaks ?? drumBase) : null;
+  const chain = useMemo(() => (baseChain ? withDrumTweaks(baseChain, drumEff) : null), [baseChain, drumEff]);
+
+  // baixa os samples escolhidos (uma vez por peça; ficam em memória)
+  const drumKey = drumEff && drumLibrary && media ? `${JSON.stringify(drumEff.samples)}@${media.sampleRate}` : null;
+  useEffect(() => {
+    if (!drumKey || !drumEff || !drumLibrary || !media) return;
+    let alive = true;
+    loadSampleSet(drumEff.samples, drumLibrary, media.sampleRate)
+      .then((set) => alive && setDrumSet({ key: drumKey, set }))
+      .catch(() => {
+        if (!alive) return;
+        setDrumSet({ key: drumKey, set: {} });
+        toast.error("Não foi possível baixar os samples de bateria. Usando o timbre sintetizado.");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [drumKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const drumReady = !drumParams || (drumLibrary !== null && drumSet?.key === drumKey);
+  const drumSamples = drumParams && drumSet?.key === drumKey ? drumSet.set : undefined;
 
   // Vídeos quase sempre têm ruído de ambiente; áudios de estúdio não
   const noise: NoiseLevel = chosenNoise ?? (media?.kind === "video" ? "light" : "off");
   const denoiseAmount = NOISE_AMOUNT[noise];
   const intensity: Intensity =
     chosenIntensity ?? ([25, 50, 75, 100].includes(preset?.defaultIntensity ?? 0) ? (preset!.defaultIntensity as Intensity) : 50);
+  const dspIntensity = customizing ? 100 : intensity;
 
   async function openFile(file: File) {
     setLoading(0);
@@ -168,6 +220,7 @@ export function Studio() {
     setVideoTools(null);
     setMusic(null);
     setDrumTweaks(null);
+    setCustom(null);
     setTab("som");
     try {
       const m = await loadMedia(file, (p) => setLoading(p * 100));
@@ -192,7 +245,7 @@ export function Studio() {
 
   // Prévia do trecho com o preset atual (cancela a anterior se o usuário trocar rápido)
   useEffect(() => {
-    if (!media || !excerpt || !preset) return;
+    if (!media || !excerpt || !preset || !chain || !drumReady) return;
     const ctrl = new AbortController();
     const timer = setTimeout(() => {
       setPreviewBusy("Aplicando o preset…");
@@ -201,11 +254,12 @@ export function Studio() {
         {
           channels: media.channels.map((c) => c.subarray(from, excerpt.end)),
           sampleRate: media.sampleRate,
-          chain: chain ?? preset.chain,
-          intensity,
+          chain,
+          intensity: dspIntensity,
           social,
           denoise: denoiseAmount,
           preroll: excerpt.preroll,
+          drumSamples,
         },
         (p) => setPreviewBusy(`${denoiseAmount > 0 && p < 0.5 ? "Removendo ruído" : "Aplicando o preset"}… ${Math.round(p * 100)}%`),
         ctrl.signal,
@@ -218,7 +272,7 @@ export function Studio() {
               )
             : r.channels;
           setProcessed({
-            key: `${preset.id}-${intensity}-${social}-${denoiseAmount}-${music ? `${music.name}-${music.level}` : ""}-${JSON.stringify(drumTweaks)}`,
+            key: `${preset.id}-${dspIntensity}-${social}-${denoiseAmount}-${music ? `${music.name}-${music.level}` : ""}-${JSON.stringify(chain)}`,
             buffer: toAudioBuffer(out, media.sampleRate),
             peaks: waveformPeaks(out),
             lufs: music ? integratedLoudness(out, media.sampleRate) : r.lufs,
@@ -235,7 +289,7 @@ export function Studio() {
       clearTimeout(timer);
       ctrl.abort();
     };
-  }, [media, excerpt, preset, chain, intensity, social, denoiseAmount, music]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [media, excerpt, preset, chain, dspIntensity, social, denoiseAmount, music, drumReady, drumSamples]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const captionRender = useMemo<CaptionRender | null>(
     () =>
@@ -291,7 +345,7 @@ export function Studio() {
   };
 
   function applyStyle(st: StyleSettings) {
-    const p = catalog?.presets.find((x) => x.slug === st.presetSlug);
+    const p = [...(catalog?.presets ?? []), ...userPresets].find((x) => x.slug === st.presetSlug);
     if (p) choosePreset(p);
     if (st.intensity && [25, 50, 75, 100].includes(st.intensity)) setIntensity(st.intensity as Intensity);
     if (st.noise) setNoise(st.noise);
@@ -324,6 +378,48 @@ export function Studio() {
       });
     },
     [toggleFavorite, toast, requireLogin],
+  );
+
+  function startCustomizing() {
+    if (!preset || !chain) return;
+    // parte exatamente do que a pessoa está ouvindo (intensidade e ajustes da bateria incluídos)
+    setCustom({ presetId: preset.id, chain: freezeChain(chain, dspIntensity) });
+    setDrumTweaks(null);
+  }
+
+  async function saveCustom(name: string): Promise<boolean> {
+    if (!preset || !chain) return false;
+    if (!(await requireLogin("Entre para salvar seus presets na sua conta e usar em qualquer aparelho."))) return false;
+    try {
+      const saved = await saveUserPreset({
+        name,
+        categoryId: preset.categoryId,
+        basePresetId: preset.userPresetId ? (preset.basePresetId ?? null) : preset.id,
+        chain: freezeChain(chain, dspIntensity),
+      });
+      setUserPresets((list) => [...list.filter((p) => p.id !== saved.id), saved]);
+      choosePreset(saved);
+      track("preset_saved", { base: preset.slug });
+      toast.success(`“${saved.name}” salvo em Meus presets.`);
+      return true;
+    } catch (err) {
+      toast.error(err instanceof PresetLimitError ? "Você chegou ao limite de 50 presets. Apague algum para salvar outro." : "Não foi possível salvar o preset.");
+      return false;
+    }
+  }
+
+  const onDeleteUserPreset = useCallback(
+    async (p: StudioPreset) => {
+      if (!p.userPresetId || !confirm(`Apagar o preset “${p.name}”?`)) return;
+      try {
+        await deleteUserPreset(p.userPresetId);
+        setUserPresets((list) => list.filter((x) => x.id !== p.id));
+        if (chosenPreset?.id === p.id) setPreset(null);
+      } catch {
+        toast.error("Não foi possível apagar o preset.");
+      }
+    },
+    [chosenPreset, toast],
   );
 
   const pick = () => inputRef.current?.click();
@@ -424,7 +520,7 @@ export function Studio() {
               <ABPlayer
                 original={original}
                 processed={processed}
-                busy={previewBusy ?? (!processed ? "Escolha um preset" : null)}
+                busy={previewBusy ?? (preset && !drumReady ? "Baixando os samples de bateria…" : !processed ? "Escolha um preset" : null)}
                 offsetSeconds={excerpt ? excerpt.start / media.sampleRate : 0}
                 videoUrl={videoUrl}
                 overlay={overlay}
@@ -468,6 +564,8 @@ export function Studio() {
                       onSelect={choosePreset}
                       favorites={favorites}
                       onToggleFavorite={onToggleFavorite}
+                      userPresets={userPresets}
+                      onDeleteUserPreset={onDeleteUserPreset}
                     />
                   ) : catalogError ? (
                     <div className="flex flex-col items-center gap-3 py-6 text-center text-sm text-muted">
@@ -480,12 +578,35 @@ export function Studio() {
                     <p className="py-6 text-center text-sm text-muted">Carregando presets…</p>
                   )}
                 </Card>
-                <Card className="p-4">
-                  <IntensitySelector value={intensity} onChange={setIntensity} disabled={!preset} />
-                </Card>
-                {drumBase && (
+                {customizing ? (
+                  <p className="px-1 text-xs text-muted">Personalizado: a intensidade fica exatamente como você ajustou abaixo.</p>
+                ) : (
                   <Card className="p-4">
-                    <DrumPanel media={media} value={drumTweaks ?? drumBase} defaults={drumBase} onChange={setDrumTweaks} />
+                    <IntensitySelector value={intensity} onChange={setIntensity} disabled={!preset} />
+                  </Card>
+                )}
+                {drumBase && drumEff && (
+                  <Card className="p-4">
+                    <DrumPanel
+                      media={media}
+                      library={drumLibrary}
+                      value={drumEff}
+                      defaults={drumBase}
+                      onChange={setDrumTweaks}
+                      loading={Boolean(drumLibrary) && !drumReady}
+                    />
+                  </Card>
+                )}
+                {preset && (
+                  <Card className="p-4">
+                    <CustomizePanel
+                      preset={preset}
+                      chain={customizing ? baseChain : null}
+                      onStart={startCustomizing}
+                      onChange={(c) => setCustom({ presetId: preset.id, chain: c })}
+                      onDiscard={() => setCustom(null)}
+                      onSave={saveCustom}
+                    />
                   </Card>
                 )}
                 <Card className="p-4">
@@ -544,8 +665,9 @@ export function Studio() {
                 <ExportPanel
                   media={media}
                   preset={preset}
-                  chain={chain}
-                  intensity={intensity}
+                  chain={drumReady ? chain : null}
+                  drumSamples={drumSamples}
+                  intensity={dspIntensity}
                   denoise={denoiseAmount}
                   segments={segments}
                   cutting={cutting}

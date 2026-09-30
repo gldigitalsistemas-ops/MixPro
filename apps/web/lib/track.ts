@@ -10,7 +10,8 @@ export type TrackEvent =
   | "share"
   | "checkout_start"
   | "tour_done"
-  | "style_saved";
+  | "style_saved"
+  | "preset_saved";
 
 /** Registra um uso (para o painel do admin). Nunca atrapalha o usuário: erros são ignorados. */
 export function track(event: TrackEvent, props: Record<string, string | number | boolean> = {}) {

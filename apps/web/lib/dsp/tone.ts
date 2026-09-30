@@ -54,7 +54,7 @@ const PHASES: Float64Array[] = Array.from({ length: L }, (_, ph) => {
 const PAD_IN = Math.ceil(TAPS / L) + 1;
 
 /** Aplica `curve` com oversampling 2x no canal (in-place), sem atraso. */
-function oversampled(x: Float32Array, curve: (v: number) => number): void {
+export function oversampled(x: Float32Array, curve: (v: number) => number): void {
   const n = x.length;
   const xp = new Float64Array(n + 2 * PAD_IN);
   xp.set(x, PAD_IN);

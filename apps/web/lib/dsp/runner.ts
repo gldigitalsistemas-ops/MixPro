@@ -3,6 +3,7 @@
 import type { ChainDoc } from "./chain";
 import type { DspRequest, DspResponse } from "./dsp.worker";
 import type { Signal } from "./types";
+import type { DrumSampleSet } from "./drums/studio";
 
 export type DspResult = { channels: Signal; lufs: number; peak: number };
 
@@ -14,6 +15,7 @@ export type DspJob = {
   social: boolean;
   denoise?: number;
   preroll?: number;
+  drumSamples?: DrumSampleSet;
 };
 
 export class DspAbortError extends Error {
@@ -66,6 +68,7 @@ export function runDsp(job: DspJob, onProgress?: (v: number) => void, signal?: A
       social: job.social,
       denoise: job.denoise ?? 0,
       preroll: job.preroll ?? 0,
+      drumSamples: job.drumSamples,
     };
     worker.postMessage(req, channels.map((c) => c.buffer));
   });

@@ -12,6 +12,10 @@ export type StudioPreset = {
   categoryId: string;
   chain: ChainDoc;
   defaultIntensity: number;
+  /** Preset salvo pelo usuário (id da tabela user_presets). */
+  userPresetId?: string;
+  /** Preset do catálogo em que o preset do usuário foi baseado. */
+  basePresetId?: string | null;
 };
 
 export type StudioCategory = { id: string; groupId: string; name: string; position: number };

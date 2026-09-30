@@ -2,6 +2,7 @@
 import { finalizeForSocial, runChain, type ChainDoc } from "./chain";
 import { denoise } from "./denoise";
 import { integratedLoudness, samplePeak } from "./loudness";
+import { setDrumSamples, type DrumSampleSet } from "./drums/studio";
 import type { Signal } from "./types";
 
 export type DspRequest = {
@@ -16,6 +17,8 @@ export type DspRequest = {
   denoise: number;
   /** Amostras iniciais usadas só para "aquecer" dinâmica/reverb; são descartadas na saída. */
   preroll: number;
+  /** Samples de bateria escolhidos (já na taxa de amostragem do áudio). */
+  drumSamples?: DrumSampleSet;
 };
 
 export type DspResponse =
@@ -30,6 +33,7 @@ self.onmessage = async (e: MessageEvent<DspRequest>) => {
   // com remoção de ruído, ela ocupa a primeira metade da barra de progresso
   const split = e.data.denoise > 0 ? 0.5 : 0;
   try {
+    setDrumSamples(e.data.drumSamples);
     const clean = await denoise(channels, sampleRate, e.data.denoise, (v) =>
       post({ id, type: "progress", value: v * split }),
     );

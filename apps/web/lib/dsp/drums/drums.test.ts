@@ -112,17 +112,57 @@ test("Detecta bumbo, caixa, chimbal e tons numa gravação de celular", () => {
   assert.ok(tm.recall >= 0.6 && tm.precision >= 0.9, `tons ${JSON.stringify(tm)}`);
 });
 
+const drumChain = (params: Record<string, unknown>) => ({ schema_version: 1, chain: [{ type: "drum_studio", params }] });
+const peakOf = (x: Float32Array[]) => x.reduce((m, ch) => ch.reduce((a, v) => Math.max(a, Math.abs(v)), m), 0);
+
 test("Módulo de bateria de estúdio roda na cadeia e mantém o áudio finito", () => {
   const { audio } = phoneGroove();
   for (const kit of ["worship", "poprock", "reggae", "groove", "soul", "gospel", "sertanejo"]) {
-    const out = runChain(
-      audio.map((c) => c.slice()),
-      SR,
-      { schema_version: 1, chain: [{ type: "drum_studio", params: { kit, sample_mix: { value: 70, neutral: 0 }, room: { value: 40, neutral: 0 } } }] },
-      100,
-    );
-    let peak = 0;
-    for (const ch of out) for (const v of ch) peak = Math.max(peak, Math.abs(v));
-    assert.ok(Number.isFinite(peak) && peak > 0.05 && peak < 6, `${kit}: pico ${peak}`);
+    for (const reverb_size of ["small", "medium", "large"]) {
+      const out = runChain(audio.map((c) => c.slice()), SR, drumChain({ kit, sample_mix: 70, reverb_size, reverb: 40 }), 100);
+      const peak = peakOf(out);
+      assert.ok(Number.isFinite(peak) && peak > 0.05 && peak < 6, `${kit}/${reverb_size}: pico ${peak}`);
+    }
   }
+});
+
+test("Tons separados pela afinação: agudo = tom 1, médio = tom 2, grave = surdo", async () => {
+  const { assignTomSlots, analyzeDrums } = await import("./studio");
+  assert.deepEqual(assignTomSlots([165, 125, 98, 160]), ["tom1", "tom2", "floor", "tom1"]);
+  assert.deepEqual(assignTomSlots([150, 85]), ["tom1", "floor"]);
+  assert.deepEqual(assignTomSlots([150, 120]), ["tom1", "tom2"]);
+  assert.deepEqual(assignTomSlots([82]), ["floor"]);
+  const { counts } = analyzeDrums(phoneGroove().audio, SR);
+  // a virada tem tons em 160, 120 e 95 Hz; o detector acha 2 deles (ver teste acima), cada um no seu grupo
+  assert.equal(counts.tom1 + counts.tom2 + counts.floor, 2, JSON.stringify(counts));
+  assert.ok(counts.kick >= 9 && counts.snare >= 7, JSON.stringify(counts));
+});
+
+test("Com samples reais carregados, o reforço usa o sample e não o timbre sintetizado", async () => {
+  const { setDrumSamples } = await import("./studio");
+  const { audio } = phoneGroove();
+  const run = () => runChain(audio.map((c) => c.slice()), SR, drumChain({ kit: "poprock", sample_mix: 100, reverb: 0 }), 100);
+  const synth = run();
+  // "sample" de bumbo com um tom de 1 kHz bem reconhecível, em 3 camadas
+  const layer = (amp: number) => Float32Array.from({ length: SR * 0.2 }, (_, i) => amp * Math.sin((2 * Math.PI * 1000 * i) / SR) * Math.exp(-i / (SR * 0.05)));
+  setDrumSamples({ kick: [layer(0.5), layer(0.8), layer(1)] });
+  const real = run();
+  setDrumSamples(null);
+  const band = (x: Float32Array[]) => {
+    const y = x[0].slice();
+    applySections(y, [...butterworth("hp", 4, 800, SR), ...butterworth("lp", 4, 1250, SR)]);
+    return y.reduce((s, v) => s + v * v, 0);
+  };
+  assert.ok(band(real) > band(synth) * 3, `energia em 1 kHz: sample ${band(real)} x sintetizado ${band(synth)}`);
+});
+
+test("Reverb: Large deixa mais cauda que Small", () => {
+  const { audio } = phoneGroove();
+  const tail = (reverb_size: string) => {
+    const out = runChain(audio.map((c) => c.slice()), SR, drumChain({ kit: "worship", sample_mix: 70, reverb_size, reverb: 80 }), 100);
+    // energia logo depois da última caixa (fim do arquivo), onde só sobra o reverb
+    const from = Math.round(SR * 9.55);
+    return out[0].slice(from).reduce((s, v) => s + v * v, 0);
+  };
+  assert.ok(tail("large") > tail("small") * 1.3, `large ${tail("large")} small ${tail("small")}`);
 });

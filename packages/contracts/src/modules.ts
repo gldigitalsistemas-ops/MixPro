@@ -23,10 +23,47 @@ export type ParamSpec =
       label: string;
       options: readonly { value: string; label: string }[];
       default: string;
+    }
+  | {
+      /** Sample da biblioteca (id), "synth" = timbre sintetizado, "" = automático pelo estilo. */
+      kind: "sample";
+      label: string;
+      piece: DrumPiece;
+      default: string;
     };
 
 export type NumberParam = Extract<ParamSpec, { kind: "number" }>;
 export type EnumParam = Extract<ParamSpec, { kind: "enum" }>;
+export type SampleParam = Extract<ParamSpec, { kind: "sample" }>;
+
+/** Tipos de peça da biblioteca de samples de bateria. */
+export const DRUM_PIECES = ["kick", "snare", "tom", "floor"] as const;
+export type DrumPiece = (typeof DRUM_PIECES)[number];
+
+const sample = (label: string, piece: DrumPiece): SampleParam => ({ kind: "sample", label, piece, default: "" });
+
+/** Modelos de amplificador (guitarra e baixo). */
+export const AMP_MODELS = [
+  { value: "clean_us", label: "Limpo Americano", group: "guitar", hint: "Limpo cristalino, graves firmes e brilho — o clássico dos palcos." },
+  { value: "jazz_clean", label: "Jazz Cristalino", group: "guitar", hint: "Transistor bem limpo e redondo, para jazz, funk e worship." },
+  { value: "crunch_uk", label: "Crunch Britânico", group: "guitar", hint: "Válvula quebrando de leve, médios agudos marcantes, muito dinâmico." },
+  { value: "rock_classic", label: "Rock Clássico", group: "guitar", hint: "Drive de válvula encorpado dos anos 70/80, médios na cara." },
+  { value: "hi_gain", label: "Hi-Gain Moderno", group: "guitar", hint: "Distorção pesada e apertada para rock pesado e metal." },
+  { value: "bass_vintage", label: "Baixo Valvulado", group: "bass", hint: "Grave gordo e quente de amplificador valvulado de estúdio." },
+  { value: "bass_modern", label: "Baixo Moderno Drive", group: "bass", hint: "Graves limpos com drive nos médios agudos, som de baixo moderno." },
+  { value: "bass_clean", label: "Baixo Limpo Hi-Fi", group: "bass", hint: "Transparente e definido, bom para slap e louvor." },
+] as const;
+export type AmpModel = (typeof AMP_MODELS)[number]["value"];
+
+export const CABINETS = [
+  { value: "auto", label: "Do amplificador" },
+  { value: "1x12", label: "Caixa 1x12" },
+  { value: "2x12", label: "Caixa 2x12" },
+  { value: "4x12", label: "Caixa 4x12" },
+  { value: "4x10b", label: "Baixo 4x10" },
+  { value: "8x10b", label: "Baixo 8x10" },
+  { value: "none", label: "Sem caixa (linha)" },
+] as const;
 
 export type ModuleSpec = {
   label: string;
@@ -210,9 +247,29 @@ export const MODULES = {
       target_db: num("Alvo", "dB", -40, 0, 0.1, -14, false),
     },
   },
+  amp: {
+    label: "Amplificador",
+    description: "Simula amplificador e caixa para guitarra ou baixo ligados direto (interface, pedaleira ou cabo).",
+    params: {
+      model: {
+        kind: "enum",
+        label: "Amplificador",
+        options: AMP_MODELS.map(({ value, label }) => ({ value, label })),
+        default: "clean_us",
+      },
+      gain: num("Ganho", undefined, 0, 10, 0.1, 5, true, 0),
+      bass: num("Graves", undefined, 0, 10, 0.1, 5, false),
+      mid: num("Médios", undefined, 0, 10, 0.1, 5, false),
+      treble: num("Agudos", undefined, 0, 10, 0.1, 5, false),
+      presence: num("Presença", undefined, 0, 10, 0.1, 5, false),
+      cabinet: { kind: "enum", label: "Caixa", options: CABINETS, default: "auto" },
+      blend: num("Amp x linha", "%", 0, 100, 1, 100, true, 0),
+      level_db: num("Volume", "dB", -12, 12, 0.1, 0, false),
+    },
+  },
   drum_studio: {
     label: "Bateria de estúdio",
-    description: "Identifica bumbo, caixa, tons e pratos e reforça cada peça com timbres de estúdio.",
+    description: "Identifica bumbo, caixa, tons e surdo e reforça cada batida com samples de bateria de estúdio.",
     params: {
       kit: {
         kind: "enum",
@@ -228,12 +285,27 @@ export const MODULES = {
         ],
         default: "poprock",
       },
-      sample_mix: num("Reforço das peças", "%", 0, 100, 1, 60, true, 0),
-      kick: num("Bumbo", "dB", -12, 12, 0.5, 0, false),
-      snare: num("Caixa", "dB", -12, 12, 0.5, 0, false),
-      toms: num("Tons", "dB", -12, 12, 0.5, 0, false),
-      cymbals: num("Pratos", "dB", -12, 12, 0.5, 0, false),
-      room: num("Sala", "%", 0, 100, 1, 30, true, 0),
+      sample_mix: num("Som de estúdio", "%", 0, 100, 1, 60, true, 0),
+      kick_sample: sample("Bumbo", "kick"),
+      snare_sample: sample("Caixa", "snare"),
+      tom1_sample: sample("Tom 1", "tom"),
+      tom2_sample: sample("Tom 2", "tom"),
+      floor_sample: sample("Surdo", "floor"),
+      kick: num("Volume do bumbo", "dB", -12, 12, 0.5, 0, false),
+      snare: num("Volume da caixa", "dB", -12, 12, 0.5, 0, false),
+      toms: num("Volume dos tons", "dB", -12, 12, 0.5, 0, false),
+      floor: num("Volume do surdo", "dB", -12, 12, 0.5, 0, false),
+      reverb_size: {
+        kind: "enum",
+        label: "Reverb",
+        options: [
+          { value: "small", label: "Small" },
+          { value: "medium", label: "Médio" },
+          { value: "large", label: "Large" },
+        ],
+        default: "medium",
+      },
+      reverb: num("Quantidade de reverb", "%", 0, 100, 1, 25, true, 0),
     },
   },
 } as const satisfies Record<string, ModuleSpec>;
