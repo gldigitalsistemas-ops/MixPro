@@ -219,36 +219,54 @@ export class ColorGrader {
     this.tex = tex;
   }
 
-  /** null quando o navegador não tem WebGL (aí o vídeo sai sem o tratamento de imagem). */
+  /**
+   * null quando o WebGL não está disponível. No iPhone o sistema pode negar o recurso (pouca memória de
+   * vídeo ou contextos demais abertos): aí createShader volta vazio. Antes isso quebrava a exportação
+   * ("shaderSource must be an instance of WebGLShader"); agora quem chama usa o tratamento pela CPU.
+   */
   static create(width: number, height: number): ColorGrader | null {
-    const canvas: Canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(width, height) : Object.assign(document.createElement("canvas"), { width, height });
-    const gl = canvas.getContext("webgl", { premultipliedAlpha: false, preserveDrawingBuffer: true }) as WebGLRenderingContext | null;
-    if (!gl) return null;
-    const sh = (type: number, src: string) => {
-      const s = gl.createShader(type)!;
-      gl.shaderSource(s, src);
-      gl.compileShader(s);
-      return s;
-    };
-    const prog = gl.createProgram()!;
-    gl.attachShader(prog, sh(gl.VERTEX_SHADER, VERT));
-    gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FRAG));
-    gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
-    gl.useProgram(prog);
-    const buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-    const loc = gl.getAttribLocation(prog, "p");
-    gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-    const tex = gl.createTexture()!;
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    return new ColorGrader(canvas, gl, prog, tex);
+    try {
+      const canvas: Canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(width, height) : Object.assign(document.createElement("canvas"), { width, height });
+      const gl = canvas.getContext("webgl", { premultipliedAlpha: false, preserveDrawingBuffer: true }) as WebGLRenderingContext | null;
+      if (!gl || gl.isContextLost()) return null;
+      const sh = (type: number, src: string) => {
+        const s = gl.createShader(type);
+        if (!s) return null;
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null;
+      };
+      const vs = sh(gl.VERTEX_SHADER, VERT);
+      const fs = sh(gl.FRAGMENT_SHADER, FRAG);
+      const prog = gl.createProgram();
+      if (!vs || !fs || !prog) return null;
+      gl.attachShader(prog, vs);
+      gl.attachShader(prog, fs);
+      gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
+      gl.useProgram(prog);
+      const buf = gl.createBuffer();
+      const tex = gl.createTexture();
+      if (!buf || !tex) return null;
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+      const loc = gl.getAttribLocation(prog, "p");
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      return new ColorGrader(canvas, gl, prog, tex);
+    } catch {
+      return null;
+    }
+  }
+
+  /** O sistema liberou a placa de vídeo no meio do caminho? */
+  get lost(): boolean {
+    return this.gl.isContextLost();
   }
 
   /** Desenha `src` tratado no canvas do WebGL (mesmo tamanho) e devolve esse canvas. */
@@ -276,5 +294,77 @@ export class ColorGrader {
       this.canvas.width = width;
       this.canvas.height = height;
     }
+  }
+}
+
+/**
+ * Mesmo tratamento pela CPU (canvas 2D), para quando o WebGL não está disponível: a cor e a vinheta
+ * ficam iguais; só a nitidez fica de fora. Mais lento, mas o vídeo sai com o filtro escolhido.
+ */
+export class CpuGrader {
+  readonly canvas: Canvas;
+  private ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+  private vigMap: Float32Array | null = null;
+  private vigKey = "";
+
+  private constructor(canvas: Canvas, ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D) {
+    this.canvas = canvas;
+    this.ctx = ctx;
+  }
+
+  static create(width: number, height: number): CpuGrader | null {
+    const canvas: Canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(width, height) : Object.assign(document.createElement("canvas"), { width, height });
+    const ctx = canvas.getContext("2d", { willReadFrequently: true }) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    return ctx ? new CpuGrader(canvas, ctx) : null;
+  }
+
+  resize(width: number, height: number) {
+    if (this.canvas.width !== width || this.canvas.height !== height) {
+      this.canvas.width = width;
+      this.canvas.height = height;
+    }
+  }
+
+  apply(src: CanvasImageSource, look: ColorLook): Canvas {
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    this.ctx.drawImage(src, 0, 0, w, h);
+    const img = this.ctx.getImageData(0, 0, w, h);
+    const d = img.data;
+    const m = lookMatrix(look);
+    const o0 = m[3] * 255;
+    const o1 = m[7] * 255;
+    const o2 = m[11] * 255;
+    const vig = (look.vignette / 100) * 0.55;
+    const map = vig > 0 ? this.vignette(w, h, vig) : null;
+    for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+      const r = d[i];
+      const g = d[i + 1];
+      const b = d[i + 2];
+      const k = map ? map[p] : 1;
+      d[i] = (m[0] * r + m[1] * g + m[2] * b + o0) * k;
+      d[i + 1] = (m[4] * r + m[5] * g + m[6] * b + o1) * k;
+      d[i + 2] = (m[8] * r + m[9] * g + m[10] * b + o2) * k;
+    }
+    this.ctx.putImageData(img, 0, 0);
+    return this.canvas;
+  }
+
+  /** Fator da vinheta por pixel (calculado uma vez por tamanho e força). */
+  private vignette(w: number, h: number, vig: number): Float32Array {
+    const key = `${w}x${h}x${vig}`;
+    if (this.vigMap && this.vigKey === key) return this.vigMap;
+    const map = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const dx = (x + 0.5) / w - 0.5;
+        const dy = (y + 0.5) / h - 0.5;
+        const t = Math.min(1, Math.max(0, (Math.hypot(dx, dy) * 1.35 - 0.35) / 0.5));
+        map[y * w + x] = 1 - vig * t * t * (3 - 2 * t);
+      }
+    }
+    this.vigMap = map;
+    this.vigKey = key;
+    return map;
   }
 }

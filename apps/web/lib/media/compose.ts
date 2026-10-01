@@ -1,6 +1,6 @@
 /** Composição de quadro (formato, enquadramento, legendas, selo, audiograma) — prévia e exportação usam a mesma. */
 import { drawCaptions, type CaptionRender } from "@/lib/captions/model";
-import { ColorGrader, lookIsActive, type ColorLook } from "./color";
+import { ColorGrader, CpuGrader, lookIsActive, type ColorLook } from "./color";
 
 export type VideoFormat = "original" | "9:16" | "1:1" | "4:5" | "16:9";
 export type Fit = "blur" | "crop";
@@ -77,14 +77,42 @@ export function drawEndCta(ctx: Ctx, W: number, H: number, t: number, cta: EndCt
 }
 
 let grader: ColorGrader | null | undefined;
+let cpu: CpuGrader | null | undefined;
+let gpuFailures = 0;
 
-/** Quadro com o tratamento de imagem aplicado (ou o próprio quadro, sem WebGL ou sem tratamento). */
+/**
+ * Quadro com o tratamento de imagem aplicado (ou o próprio quadro, sem tratamento). Usa a placa de
+ * vídeo (WebGL); se o sistema negar ou liberar a placa no meio do vídeo (comum no iPhone com pouca
+ * memória), tenta recriar uma vez e depois segue pela CPU, sem quebrar a exportação.
+ */
 export function gradeFrame(src: Source, sw: number, sh: number, look: ColorLook | null | undefined): Source {
   if (!look || !lookIsActive(look)) return src;
-  if (grader === undefined) grader = ColorGrader.create(Math.max(2, sw), Math.max(2, sh));
-  if (!grader) return src;
-  grader.resize(Math.max(2, Math.round(sw)), Math.max(2, Math.round(sh)));
-  return grader.apply(src as TexImageSource, look) as Source;
+  const w = Math.max(2, Math.round(sw));
+  const h = Math.max(2, Math.round(sh));
+  if (gpuFailures < 2) {
+    if (grader === undefined || grader?.lost) {
+      if (grader?.lost) gpuFailures++;
+      grader = gpuFailures < 2 ? ColorGrader.create(w, h) : null;
+      if (!grader) gpuFailures = 2;
+    }
+    if (grader) {
+      try {
+        grader.resize(w, h);
+        return grader.apply(src as TexImageSource, look) as Source;
+      } catch {
+        gpuFailures++;
+        grader = undefined;
+      }
+    }
+  }
+  if (cpu === undefined) cpu = CpuGrader.create(w, h);
+  if (!cpu) return src;
+  try {
+    cpu.resize(w, h);
+    return cpu.apply(src as CanvasImageSource, look) as Source;
+  } catch {
+    return src;
+  }
 }
 
 export type AudiogramStyle = {
