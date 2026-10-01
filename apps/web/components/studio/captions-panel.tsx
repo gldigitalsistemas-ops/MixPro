@@ -19,6 +19,8 @@ import {
 import { transcribe, type AsrModel, type TranscribeProgress } from "@/lib/captions/transcribe";
 import type { LoadedMedia } from "@/lib/media/load";
 import { cn, formatDuration } from "@/lib/cn";
+import { isPhone } from "@/lib/device";
+import { keepAwake } from "@/lib/wake-lock";
 import { track } from "@/lib/track";
 
 export type CaptionState = {
@@ -35,7 +37,12 @@ const LANGUAGES = [
   { value: "auto", label: "Detectar" },
 ];
 
-const MODELS: { value: AsrModel; label: string; hint: string }[] = [
+/** No celular, modelos que cabem na memória do navegador (o maior fechava a página). */
+const PHONE_MODELS: { value: AsrModel; label: string; hint: string }[] = [
+  { value: "leve", label: "Leve", hint: "40 MB · rápida e estável no celular" },
+  { value: "rapida", label: "Mais precisa", hint: "77 MB · pode travar em celulares mais simples" },
+];
+const DESKTOP_MODELS: { value: AsrModel; label: string; hint: string }[] = [
   { value: "rapida", label: "Rápida", hint: "77 MB · ideal no celular" },
   { value: "precisa", label: "Mais precisa", hint: "250 MB · melhor no computador" },
 ];
@@ -63,12 +70,16 @@ export function CaptionsPanel({
 }) {
   const toast = useToast();
   const [language, setLanguage] = useState("portuguese");
-  const [model, setModel] = useState<AsrModel>("rapida");
+  // o painel só aparece depois que um arquivo é aberto (nunca no servidor), então pode olhar o aparelho
+  const [MODELS] = useState(() => (isPhone() ? PHONE_MODELS : DESKTOP_MODELS));
+  const [model, setModel] = useState<AsrModel>(() => MODELS[0].value);
   const [translate, setTranslate] = useState(false);
   const [progress, setProgress] = useState<TranscribeProgress | null>(null);
 
   async function generate() {
+    if (progress) return;
     setProgress({ stage: "download", value: 0 });
+    const release = await keepAwake();
     try {
       const words = await transcribe(media.channels, media.sampleRate, { model, language, translate }, setProgress);
       if (!words.length) {
@@ -86,6 +97,7 @@ export function CaptionsPanel({
     } catch {
       toast.error("Não foi possível gerar as legendas. Verifique a internet (o modelo é baixado na primeira vez).");
     } finally {
+      release();
       setProgress(null);
     }
   }

@@ -10,7 +10,7 @@ const listeners = new Set<() => void>();
 /** Registra o service worker (compartilhar pela galeria) e guarda o convite de instalação do navegador. */
 export function PwaSetup() {
   useEffect(() => {
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch(() => {});
     const onPrompt = (e: Event) => {
       e.preventDefault();
       deferred = e as InstallEvent;

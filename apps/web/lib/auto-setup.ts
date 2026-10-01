@@ -54,10 +54,10 @@ export function autoSetup(a: AudioAnalysis, mediaKind: "video" | "audio"): AutoS
   const noise: NoiseChoice = a.noise === "noisy" ? "strong" : a.noise === "some" ? "light" : "off";
   if (noise === "strong") notes.push("Muito ruído de fundo (ventilador, ar, rua): remoção de ruído no máximo.");
   else if (noise === "light") notes.push("Um pouco de ruído de fundo: redução natural ligada.");
-  else if (a.kind === "speech" || a.kind === "singing") notes.push("Gravação limpa: remoção de ruído desligada para não mexer na voz.");
+  else if (a.kind === "speech") notes.push("Gravação limpa: remoção de ruído desligada para não mexer na voz.");
   else {
-    const what = a.kind === "drums" ? "da bateria" : a.kind === "music" ? "da música" : "do instrumento";
-    notes.push(`Remoção de ruído desligada: ela é feita para voz e estragaria o som ${what}.`);
+    const what = a.kind === "drums" ? "da bateria" : a.kind === "music" ? "da música" : a.kind === "singing" ? "do canto" : "do instrumento";
+    notes.push(`Som original mantido (sem remoção de ruído): ela é feita para fala e estragaria o som ${what}. Se quiser, ligue em “Ruído de fundo”.`);
   }
 
   if (a.clipping > 0.0005) notes.push("A gravação estourou em alguns trechos. Da próxima vez, afaste um pouco o celular da fonte.");

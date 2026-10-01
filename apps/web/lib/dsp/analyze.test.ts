@@ -70,6 +70,31 @@ test("Análise automática reconhece fala, música, bateria e instrumento", () =
   assert.equal(analyzeAudio([instrumentLike(20)], SR).kind, "instrument");
 });
 
+/** "Canto": a mesma voz com tom, mas em notas longas (~1 por segundo) e quase sem pausas. */
+function singingLike(seconds: number, noise = 0) {
+  const n = SR * seconds;
+  const notes = [196, 220, 247, 262, 294, 262, 247, 220];
+  const x = new Float32Array(n);
+  let ph = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / SR;
+    const f0 = notes[Math.floor(t / 1.2) % notes.length] * (1 + 0.01 * Math.sin(2 * Math.PI * 5.5 * t)); // vibrato
+    ph += (2 * Math.PI * f0) / SR;
+    let v = 0;
+    for (let h = 1; h <= 10; h++) v += (0.25 * Math.sin(h * ph)) / h;
+    const env = 0.6 + 0.4 * Math.min(1, (t % 1.2) / 0.08); // ataque curto e nota sustentada
+    x[i] = v * env + rnd() * noise;
+  }
+  applySections(x, [...butterworth("hp", 2, 250, SR), ...butterworth("lp", 2, 3000, SR)]);
+  return x;
+}
+
+test("Voz cantada é reconhecida como canto (não como fala) e mantém o som original", () => {
+  const a = analyzeAudio([singingLike(20, 0.01)], SR);
+  assert.equal(a.kind, "singing", JSON.stringify(a.features));
+  assert.equal(a.noise, "clean");
+});
+
 test("Ruído de fundo: medido na fala, nunca ligado em música ou bateria", () => {
   assert.equal(analyzeAudio([speechLike(20)], SR).noise, "clean");
   assert.notEqual(analyzeAudio([speechLike(20, 0.02)], SR).noise, "clean");

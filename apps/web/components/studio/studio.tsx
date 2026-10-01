@@ -35,6 +35,9 @@ import { NOISE_AMOUNT, NoiseSelector, type NoiseLevel } from "./noise-selector";
 import { PresetPicker } from "./preset-picker";
 import { StudioTour } from "./tour";
 import { CustomizePanel } from "./customize-panel";
+import { clearSession, loadSession, saveSessionFile, saveSessionState, type SavedSession } from "@/lib/session-store";
+import { ReverbPanel } from "./reverb-panel";
+import { reverbFromChain, withReverb, type ReverbTweak } from "@/lib/reverb-tweak";
 import { AutoSetupCard } from "./auto-setup-card";
 import { analyzeAudio } from "@/lib/dsp/analyze";
 import { autoSetup, pickPreset, type AutoSetup } from "@/lib/auto-setup";
@@ -125,6 +128,7 @@ export function Studio() {
   const [videoTools, setVideoTools] = useState<VideoToolsState | null>(null);
   const [music, setMusic] = useState<MusicState | null>(null);
   const [drumTweaks, setDrumTweaks] = useState<DrumTweaks | null>(null);
+  const [reverbTweak, setReverbTweak] = useState<ReverbTweak | null>(null);
   const [drumLibrary, setDrumLibrary] = useState<DrumLibraryItem[] | null>(null);
   const [drumSet, setDrumSet] = useState<{ key: string; set: DrumSampleSet } | null>(null);
   const [drumKits, setDrumKits] = useState<DrumKit[]>([]);
@@ -134,6 +138,8 @@ export function Studio() {
   // prévia do arquivo inteiro (em vez do melhor trecho de 20 s)
   const [fullPreview, setFullPreview] = useState(false);
   // ajuste automático: o que a análise encontrou no arquivo e o que ela escolheu
+  // edição anterior salva no aparelho (ex.: o navegador fechou a página): oferece continuar
+  const [resume, setResume] = useState<SavedSession | null>(null);
   const [auto, setAuto] = useState<AutoSetup | null>(null);
   // descrição do post: nicho, plataforma, variação ("Outra sugestão") e o texto editado pela pessoa
   const [chosenNiche, setNiche] = useState<NicheId | null>(null);
@@ -201,6 +207,7 @@ export function Studio() {
     setCategoryId(p.categoryId);
     setIntensity(null);
     setDrumTweaks(null);
+    setReverbTweak(null);
     setCustom(null);
   }, []);
 
@@ -249,7 +256,11 @@ export function Studio() {
   const unlocked = useMemo(() => (user ? unlockedList : new Set<string>()), [user, unlockedList]);
   const drumBase = useMemo(() => (drumParams ? drumDefaults(drumParams, drumLibrary ?? [], drumKits) : null), [drumParams, drumLibrary, drumKits]);
   const drumEff = drumParams ? (drumTweaks ?? drumBase) : null;
-  const chain = useMemo(() => (baseChain ? withDrumTweaks(baseChain, drumEff) : null), [baseChain, drumEff]);
+  const drumChain = useMemo(() => (baseChain ? withDrumTweaks(baseChain, drumEff) : null), [baseChain, drumEff]);
+  // reverb: um controle só (Small/Médio/Large + quantidade) para todos os presets
+  const reverbBase = useMemo(() => (drumChain ? reverbFromChain(drumChain) : null), [drumChain]);
+  const reverbEff = reverbTweak ?? reverbBase;
+  const chain = useMemo(() => (drumChain ? withReverb(drumChain, reverbTweak) : null), [drumChain, reverbTweak]);
 
   // baixa os samples escolhidos (uma vez por peça; ficam em memória)
   const drumKey = drumEff && drumLibrary && media ? `${JSON.stringify(drumEff.samples)}@${media.sampleRate}` : null;
@@ -334,7 +345,32 @@ export function Studio() {
     applyExcerpt(media, next ? { start: 0, end: media.channels[0].length, preroll: 0 } : pickExcerpt(media.channels, media.sampleRate));
   }
 
-  async function openFile(file: File) {
+  /** Volta as escolhas de uma edição salva no aparelho (depois que o arquivo é lido de novo). */
+  function applyRestore(r: Record<string, unknown>) {
+    const get = <T,>(k: string) => (k in r ? (r[k] as T) : undefined);
+    if (get<StudioPreset | null>("preset") !== undefined) setPreset(get<StudioPreset | null>("preset")!);
+    if (get<string | null>("categoryId") !== undefined) setCategoryId(get<string | null>("categoryId")!);
+    if (get<Intensity | null>("intensity") !== undefined) setIntensity(get<Intensity | null>("intensity")!);
+    if (get<NoiseLevel | null>("noise") !== undefined) setNoise(get<NoiseLevel | null>("noise")!);
+    if (typeof r.social === "boolean") setSocial(r.social);
+    if (get<CaptionState | null>("captionState") !== undefined) setCaptionState(get<CaptionState | null>("captionState")!);
+    const vt = get<VideoToolsState | null>("videoTools");
+    if (vt) setVideoTools((cur) => (cur ? { ...cur, ...vt, color: { ...cur.color, ...vt.color } } : vt));
+    if (get<DrumTweaks | null>("drumTweaks") !== undefined) setDrumTweaks(get<DrumTweaks | null>("drumTweaks")!);
+    if (get<ReverbTweak | null>("reverbTweak") !== undefined) setReverbTweak(get<ReverbTweak | null>("reverbTweak")!);
+    if (get<{ presetId: string; chain: ChainDoc } | null>("custom") !== undefined) setCustom(get<{ presetId: string; chain: ChainDoc } | null>("custom")!);
+    if (get<NicheId | null>("niche") !== undefined) setNiche(get<NicheId | null>("niche")!);
+    if (get<Platform | null>("platform") !== undefined) setPlatform(get<Platform | null>("platform")!);
+    if (get<string | null>("postEdit") !== undefined) setPostEdit(get<string | null>("postEdit")!);
+    if (typeof r.postVariant === "number") setPostVariant(r.postVariant);
+    if (typeof r.tab === "string") setTab(r.tab as Tab);
+    toast.success("Edição recuperada. Continue de onde parou.");
+  }
+
+  async function openFile(file: File, restore?: Record<string, unknown> | null) {
+    setResume(null);
+    // guarda o arquivo no aparelho: se a página cair, a edição volta daqui
+    if (!restore) void saveSessionFile(file);
     setLoading(0);
     setMedia(null);
     setProcessed(null);
@@ -351,6 +387,7 @@ export function Studio() {
     setVideoTools(null);
     setMusic(null);
     setDrumTweaks(null);
+    setReverbTweak(null);
     setCustom(null);
     setFullPreview(false);
     setPostEdit(null);
@@ -377,6 +414,7 @@ export function Studio() {
           .catch(() => {});
       }
       setMedia(m);
+      if (restore) applyRestore(restore);
       track("file_loaded", { kind: m.kind, seconds: Math.round(m.duration), content: setup?.kind ?? "?" });
     } catch (err) {
       toast.error(err instanceof MediaLoadError ? err.message : "Não foi possível abrir esse arquivo.");
@@ -384,6 +422,38 @@ export function Studio() {
       setLoading(null);
     }
   }
+
+  // edição salva no aparelho a cada mudança (sem o áudio decodificado nem a música de fundo)
+  useEffect(() => {
+    if (!media || loading !== null) return;
+    const t = setTimeout(() => {
+      void saveSessionState({
+        preset: chosenPreset,
+        categoryId,
+        intensity: chosenIntensity,
+        noise: chosenNoise,
+        social,
+        captionState,
+        videoTools: videoTools ? { ...videoTools, audiogram: videoTools.audiogram ? { ...videoTools.audiogram, image: null } : null } : null,
+        drumTweaks,
+        reverbTweak,
+        custom,
+        niche: chosenNiche,
+        platform: chosenPlatform,
+        postEdit,
+        postVariant,
+        tab,
+      });
+    }, 800);
+    return () => clearTimeout(t);
+  }, [media, loading, chosenPreset, categoryId, chosenIntensity, chosenNoise, social, captionState, videoTools, drumTweaks, reverbTweak, custom, chosenNiche, chosenPlatform, postEdit, postVariant, tab]);
+
+  useEffect(() => {
+    if (window.location.search.includes("compartilhado=1")) return;
+    loadSession()
+      .then((sess) => sess && setResume(sess))
+      .catch(() => {});
+  }, []);
 
   // Prévia do trecho com o preset atual (cancela a anterior se o usuário trocar rápido)
   useEffect(() => {
@@ -459,6 +529,9 @@ export function Studio() {
 
   const words = useMemo(() => (captionState ? allWords(captionState.captions) : null), [captionState]);
 
+  // A letra transcrita de canto/música não serve de descrição nem de título: aí valem os textos do nicho
+  const postWords = auto && auto.kind !== "speech" ? null : words;
+
   // Post: nicho (escolhido, lembrado no aparelho ou sugerido pela análise) e plataforma
   const niche: NicheId | null = useMemo(
     () => chosenNiche ?? (media ? storedNiche() : null) ?? suggestNiche(auto?.kind, preset?.categoryId),
@@ -468,10 +541,10 @@ export function Studio() {
   const postText = useMemo(
     () =>
       postEdit ??
-      composePost({ words, mediaKind: media?.kind === "video" || videoTools?.audiogram ? "video" : "audio", niche: nicheById(niche), platform, variant: postVariant }),
-    [postEdit, words, media?.kind, videoTools?.audiogram, niche, platform, postVariant],
+      composePost({ words: postWords, mediaKind: media?.kind === "video" || videoTools?.audiogram ? "video" : "audio", niche: nicheById(niche), platform, variant: postVariant }),
+    [postEdit, postWords, media?.kind, videoTools?.audiogram, niche, platform, postVariant],
   );
-  const coverSuggestion = useMemo(() => coverTitle(words, nicheById(niche), postVariant), [words, niche, postVariant]);
+  const coverSuggestion = useMemo(() => coverTitle(postWords, nicheById(niche), postVariant), [postWords, niche, postVariant]);
   const segments = useMemo(
     () => (media ? speechSegments(media.channels, media.sampleRate, media.audioStart, videoTools?.cut ?? "off", words) : []),
     [media, videoTools?.cut, words],
@@ -554,6 +627,7 @@ export function Studio() {
     // parte exatamente do que a pessoa está ouvindo (intensidade e ajustes da bateria incluídos)
     setCustom({ presetId: preset.id, chain: freezeChain(chain, dspIntensity) });
     setDrumTweaks(null);
+    setReverbTweak(null);
   }
 
   async function saveCustom(name: string): Promise<boolean> {
@@ -672,6 +746,33 @@ export function Studio() {
               Grátis.
             </p>
           </div>
+
+          {resume && loading === null && (
+            <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 rounded-3xl border border-violet-400/40 bg-primary/10 p-4 sm:flex-row sm:items-center">
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold">Continuar a edição de “{resume.file.name}”?</span>
+                <span className="block text-xs text-muted">
+                  Salva no seu aparelho em {new Date(resume.savedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}: preset, legendas,
+                  imagem, capa e post.
+                </span>
+              </span>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => void openFile(resume.file, resume.state)}>
+                  Continuar
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setResume(null);
+                    void clearSession();
+                  }}
+                >
+                  Descartar
+                </Button>
+              </div>
+            </div>
+          )}
 
           <button
             onClick={pick}
@@ -850,6 +951,11 @@ export function Studio() {
                     />
                   </Card>
                 )}
+                {reverbEff && reverbBase && (
+                  <Card className="p-4">
+                    <ReverbPanel value={reverbEff} defaults={reverbBase} onChange={setReverbTweak} />
+                  </Card>
+                )}
                 {preset && (
                   <Card className="p-4">
                     <CustomizePanel
@@ -934,13 +1040,14 @@ export function Studio() {
                     setPostVariant((v) => v + 1);
                     setPostEdit(null);
                   }}
-                  hasSpeech={Boolean(words?.length)}
+                  hasSpeech={Boolean(postWords?.length)}
                 />
               </Card>
             )}
 
-            {tab === "baixar" && (
-              <Card className="p-4">
+            {/* sempre montado (só escondido fora da aba): trocar de aba no meio da geração não perde o vídeo */}
+            {(
+              <Card className={cn("p-4", tab !== "baixar" && "hidden")}>
                 <h2 className="mb-3 font-display text-lg font-semibold">Baixar</h2>
                 <ExportPanel
                   media={media}

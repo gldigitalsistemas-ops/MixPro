@@ -170,14 +170,17 @@ export function analyzeAudio(audio: Signal, sr: number): AudioAnalysis {
 
   // pontuações simples por tipo (calibradas com gravações reais de fala, bateria no celular, música e guitarra)
   const scores: Record<ContentKind, number> = {
-    speech: (syllabic - 0.3) * 4 + (voiceBand - 0.35) * 2 + (depth > 0.45 ? 0.4 : 0) + (harm - 0.62) * 2 - (toneless ? 1.5 : 0),
-    // canto tem sílabas (mais lentas que a fala); instrumento sozinho quase não tem
+    // fala tem ritmo de sílabas; com notas sustentadas (pouca sílaba) não é fala
+    speech:
+      (syllabic - 0.3) * 4 + (voiceBand - 0.35) * 2 + (depth > 0.45 ? 0.4 : 0) + (harm - 0.62) * 2 - (toneless ? 1.5 : 0) - (syllabic < 0.25 ? 1.2 : 0),
+    // canto: voz com tom, notas sustentadas e energia na faixa da voz; instrumento sozinho tem pouca faixa de voz
     singing:
       (0.3 - Math.abs(syllabic - 0.3)) * 2 +
       (voiceBand - 0.35) * 2 +
       (depth > 0.3 && depth < 0.8 ? 0.2 : 0) -
       0.1 -
-      (syllabic < 0.22 ? 0.6 : 0) +
+      (syllabic < 0.22 && voiceBand < 0.55 ? 0.6 : 0) +
+      (syllabic < 0.3 && harm > 0.75 && voiceBand > 0.55 ? 1 : 0) +
       (harm - 0.62) * 2 -
       (toneless ? 1.5 : 0),
     drums: (low - 0.25) * 3 + (0.2 - voiceBand) * 3 + air * 4 + (depth > 0.8 ? 0.3 : 0) + (percussive ? 1.5 + (0.6 - harm) * 3 : 0),
@@ -188,8 +191,7 @@ export function analyzeAudio(audio: Signal, sr: number): AudioAnalysis {
   const confidence = Math.max(0, Math.min(1, 0.5 + (scores[ranked[0]] - scores[ranked[1]]) / 2));
   const kind = ranked[0];
 
-  // ruído de fundo só faz sentido medir (e remover) em voz: em música o "fundo" é a própria música
-  const vocal = kind === "speech" || kind === "singing";
-  const noise = !vocal ? "clean" : snrDb < 18 ? "noisy" : snrDb < 30 ? "some" : "clean";
+  // remoção de ruído só para fala: em canto, música e instrumentos ela estraga o som (o "fundo" é música)
+  const noise = kind !== "speech" ? "clean" : snrDb < 18 ? "noisy" : snrDb < 30 ? "some" : "clean";
   return { kind, confidence, snrDb, noise, clipping, rumble, features: { syllabic, depth, voiceBand, low, air, harmonicity: harm } };
 }

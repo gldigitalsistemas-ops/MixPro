@@ -2,6 +2,7 @@
 
 import { ALL_FORMATS, AudioBufferSink, BlobSource, Input, MATROSKA, WEBM } from "mediabunny";
 import type { Signal } from "@/lib/dsp/types";
+import { isPhone } from "@/lib/device";
 
 export type LoadedMedia = {
   file: File;
@@ -28,8 +29,7 @@ export class MediaLoadError extends Error {
  * Duração máxima: todo o áudio fica na memória (e é copiado ao processar e exportar).
  * No celular o navegador fecha a página perto de 1 GB, então o limite é menor.
  */
-const isPhone = () => typeof navigator !== "undefined" && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-export const maxDurationS = () => (isPhone() ? 10 : 15) * 60;
+export const maxDurationS = () => (isPhone() ? 5 : 15) * 60;
 
 const MESSAGES = {
   no_audio: "Esse vídeo não tem som. Escolha um vídeo com áudio.",

@@ -50,12 +50,6 @@ const CONTROLS: Record<Exclude<DrumSlot, "rimshot">, { volume?: Volume; tune?: T
   floor: { volume: "floor", tune: "floor_tune" },
 };
 
-const SIZES = [
-  { value: "small", label: "Small", hint: "sala pequena" },
-  { value: "medium", label: "Médio", hint: "estúdio" },
-  { value: "large", label: "Large", hint: "igreja / arena" },
-];
-
 const numOf = (v: unknown, d: number) =>
   typeof v === "number" ? v : typeof (v as { value?: number })?.value === "number" ? (v as { value: number }).value : d;
 
@@ -401,28 +395,6 @@ export function DrumPanel({
       {rooms && (
         <Slider label="Microfones de sala do kit" value={value.room} display={`${value.room} %`} min={0} max={100} step={5} onChange={(v) => set({ room: v })} />
       )}
-
-      <div className="flex flex-col gap-2">
-        <span className="text-xs text-muted">Reverb</span>
-        <div className="grid grid-cols-3 gap-1 rounded-xl border border-border-strong p-1" role="group" aria-label="Tamanho do reverb">
-          {SIZES.map((s) => (
-            <button
-              key={s.value}
-              type="button"
-              aria-pressed={value.reverb_size === s.value}
-              onClick={() => set({ reverb_size: s.value })}
-              className={cn(
-                "flex flex-col items-center rounded-lg py-1.5 text-xs font-semibold transition",
-                value.reverb_size === s.value ? "bg-brand text-white" : "text-muted hover:text-text",
-              )}
-            >
-              {s.label}
-              <span className="text-[10px] font-normal opacity-80">{s.hint}</span>
-            </button>
-          ))}
-        </div>
-        <Slider label="Quantidade de reverb" value={value.reverb} display={`${value.reverb} %`} min={0} max={100} step={5} onChange={(v) => set({ reverb: v })} />
-      </div>
 
       <p className="text-xs text-subtle">
         {hasLibrary

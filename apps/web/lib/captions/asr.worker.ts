@@ -2,7 +2,7 @@
 import { env, pipeline, type AutomaticSpeechRecognitionPipeline } from "@huggingface/transformers";
 import type { Word } from "./model";
 
-export type AsrModel = "rapida" | "precisa";
+export type AsrModel = "leve" | "rapida" | "precisa";
 export type AsrRequest = { audio: Float32Array; model: AsrModel; language: string; translate: boolean };
 export type AsrResponse =
   | { type: "download"; progress: number }
@@ -11,6 +11,7 @@ export type AsrResponse =
   | { type: "error"; message: string };
 
 const MODELS: Record<AsrModel, string> = {
+  leve: "onnx-community/whisper-tiny_timestamped",
   rapida: "onnx-community/whisper-base_timestamped",
   precisa: "onnx-community/whisper-small_timestamped",
 };

@@ -25,6 +25,8 @@ import type { DrumKit } from "@/lib/drums/library";
 import { beforeAfterAudio } from "@/lib/media/before-after";
 import { FILTERS, lookIsActive, lookMatrix } from "@/lib/media/color";
 import { BatchExport } from "./batch-export";
+import { keepAwake } from "@/lib/wake-lock";
+import { isPhone } from "@/lib/device";
 import { cn, formatDuration } from "@/lib/cn";
 
 export type Target = "video" | AudioFormat;
@@ -79,6 +81,16 @@ function fnv(text: string): string {
 const fileKey = (f: File) => fnv(`${f.name}|${f.size}|${f.lastModified}`);
 const canShareFiles = (file: File) => typeof navigator !== "undefined" && !!navigator.canShare?.({ files: [file] });
 
+/**
+ * Baixa a partir do arquivo em memória, com um link novo a cada clique (um link antigo pode ter
+ * sido liberado pelo navegador depois de muita memória em uso, e aí o download sai vazio).
+ */
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  triggerDownload(url, filename);
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 function triggerDownload(url: string, filename: string) {
   const a = document.createElement("a");
   a.href = url;
@@ -98,6 +110,7 @@ export function ExportPanel(props: Props) {
   const comparing = beforeAfter && media.kind === "video";
   const [lastResult, setResult] = useState<Result | null>(null);
   const cache = useRef<{ key: string; value: DspResult } | null>(null);
+  const running = useRef(false);
 
   // o áudio tratado (cache) só depende do som; o arquivo final depende também de cortes, formato e legendas
   const audioKey = preset && chain
@@ -143,11 +156,25 @@ export function ExportPanel(props: Props) {
     music ? safeCeiling(mixMusic(a, music.channels, media.sampleRate, music.level, 0, a[0].length), media.sampleRate) : a;
 
   async function run(target: Target) {
-    if (!preset || !settingsKey || phase) return;
-    if (!signedIn && !(await requireLogin("Crie sua conta grátis para baixar — os primeiros downloads são por nossa conta."))) return;
-    if (signedIn && balance !== null && balance <= 0) return onNeedCredits();
-    // kit premium: desbloqueia uma vez (ouvir e testar continuam livres)
-    if (lockedKits.length && !(await onUnlock(lockedKits))) return;
+    // trava contra toque duplo (o estado "phase" só muda depois do login/desbloqueio)
+    if (!preset || !settingsKey || phase || running.current) return;
+    running.current = true;
+    let release = () => {};
+    try {
+      if (!signedIn && !(await requireLogin("Crie sua conta grátis para baixar — os primeiros downloads são por nossa conta."))) return;
+      if (signedIn && balance !== null && balance <= 0) return onNeedCredits();
+      // kit premium: desbloqueia uma vez (ouvir e testar continuam livres)
+      if (lockedKits.length && !(await onUnlock(lockedKits))) return;
+      release = await keepAwake();
+      await generate(target);
+    } finally {
+      release();
+      running.current = false;
+    }
+  }
+
+  async function generate(target: Target) {
+    if (!preset || !settingsKey) return;
     try {
       setPhase({ label: "Aplicando o som no arquivo inteiro…", progress: 0 });
       const processed = await processFull();
@@ -181,11 +208,13 @@ export function ExportPanel(props: Props) {
       }
 
       await spend(`${settingsKey}_${target}`, target === "video" ? "video" : "audio");
+      // no celular, libera o áudio tratado da memória (gerar de novo é rápido; ficar com ele pode derrubar a página)
+      if (isPhone()) cache.current = null;
       track("export", { target, preset: preset.slug, captions: Boolean(look.captions), music: Boolean(music), before_after: comparing });
 
       const url = URL.createObjectURL(out.blob);
       setResult({ url, blob: out.blob, filename: out.filename, target, key: settingsKey });
-      if (!canShareFiles(new File([out.blob], out.filename, { type: out.blob.type }))) triggerDownload(url, out.filename);
+      if (!canShareFiles(new File([out.blob], out.filename, { type: out.blob.type }))) downloadBlob(out.blob, out.filename);
     } catch (err) {
       if (err instanceof NoCreditsError) onNeedCredits();
       else if (err instanceof NeedLoginError) void requireLogin("Entre na sua conta para baixar.");
@@ -221,7 +250,7 @@ export function ExportPanel(props: Props) {
       track("share", { target: result.target });
       if (await copied) toast.success("A legenda do post está copiada: cole na descrição.");
     } catch (e) {
-      if ((e as Error).name !== "AbortError") triggerDownload(result.url, result.filename);
+      if ((e as Error).name !== "AbortError") downloadBlob(result.blob, result.filename);
     }
   }
 
@@ -289,7 +318,7 @@ export function ExportPanel(props: Props) {
         <div className="flex flex-col gap-2 rounded-2xl bg-white/5 p-4" aria-live="polite">
           <p className="text-sm">{phase.label}</p>
           <ProgressBar value={phase.progress} label={phase.label} />
-          <p className="text-xs text-subtle">Tudo acontece no seu aparelho. Mantenha esta tela aberta.</p>
+          <p className="text-xs text-subtle">Tudo acontece no seu aparelho. Mantenha esta tela aberta e não troque de app até terminar.</p>
         </div>
       ) : (
         <div className="flex flex-col gap-2">
@@ -332,7 +361,7 @@ export function ExportPanel(props: Props) {
             <Button variant="secondary" onClick={() => copyPost()}>
               <Copy className="size-4" /> Copiar descrição
             </Button>
-            <Button variant={shareable ? "secondary" : "primary"} onClick={() => triggerDownload(result.url, result.filename)}>
+            <Button variant={shareable ? "secondary" : "primary"} onClick={() => downloadBlob(result.blob, result.filename)}>
               <Download className="size-4" /> Baixar arquivo
             </Button>
           </div>
