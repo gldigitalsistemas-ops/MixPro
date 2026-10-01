@@ -9,7 +9,11 @@
 
 const DB = "mixpro";
 const STORE = "session";
-const KEY = "current";
+/** O arquivo fica num registro e o estado em outro: salvar o estado (a cada mudança) não regrava o vídeo. */
+const FILE_KEY = "file";
+const STATE_KEY = "state";
+/** Formato antigo (arquivo e estado juntos). */
+const LEGACY_KEY = "current";
 /** Edição mais antiga que isso não é oferecida de volta. */
 const MAX_AGE_MS = 7 * 24 * 3600_000;
 
@@ -43,28 +47,36 @@ async function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBReq
   }
 }
 
-/** Guarda o arquivo ao abrir (o estado vem depois, a cada mudança). */
-export async function saveSessionFile(file: File): Promise<void> {
+/** Guarda o arquivo uma vez, depois de aberto (a sessão anterior já foi apagada por clearSession).
+ * Devolve o erro (sem espaço, modo privado) para registro. */
+export async function saveSessionFile(file: File): Promise<Error | null> {
   try {
-    await tx("readwrite", (s) => s.put({ file, savedAt: Date.now(), state: null } satisfies SavedSession, KEY));
-  } catch {
-    // sem espaço ou navegação privada: segue sem salvar
+    await tx("readwrite", (s) => s.put({ file, savedAt: Date.now() }, FILE_KEY));
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err : new Error(String(err));
   }
 }
 
+/** Estado da edição (registro pequeno, gravado a cada mudança). */
 export async function saveSessionState(state: Record<string, unknown>): Promise<void> {
   try {
-    const cur = await tx<SavedSession | undefined>("readonly", (s) => s.get(KEY));
-    if (!cur) return;
-    await tx("readwrite", (s) => s.put({ ...cur, state, savedAt: Date.now() }, KEY));
+    await tx("readwrite", (s) => s.put({ state, savedAt: Date.now() }, STATE_KEY));
   } catch {}
 }
 
 export async function loadSession(): Promise<SavedSession | null> {
   try {
-    const cur = await tx<SavedSession | undefined>("readonly", (s) => s.get(KEY));
-    if (!cur?.file || Date.now() - cur.savedAt > MAX_AGE_MS) return null;
-    return cur;
+    const f = await tx<{ file: File; savedAt: number } | undefined>("readonly", (s) => s.get(FILE_KEY));
+    if (f?.file) {
+      const st = await tx<{ state: Record<string, unknown>; savedAt: number } | undefined>("readonly", (s) => s.get(STATE_KEY));
+      const savedAt = Math.max(f.savedAt, st?.savedAt ?? 0);
+      if (Date.now() - savedAt > MAX_AGE_MS) return null;
+      return { file: f.file, savedAt, state: st?.state ?? null };
+    }
+    const old = await tx<SavedSession | undefined>("readonly", (s) => s.get(LEGACY_KEY));
+    if (!old?.file || Date.now() - old.savedAt > MAX_AGE_MS) return null;
+    return old;
   } catch {
     return null;
   }
@@ -72,6 +84,6 @@ export async function loadSession(): Promise<SavedSession | null> {
 
 export async function clearSession(): Promise<void> {
   try {
-    await tx("readwrite", (s) => s.delete(KEY));
+    for (const k of [FILE_KEY, STATE_KEY, LEGACY_KEY]) await tx("readwrite", (s) => s.delete(k));
   } catch {}
 }

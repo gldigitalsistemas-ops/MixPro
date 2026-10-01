@@ -1,5 +1,6 @@
 "use client";
 
+import { beginTask, reportError } from "@/lib/error-log";
 import { useState } from "react";
 import { Captions, Download, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -80,6 +81,7 @@ export function CaptionsPanel({
     if (progress) return;
     setProgress({ stage: "download", value: 0 });
     const release = await keepAwake();
+    const endTask = beginTask("legendas", "gerar legendas", { modelo: model, duracao_s: Math.round(media.duration) });
     try {
       const words = await transcribe(media.channels, media.sampleRate, { model, language, translate }, setProgress);
       if (!words.length) {
@@ -94,9 +96,11 @@ export function CaptionsPanel({
         position: value?.position ?? defaults?.position ?? "bottom",
         burnIn: media.kind === "video",
       });
-    } catch {
+    } catch (err) {
+      reportError("legendas", err, { context: { modelo: model, idioma: language, duracao_s: Math.round(media.duration) } });
       toast.error("Não foi possível gerar as legendas. Verifique a internet (o modelo é baixado na primeira vez).");
     } finally {
+      endTask();
       release();
       setProgress(null);
     }

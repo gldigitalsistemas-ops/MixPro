@@ -36,6 +36,8 @@ import { PresetPicker } from "./preset-picker";
 import { StudioTour } from "./tour";
 import { CustomizePanel } from "./customize-panel";
 import { clearSession, loadSession, saveSessionFile, saveSessionState, type SavedSession } from "@/lib/session-store";
+import { beginTask, reportError, setErrorContext } from "@/lib/error-log";
+import { InAppWarning } from "./in-app-warning";
 import { ReverbPanel } from "./reverb-panel";
 import { reverbFromChain, withReverb, type ReverbTweak } from "@/lib/reverb-tweak";
 import { AutoSetupCard } from "./auto-setup-card";
@@ -369,8 +371,9 @@ export function Studio() {
 
   async function openFile(file: File, restore?: Record<string, unknown> | null) {
     setResume(null);
-    // guarda o arquivo no aparelho: se a página cair, a edição volta daqui
-    if (!restore) void saveSessionFile(file);
+    // arquivo novo: a edição salva anterior deixa de valer
+    if (!restore) void clearSession();
+    const endTask = beginTask("abrir", "abrir o arquivo", { tamanho_mb: Math.round(file.size / 1e6), tipo: file.type || file.name.split(".").pop() });
     setLoading(0);
     setMedia(null);
     setProcessed(null);
@@ -416,9 +419,30 @@ export function Studio() {
       setMedia(m);
       if (restore) applyRestore(restore);
       track("file_loaded", { kind: m.kind, seconds: Math.round(m.duration), content: setup?.kind ?? "?" });
+      setErrorContext({
+        arquivo: m.kind,
+        duracao_s: Math.round(m.duration),
+        tamanho_mb: Math.round(file.size / 1e6),
+        formato: file.type || file.name.split(".").pop(),
+        taxa: m.sampleRate,
+        canais: m.channels.length,
+        conteudo: setup?.kind,
+      });
+      // guarda o arquivo no aparelho depois de aberto (gravar junto com a decodificação pesava no celular)
+      if (!restore) {
+        setTimeout(() => {
+          void saveSessionFile(file).then((err) => err && reportError("salvar-edicao", err, { severity: "aviso", context: { tamanho_mb: Math.round(file.size / 1e6) } }));
+        }, 1500);
+      }
     } catch (err) {
+      const userProblem = err instanceof MediaLoadError && err.code !== "decode";
+      reportError("abrir-arquivo", err, {
+        severity: userProblem ? "aviso" : "erro",
+        context: { codigo: err instanceof MediaLoadError ? err.code : undefined, tamanho_mb: Math.round(file.size / 1e6), tipo: file.type || file.name.split(".").pop() },
+      });
       toast.error(err instanceof MediaLoadError ? err.message : "Não foi possível abrir esse arquivo.");
     } finally {
+      endTask();
       setLoading(null);
     }
   }
@@ -459,8 +483,10 @@ export function Studio() {
   useEffect(() => {
     if (!media || !excerpt || !preset || !chain || !assetsReady) return;
     const ctrl = new AbortController();
+    let endTask = () => {};
     const timer = setTimeout(() => {
       setPreviewBusy("Aplicando o preset…");
+      endTask = beginTask("previa", "aplicar o preset na prévia", { preset: preset.slug });
       const from = excerpt.start - excerpt.preroll;
       runDsp(
         {
@@ -495,12 +521,15 @@ export function Studio() {
         .catch((err) => {
           if (err instanceof DspAbortError) return;
           setPreviewBusy(null);
+          reportError("previa", err, { context: { preset: preset.slug } });
           toast.error("Não foi possível aplicar este preset. Tente outro.");
-        });
+        })
+        .finally(() => endTask());
     }, 150);
     return () => {
       clearTimeout(timer);
       ctrl.abort();
+      endTask();
     };
   }, [media, excerpt, preset, chain, dspIntensity, social, denoiseAmount, music, assetsReady, drumSamples, impulses]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -750,6 +779,8 @@ export function Studio() {
               Grátis.
             </p>
           </div>
+
+          <InAppWarning />
 
           {resume && loading === null && (
             <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 rounded-3xl border border-violet-400/40 bg-primary/10 p-4 sm:flex-row sm:items-center">

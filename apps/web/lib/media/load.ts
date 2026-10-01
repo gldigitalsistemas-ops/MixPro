@@ -1,6 +1,6 @@
 "use client";
 
-import { ALL_FORMATS, AudioBufferSink, BlobSource, Input, MATROSKA, WEBM } from "mediabunny";
+import { ALL_FORMATS, AudioBufferSink, BlobSource, BufferTarget, Conversion, Input, MATROSKA, Mp4OutputFormat, Output, WEBM, WebMOutputFormat } from "mediabunny";
 import type { Signal } from "@/lib/dsp/types";
 import { isPhone } from "@/lib/device";
 
@@ -111,18 +111,53 @@ function sameSamples(a: Float32Array, b: Float32Array): boolean {
   return true;
 }
 
-/** Reserva para navegadores sem WebCodecs: o próprio navegador decodifica o arquivo inteiro. */
+/** Passa o áudio decodificado pelo navegador para o formato do app (mono duplicado vira um canal). */
+function fromAudioBuffer(buffer: AudioBuffer) {
+  const first = buffer.getChannelData(0);
+  const second = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : null;
+  const channels = second && !sameSamples(first, second) ? [first.slice(), second.slice()] : [first.slice()];
+  return { channels, sampleRate: buffer.sampleRate, start: 0, duration: buffer.duration };
+}
+
+const ctxRate = (sr: number) => (sr >= 8000 && sr <= 96000 ? sr : 48000);
+
+/**
+ * Navegador sem decodificador de áudio do WebCodecs (iPhone com iOS antigo, em qualquer navegador,
+ * já que todos usam o motor do Safari): copia só a trilha de áudio para um arquivo pequeno (sem
+ * decodificar nada, ~1 MB por minuto) e o navegador decodifica esse arquivo. Antes o vídeo inteiro
+ * (centenas de MB) era lido para a memória, o que fechava a página no celular.
+ */
+async function decodeViaAudioCopy(file: File, sampleRate: number, codec: string | null, start: number, onProgress: (v: number) => void) {
+  const webm = codec === "opus" || codec === "vorbis";
+  const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+  const output = new Output({ format: webm ? new WebMOutputFormat() : new Mp4OutputFormat({ fastStart: "in-memory" }), target: new BufferTarget() });
+  try {
+    const conversion = await Conversion.init({ input, output, tracks: "primary", video: { discard: true }, showWarnings: false });
+    if (!conversion.isValid) throw fail("decode");
+    conversion.onProgress = (p) => onProgress(p * 0.7);
+    await conversion.execute();
+    const bytes = output.target.buffer;
+    if (!bytes) throw fail("decode");
+    const buffer = await new OfflineAudioContext(1, 1, ctxRate(sampleRate)).decodeAudioData(bytes).catch(() => {
+      throw fail("decode");
+    });
+    onProgress(1);
+    return { ...fromAudioBuffer(buffer), start };
+  } finally {
+    input.dispose();
+  }
+}
+
+/** Último recurso: o navegador decodifica o arquivo inteiro (só para arquivos pequenos no celular). */
 async function decodeWithWebAudio(file: File, kind: LoadedMedia["kind"]) {
+  // ler um vídeo grande inteiro para a memória derruba o navegador do celular
+  if (isPhone() && file.size > 250e6) throw fail("decode");
   const ctx = new OfflineAudioContext(1, 1, 48000);
   const buffer = await ctx.decodeAudioData(await file.arrayBuffer()).catch(() => {
     throw fail("decode");
   });
   if (buffer.duration > maxDurationS(kind)) throw fail("too_long", kind);
-  const first = buffer.getChannelData(0);
-  const second = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : null;
-  // mono duplicado em estéreo vira um canal só (metade da memória)
-  const channels = second && !sameSamples(first, second) ? [first.slice(), second.slice()] : [first.slice()];
-  return { channels, sampleRate: buffer.sampleRate, start: 0, duration: buffer.duration };
+  return fromAudioBuffer(buffer);
 }
 
 export async function loadMedia(file: File, onProgress: (v: number) => void): Promise<LoadedMedia> {
@@ -135,7 +170,12 @@ export async function loadMedia(file: File, onProgress: (v: number) => void): Pr
     const format = await input.getFormat();
     if (format === WEBM || format === MATROSKA) videoContainer = "webm";
     kind = (await input.getPrimaryVideoTrack()) ? "video" : "audio";
-    decoded = await decodeWithMediabunny(input, kind, onProgress);
+    const track = await input.getPrimaryAudioTrack();
+    if (!track) throw fail("no_audio");
+    // a duração vem do cabeçalho: arquivo longo demais é recusado antes de qualquer trabalho pesado
+    if ((await track.computeDuration()) > maxDurationS(kind)) throw fail("too_long", kind);
+    if (await track.canDecode()) decoded = await decodeWithMediabunny(input, kind, onProgress);
+    else decoded = await decodeViaAudioCopy(file, track.sampleRate, track.codec, Math.max(0, await track.getFirstTimestamp()), onProgress);
   } catch (err) {
     if (err instanceof MediaLoadError && err.code !== "decode") throw err;
     decoded = await decodeWithWebAudio(file, kind);

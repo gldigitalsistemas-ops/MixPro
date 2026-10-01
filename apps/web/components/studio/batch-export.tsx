@@ -1,5 +1,6 @@
 "use client";
 
+import { reportError } from "@/lib/error-log";
 import { useRef, useState } from "react";
 import { CheckCircle2, Download, Files, Loader2, Share2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -127,9 +128,11 @@ export function BatchExport(props: {
           patch(i, { state: "error", error: "Entre na sua conta" });
           break;
         }
+        const known = err instanceof MediaLoadError || err instanceof MediaError;
+        reportError("lote", err, { severity: known ? "aviso" : "erro", context: { tamanho_mb: Math.round(file.size / 1e6), tipo: file.type } });
         patch(i, {
           state: "error",
-          error: err instanceof MediaLoadError || err instanceof MediaError ? err.message : "Não foi possível processar este arquivo.",
+          error: known ? (err as Error).message : "Não foi possível processar este arquivo.",
         });
       }
     }

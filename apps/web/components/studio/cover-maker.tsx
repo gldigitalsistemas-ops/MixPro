@@ -1,5 +1,6 @@
 "use client";
 
+import { reportError } from "@/lib/error-log";
 import { useEffect, useRef, useState } from "react";
 import { ImageDown, Loader2, Share2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -120,7 +121,8 @@ export function CoverMaker({ media, look, suggestion }: { media: LoadedMedia; lo
       const withUrls = await Promise.all(best.map(async (f) => ({ ...f, url: await toDataUrl(f.canvas) })));
       setFrames(withUrls);
       if (withUrls[0]) setTime(withUrls[0].t);
-    } catch {
+    } catch (err) {
+      reportError("capa-quadros", err);
       toast.error("Não foi possível ler os quadros do vídeo.");
     } finally {
       setLoading(false);
@@ -180,7 +182,8 @@ export function CoverMaker({ media, look, suggestion }: { media: LoadedMedia; lo
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 1000);
       }
-    } catch {
+    } catch (err) {
+      reportError("capa", err);
       toast.error("Não foi possível gerar a capa.");
     } finally {
       setBusy(false);

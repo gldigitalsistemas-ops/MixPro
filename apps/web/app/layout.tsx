@@ -3,6 +3,7 @@ import { Inter, Montserrat, Sora } from "next/font/google";
 import { ToastProvider } from "@/components/ui/toast";
 import { PwaSetup } from "@/components/pwa/pwa";
 import { UpdateBanner } from "@/components/pwa/update-banner";
+import { ErrorReporter } from "@/components/errors/error-reporter";
 import "./globals.css";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"], display: "swap" });
@@ -37,6 +38,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <ToastProvider>{children}</ToastProvider>
         <PwaSetup />
         <UpdateBanner />
+        <ErrorReporter />
       </body>
     </html>
   );

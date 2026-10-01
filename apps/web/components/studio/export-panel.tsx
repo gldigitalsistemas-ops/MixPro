@@ -1,5 +1,6 @@
 "use client";
 
+import { beginTask, reportError } from "@/lib/error-log";
 import { useEffect, useRef, useState } from "react";
 import { AudioLines, Copy, Download, Film, Music, Share2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -166,7 +167,12 @@ export function ExportPanel(props: Props) {
       // kit premium: desbloqueia uma vez (ouvir e testar continuam livres)
       if (lockedKits.length && !(await onUnlock(lockedKits))) return;
       release = await keepAwake();
-      await generate(target);
+      const endTask = beginTask("exportar", target === "video" ? "gerar o vídeo" : `gerar o áudio (${target})`, { formato: target, preset: preset.slug });
+      try {
+        await generate(target);
+      } finally {
+        endTask();
+      }
     } finally {
       release();
       running.current = false;
@@ -218,9 +224,12 @@ export function ExportPanel(props: Props) {
     } catch (err) {
       if (err instanceof NoCreditsError) onNeedCredits();
       else if (err instanceof NeedLoginError) void requireLogin("Entre na sua conta para baixar.");
-      else if (err instanceof MediaError) toast.error(err.message);
-      else {
+      else if (err instanceof MediaError) {
+        reportError("exportar", err, { severity: "aviso", context: { formato: target, preset: preset.slug } });
+        toast.error(err.message);
+      } else {
         console.error("[export]", err);
+        reportError("exportar", err, { context: { formato: target, preset: preset.slug, legendas: Boolean(look.captions), cortes: cutting } });
         toast.error("Não foi possível gerar o arquivo neste aparelho. Tente de novo ou baixe só o áudio.");
       }
     } finally {

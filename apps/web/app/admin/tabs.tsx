@@ -12,6 +12,7 @@ const TABS = [
   { href: "/admin/pedidos-pro", label: "Mixagem Pro" },
   { href: "/admin/pagamentos", label: "Pagamentos" },
   { href: "/admin/usuarios", label: "Usuários" },
+  { href: "/admin/logs", label: "Logs" },
   { href: "/admin/configuracoes", label: "Configurações" },
 ];
 
