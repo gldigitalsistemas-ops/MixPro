@@ -1,7 +1,7 @@
 import { requireAdmin, supabaseAdmin } from "@/lib/supabase/server";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { formatDateTime } from "@/lib/cn";
+import { formatDateTime, startOfMonthBrasilia } from "@/lib/cn";
 import { checkCredentials } from "@/lib/payments";
 import { publicEnv } from "@/lib/public-env";
 
@@ -52,9 +52,7 @@ export default async function AdminPayments() {
   ];
   const emails = new Map((authList?.users ?? []).map((u) => [u.id, u.email ?? ""]));
   const approved = (orders ?? []).filter((o) => o.status === "approved");
-  const month = new Date();
-  month.setDate(1);
-  month.setHours(0, 0, 0, 0);
+  const month = startOfMonthBrasilia();
   const sum = (list: typeof approved) => list.reduce((n, o) => n + Number(o.amount_brl), 0);
   const thisMonth = approved.filter((o) => new Date(o.created_at as string) >= month);
 

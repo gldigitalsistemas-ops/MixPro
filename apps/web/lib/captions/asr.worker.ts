@@ -58,6 +58,22 @@ function splitAtSilence(x: Float32Array): { offset: number; data: Float32Array }
   return out;
 }
 
+/**
+ * Em trecho sem fala (música, bateria, silêncio) o Whisper inventa frases de encerramento de vídeo
+ * ou estica uma palavra pelo bloco inteiro.
+ *  - sempre inventadas: créditos de legenda, "obrigado por assistir", "inscreva-se", reticências, ♪;
+ *  - "tchau", "obrigado"… soltos: só quando são tudo o que foi reconhecido no arquivo (podem ser fala real).
+ */
+const ALWAYS_FAKE = /^(obrigad[oa] por assistir|inscreva-se.*|legendas? (pela|por|de) .*|.*amara\.org.*|thanks? (you )?for watching|♪+|\.+|…)[.!?…]*$/i;
+const FAKE_IF_ALONE = /^(tchau|obrigad[oa]( pela atenção)?|até a próxima|thank you|you|música)[.!?…]*$/i;
+
+function dropHallucinations(block: Word[]): Word[] {
+  const text = block.map((w) => w.text).join(" ").trim();
+  if (!text || ALWAYS_FAKE.test(text)) return [];
+  // palavra de mais de 8 s não é fala (nota longa de canto passa: ela vem junto de outras palavras)
+  return block.filter((w) => w.end - w.start <= 8 || block.length > 3);
+}
+
 let cached: { model: AsrModel; asr: Promise<AutomaticSpeechRecognitionPipeline> } | null = null;
 
 function load(model: AsrModel) {
@@ -100,13 +116,13 @@ self.onmessage = async (e: MessageEvent<AsrRequest>) => {
         task: translate ? "translate" : "transcribe",
         return_timestamps: "word",
       });
-      for (const c of r.chunks ?? []) {
-        const [s, en] = c.timestamp;
-        words.push({ text: c.text.trim(), start: offset + s, end: offset + (en ?? s + 0.3) });
-      }
+      const block = (r.chunks ?? []).map((c) => ({ text: c.text.trim(), start: offset + c.timestamp[0], end: offset + (c.timestamp[1] ?? c.timestamp[0] + 0.3) }));
+      words.push(...dropHallucinations(block));
       post({ type: "progress", value: (i + 1) / parts.length });
     }
-    post({ type: "done", words: words.filter((w) => w.text) });
+    const all = words.filter((w) => w.text);
+    const onlyGoodbye = FAKE_IF_ALONE.test(all.map((w) => w.text).join(" ").trim());
+    post({ type: "done", words: onlyGoodbye ? [] : all });
   } catch (err) {
     post({ type: "error", message: err instanceof Error ? err.message : String(err) });
   }

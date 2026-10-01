@@ -63,7 +63,10 @@ async function decodeWithMediabunny(
 
   const duration = await track.computeDuration();
   if (duration > maxDurationS(kind)) throw fail("too_long", kind);
-  const start = Math.max(0, await track.getFirstTimestamp());
+  // AAC começa um pouco antes do zero (pré-enchimento do codificador, ~48 ms nos vídeos de iPhone):
+  // esse trecho é descartado para a amostra 0 cair no instante 0 do vídeo (som e legenda em sincronia)
+  const first = await track.getFirstTimestamp();
+  const start = Math.max(0, first);
   const sr = track.sampleRate;
   const nch = Math.min(2, track.numberOfChannels);
 
@@ -102,8 +105,9 @@ async function decodeWithMediabunny(
     len += n;
     if (duration > 0) onProgress(Math.min(1, len / sr / duration));
   }
-  const channels = (right ? [left, right] : [left]).map((ch) => ch.subarray(0, len));
-  return { channels, sampleRate: sr, start, duration: len / sr };
+  const skip = first < 0 ? Math.min(len, Math.round(-first * sr)) : 0;
+  const channels = (right ? [left, right] : [left]).map((ch) => ch.subarray(skip, len));
+  return { channels, sampleRate: sr, start, duration: (len - skip) / sr };
 }
 
 function sameSamples(a: Float32Array, b: Float32Array): boolean {

@@ -23,12 +23,21 @@ export function formatBytes(bytes: number | null | undefined): string {
   return `${v.toLocaleString("pt-BR", { maximumFractionDigits: i ? 1 : 0 })} ${units[i]}`;
 }
 
-export function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+/** Todo o app mostra datas no horário de Brasília (o servidor roda em UTC). */
+export const TIME_ZONE = "America/Sao_Paulo";
+
+export function formatDate(iso: string | number | null | undefined): string {
+  if (iso == null || iso === "") return "—";
+  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: TIME_ZONE });
 }
 
-export function formatDateTime(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+export function formatDateTime(iso: string | number | null | undefined): string {
+  if (iso == null || iso === "") return "—";
+  return new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: TIME_ZONE });
+}
+
+/** Começo do mês atual no horário de Brasília (UTC-3, sem horário de verão desde 2019). */
+export function startOfMonthBrasilia(now = new Date()): Date {
+  const [y, m] = new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE, year: "numeric", month: "2-digit" }).format(now).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, 1, 3));
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { alignWords } from "@/lib/captions/align";
 import { beginTask, reportError, updateTask } from "@/lib/error-log";
 import { useState } from "react";
 import { Captions, Download, RotateCcw } from "lucide-react";
@@ -84,7 +85,7 @@ export function CaptionsPanel({
     const endTask = beginTask("legendas", "gerar legendas", { modelo: model, duracao_s: Math.round(media.duration) });
     try {
       let lastDownload = -1;
-      const words = await transcribe(
+      const raw = await transcribe(
         media.channels,
         media.sampleRate,
         { model, language, translate },
@@ -99,6 +100,13 @@ export function CaptionsPanel({
         },
         (stage) => updateTask("legendas", { passo: stage }),
       );
+      // tempo de cada palavra colado no som (o Whisper erra 250–550 ms) e na linha do tempo do vídeo
+      updateTask("legendas", { passo: "sincronizando com o áudio" });
+      const words = alignWords(raw, media.channels, media.sampleRate).map((w) => ({
+        ...w,
+        start: w.start + media.audioStart,
+        end: w.end + media.audioStart,
+      }));
       if (!words.length) {
         toast.info("Não encontramos fala neste arquivo.");
         return;

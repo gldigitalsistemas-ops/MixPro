@@ -12,7 +12,7 @@ import { useToast } from "@/components/ui/toast";
 import { NeedLoginError } from "@/lib/account";
 import { useAccountCtx } from "@/components/account/account-provider";
 import { takeSharedFile } from "@/components/pwa/pwa";
-import { cn, formatDuration } from "@/lib/cn";
+import { cn, formatDuration, TIME_ZONE } from "@/lib/cn";
 import { integratedLoudness, waveformPeaks } from "@/lib/dsp/loudness";
 import { DspAbortError, runDsp } from "@/lib/dsp/runner";
 import { pickExcerpt, toAudioBuffer, type Excerpt } from "@/lib/media/excerpt";
@@ -795,7 +795,7 @@ export function Studio() {
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-semibold">Continuar a edição de “{resume.file.name}”?</span>
                 <span className="block text-xs text-muted">
-                  Salva no seu aparelho em {new Date(resume.savedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}: preset, legendas,
+                  Salva no seu aparelho em {new Date(resume.savedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: TIME_ZONE })}: preset, legendas,
                   imagem, capa e post.
                 </span>
               </span>
