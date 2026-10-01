@@ -1,6 +1,6 @@
 "use client";
 
-import { beginTask, reportError } from "@/lib/error-log";
+import { beginTask, reportError, updateTask } from "@/lib/error-log";
 import { useState } from "react";
 import { Captions, Download, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -83,7 +83,22 @@ export function CaptionsPanel({
     const release = await keepAwake();
     const endTask = beginTask("legendas", "gerar legendas", { modelo: model, duracao_s: Math.round(media.duration) });
     try {
-      const words = await transcribe(media.channels, media.sampleRate, { model, language, translate }, setProgress);
+      let lastDownload = -1;
+      const words = await transcribe(
+        media.channels,
+        media.sampleRate,
+        { model, language, translate },
+        (p) => {
+          setProgress(p);
+          // registra o avanço do download em passos de 25% (não a cada pedacinho)
+          const step = p.stage === "download" ? Math.floor(p.value * 4) : -1;
+          if (step !== lastDownload && step >= 0) {
+            lastDownload = step;
+            updateTask("legendas", { passo: `baixando a IA ${step * 25}%` });
+          }
+        },
+        (stage) => updateTask("legendas", { passo: stage }),
+      );
       if (!words.length) {
         toast.info("Não encontramos fala neste arquivo.");
         return;

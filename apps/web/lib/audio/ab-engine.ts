@@ -112,7 +112,9 @@ export class ABEngine {
 
   currentTime(): number {
     if (!this.playing || !this.graph) return this.offset;
-    const t = this.offset + (this.graph.ctx.currentTime - this.startedAt);
+    // logo depois do play o início ainda está agendado (startedAt no futuro): sem isso a posição
+    // ficava negativa e o Safari recusava tocar ("offset value should be positive")
+    const t = Math.max(0, this.offset + (this.graph.ctx.currentTime - this.startedAt));
     const d = this.duration;
     return d > 0 && this.loop ? t % d : Math.min(t, d);
   }
@@ -162,6 +164,7 @@ export class ABEngine {
   }
 
   private start(at: number) {
+    at = Number.isFinite(at) ? Math.max(0, at) : 0;
     const { ctx, gainA, gainB } = this.g();
     const when = ctx.currentTime + 0.03;
     const mk = (buf: AudioBuffer | null, gain: GainNode) => {
@@ -212,7 +215,7 @@ export class ABEngine {
   }
 
   seek(seconds: number) {
-    const t = Math.max(0, Math.min(seconds, this.duration));
+    const t = Number.isFinite(seconds) ? Math.max(0, Math.min(seconds, this.duration)) : 0;
     if (this.playing) {
       this.stopSources();
       this.start(t);

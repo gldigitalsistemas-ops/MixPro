@@ -7,6 +7,7 @@ export type AsrRequest = { audio: Float32Array; model: AsrModel; language: strin
 export type AsrResponse =
   | { type: "download"; progress: number }
   | { type: "progress"; value: number }
+  | { type: "stage"; stage: string }
   | { type: "done"; words: Word[] }
   | { type: "error"; message: string };
 
@@ -18,6 +19,19 @@ const MODELS: Record<AsrModel, string> = {
 const SR = 16000;
 
 env.allowLocalModels = false;
+
+// Motor ONNX só na CPU: a versão normal (14 MB). No Safari 26 a biblioteca escolhia sozinha a versão
+// "asyncify" (27 MB, feita para a placa de vídeo), que gasta muito mais memória para compilar e
+// derrubava a página no iPhone ao gerar legendas. Uma thread só (sem isolamento de origem não há mais).
+const onnx = env.backends.onnx as { wasm?: { wasmPaths?: unknown; numThreads?: number }; versions?: { web?: string } };
+if (onnx?.wasm) {
+  const v = onnx.versions?.web;
+  if (v) {
+    const base = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${v}/dist/ort-wasm-simd-threaded`;
+    onnx.wasm.wasmPaths = { mjs: `${base}.mjs`, wasm: `${base}.wasm` };
+  }
+  onnx.wasm.numThreads = 1;
+}
 
 const post = (m: AsrResponse) => self.postMessage(m);
 
@@ -72,11 +86,13 @@ function load(model: AsrModel) {
 self.onmessage = async (e: MessageEvent<AsrRequest>) => {
   const { audio, model, language, translate } = e.data;
   try {
+    post({ type: "stage", stage: "carregando a IA" });
     const asr = await load(model);
     const parts = splitAtSilence(audio);
     const words: Word[] = [];
     post({ type: "progress", value: 0 });
     for (let i = 0; i < parts.length; i++) {
+      post({ type: "stage", stage: `ouvindo o bloco ${i + 1} de ${parts.length}` });
       const { offset, data } = parts[i];
       const r = await asr(data, {
         language: language === "auto" ? undefined : language,

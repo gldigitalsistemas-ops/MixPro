@@ -20,6 +20,8 @@ export function transcribe(
   sampleRate: number,
   opts: { model: AsrModel; language: string; translate?: boolean },
   onProgress: (p: TranscribeProgress) => void,
+  /** Passo atual (para o registro de quedas: mostra onde a página caiu). */
+  onStage?: (stage: string) => void,
 ): Promise<Word[]> {
   current?.terminate();
   const w = new Worker(new URL("./asr.worker.ts", import.meta.url), { type: "module" });
@@ -36,6 +38,7 @@ export function transcribe(
       const m = e.data;
       if (m.type === "download") onProgress({ stage: "download", value: m.progress });
       else if (m.type === "progress") onProgress({ stage: "transcribe", value: m.value });
+      else if (m.type === "stage") onStage?.(m.stage);
       else if (m.type === "done") {
         finish();
         resolve(m.words);

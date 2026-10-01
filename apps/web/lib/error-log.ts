@@ -275,6 +275,14 @@ export function beginTask(id: string, label: string, ctx: Context = {}): () => v
   };
 }
 
+/** Atualiza o contexto de uma tarefa em andamento (ex.: em qual passo ela está). */
+export function updateTask(id: string, ctx: Context) {
+  const t = readTasks();
+  if (!t[id]) return;
+  t[id] = { ...t[id], ctx: { ...t[id].ctx, ...compact(ctx) } };
+  writeTasks(t);
+}
+
 function markAll(patch: Partial<Task>) {
   const t = readTasks();
   if (!Object.keys(t).length) return;
