@@ -7,7 +7,7 @@ import { AudioLines, Copy, Download, Film, Music, Share2, Sparkles } from "lucid
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/misc";
 import { useToast } from "@/components/ui/toast";
-import { NeedLoginError, NoCreditsError } from "@/lib/account";
+import { NeedLoginError, NoCreditsError, OfflineError } from "@/lib/account";
 import { ensureCaptionFont } from "@/lib/captions/font";
 import type { Word } from "@/lib/captions/model";
 import { track } from "@/lib/track";
@@ -116,6 +116,8 @@ export function ExportPanel(props: Props) {
   const [lastResult, setResult] = useState<Result | null>(null);
   const cache = useRef<{ key: string; value: DspResult } | null>(null);
   const running = useRef(false);
+  /** Arquivo já gerado cujo download não pôde ser registrado (sem internet): não gera de novo. */
+  const unpaid = useRef<{ key: string; out: { blob: Blob; filename: string } } | null>(null);
 
   // o áudio tratado (cache) só depende do som; o arquivo final depende também de cortes, formato e legendas
   const audioKey = preset && chain
@@ -186,42 +188,51 @@ export function ExportPanel(props: Props) {
   async function generate(target: Target) {
     if (!preset || !settingsKey) return;
     try {
-      setPhase({ label: "Aplicando o som no arquivo inteiro…", progress: 0 });
-      const processed = await processFull();
-      let out;
-      // no iPhone o vídeo escolhido da Galeria pode ter sido apagado pelo sistema: usa a cópia salva no aparelho
-      const file = target === "video" ? await readableFile(media.file) : media.file;
-      if (!file) throw new MediaError(FILE_GONE);
-      const src = file === media.file ? media : { ...media, file };
-      if (target === "video") {
-        const compare = comparing && target === "video";
-        const render = media.kind === "audio" || compare || needsRender(look, cutting);
-        const label = media.kind === "audio" ? "Criando o audiograma…" : render ? "Montando o vídeo quadro a quadro…" : "Montando o vídeo com o som novo…";
-        setPhase({ label, progress: 0 });
-        const onProgress = (p: number) => setPhase({ label, progress: p * 100 });
-        if (render) {
-          await ensureCaptionFont();
-          let audio = processed.channels;
-          let finalLook = look;
-          if (compare) {
-            const ba = beforeAfterAudio(media.channels, processed.channels, media.sampleRate, media.audioStart, segments);
-            audio = ba.audio;
-            finalLook = { ...look, beforeAfter: { split: ba.split } };
+      const resultKey = `${settingsKey}_${target}`;
+      let out: { blob: Blob; filename: string } | undefined = unpaid.current?.key === resultKey ? unpaid.current.out : undefined;
+      if (!out) {
+        setPhase({ label: "Aplicando o som no arquivo inteiro…", progress: 0 });
+        const processed = await processFull();
+        // no iPhone o vídeo escolhido da Galeria pode ter sido apagado pelo sistema: usa a cópia salva no aparelho
+        const file = target === "video" ? await readableFile(media.file) : media.file;
+        if (!file) throw new MediaError(FILE_GONE);
+        const src = file === media.file ? media : { ...media, file };
+        if (target === "video") {
+          const compare = comparing && target === "video";
+          const render = media.kind === "audio" || compare || needsRender(look, cutting);
+          const label = media.kind === "audio" ? "Criando o audiograma…" : render ? "Montando o vídeo quadro a quadro…" : "Montando o vídeo com o som novo…";
+          setPhase({ label, progress: 0 });
+          const onProgress = (p: number) => setPhase({ label, progress: p * 100 });
+          if (render) {
+            await ensureCaptionFont();
+            let audio = processed.channels;
+            let finalLook = look;
+            if (compare) {
+              const ba = beforeAfterAudio(media.channels, processed.channels, media.sampleRate, media.audioStart, segments);
+              audio = ba.audio;
+              finalLook = { ...look, beforeAfter: { split: ba.split } };
+            }
+            out = await renderVideo({ media: src, audio, segments, look: finalLook, audiogram, postAudio: withMusic, onProgress });
+          } else {
+            out = await exportVideo(src, withMusic(processed.channels), onProgress);
           }
-          out = await renderVideo({ media: src, audio, segments, look: finalLook, audiogram, postAudio: withMusic, onProgress });
         } else {
-          out = await exportVideo(src, withMusic(processed.channels), onProgress);
+          const label = "Gerando o arquivo de áudio…";
+          setPhase({ label, progress: 0 });
+          const audio = withMusic(
+            cutting ? spliceAudio(processed.channels, media.sampleRate, media.audioStart, segments) : processed.channels,
+          );
+          out = await exportAudio(src, audio, target, (p) => setPhase({ label, progress: p * 100 }));
         }
-      } else {
-        const label = "Gerando o arquivo de áudio…";
-        setPhase({ label, progress: 0 });
-        const audio = withMusic(
-          cutting ? spliceAudio(processed.channels, media.sampleRate, media.audioStart, segments) : processed.channels,
-        );
-        out = await exportAudio(src, audio, target, (p) => setPhase({ label, progress: p * 100 }));
       }
-
-      await spend(`${settingsKey}_${target}`, target === "video" ? "video" : "audio");
+      setPhase({ label: "Registrando o download…", progress: 100 });
+      try {
+        await spend(resultKey, target === "video" ? "video" : "audio");
+      } catch (err) {
+        if (err instanceof OfflineError) unpaid.current = { key: resultKey, out };
+        throw err;
+      }
+      unpaid.current = null;
       // no celular, libera o áudio tratado da memória (gerar de novo é rápido; ficar com ele pode derrubar a página)
       if (isPhone()) cache.current = null;
       track("export", { target, preset: preset.slug, captions: Boolean(look.captions), music: Boolean(music), before_after: comparing });
@@ -231,6 +242,10 @@ export function ExportPanel(props: Props) {
       if (!canShareFiles(new File([out.blob], out.filename, { type: out.blob.type }))) downloadBlob(out.blob, out.filename);
     } catch (err) {
       if (err instanceof NoCreditsError) onNeedCredits();
+      else if (err instanceof OfflineError) {
+        reportError("exportar", err, { severity: "aviso", context: { formato: target } });
+        toast.error("Sem internet para registrar o download. O arquivo já está pronto: toque de novo quando a conexão voltar.");
+      }
       else if (err instanceof NeedLoginError) void requireLogin("Entre na sua conta para baixar.");
       else if (isFileGone(err)) {
         reportError("exportar", err, { severity: "aviso", context: { formato: target, motivo: "arquivo apagado pelo sistema" } });

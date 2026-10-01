@@ -111,8 +111,15 @@ export function useAccount() {
       // lê a sessão na hora: quem chama pode ter acabado de entrar na conta
       const sb = supabaseBrowser();
       if (!(await sb.auth.getSession()).data.session) throw new NeedLoginError();
-      const { data, error } = await sb.rpc("spend_export_credit", { p_ref: ref, p_kind: kind });
+      // internet do celular oscila: tenta de novo (o mesmo `ref` nunca cobra duas vezes)
+      let { data, error } = await sb.rpc("spend_export_credit", { p_ref: ref, p_kind: kind });
+      for (const wait of [800, 2000, 4000]) {
+        if (!error || !isNetworkError(error)) break;
+        await new Promise((r) => setTimeout(r, wait));
+        ({ data, error } = await sb.rpc("spend_export_credit", { p_ref: ref, p_kind: kind }));
+      }
       if (error) {
+        if (isNetworkError(error)) throw new OfflineError();
         if (String(error.message ?? "").includes("INSUFFICIENT_CREDITS")) throw new NoCreditsError();
         // Sem as funções de crédito no servidor, o usuário não é bloqueado.
         if (unavailable) return;
@@ -156,4 +163,16 @@ export function useAccount() {
   }, []);
 
   return { user, ready, account, unavailable, favorites, spend, toggleFavorite, refresh, signOut };
+}
+
+/** Sem internet para registrar o download (o arquivo já gerado fica guardado para tentar de novo). */
+export class OfflineError extends Error {
+  constructor() {
+    super("Sem conexão para registrar o download.");
+    this.name = "OfflineError";
+  }
+}
+
+function isNetworkError(error: { message?: string } | null): boolean {
+  return /load failed|failed to fetch|networkerror|network request failed|timed? ?out/i.test(String(error?.message ?? ""));
 }

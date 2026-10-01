@@ -6,11 +6,13 @@
  */
 import { ALL_FORMATS, BlobSource, CanvasSink, Input } from "mediabunny";
 import { autoCorrection, frameStats, type AutoCorrection } from "./color";
+import { ElementFrameReader, isDecodeFailure, markCodecsFailed, prefersElement } from "./element-frames";
 
 export type SampledFrame = { t: number; canvas: HTMLCanvasElement | OffscreenCanvas; width: number; height: number };
 
 /** Quadros nos instantes pedidos, com a largura `width` (altura proporcional). */
 export async function sampleFrames(file: File, times: number[], width: number): Promise<SampledFrame[]> {
+  if (prefersElement(file)) return sampleWithPlayer(file, times, width);
   const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
   try {
     const track = await input.getPrimaryVideoTrack();
@@ -24,8 +26,30 @@ export async function sampleFrames(file: File, times: number[], width: number): 
       if (r) out.push({ t, canvas: r.canvas, width: w, height: h });
     }
     return out;
+  } catch (err) {
+    if (!isDecodeFailure(err)) throw err;
+    // HEVC HDR do iPhone: o WebCodecs do Safari falha; o player do navegador consegue
+    markCodecsFailed(file);
+    return sampleWithPlayer(file, times, width);
   } finally {
     input.dispose();
+  }
+}
+
+async function sampleWithPlayer(file: File, times: number[], width: number): Promise<SampledFrame[]> {
+  const reader = await ElementFrameReader.open(file);
+  try {
+    const w = Math.max(2, Math.round(width));
+    const h = Math.max(2, Math.round((width * reader.height) / Math.max(1, reader.width)));
+    const out: SampledFrame[] = [];
+    for (const t of times) {
+      const canvas: SampledFrame["canvas"] = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(w, h) : Object.assign(document.createElement("canvas"), { width: w, height: h });
+      await reader.drawAt(t, canvas);
+      out.push({ t, canvas, width: w, height: h });
+    }
+    return out;
+  } finally {
+    reader.close();
   }
 }
 

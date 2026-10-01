@@ -116,6 +116,8 @@ const CAUSES: [RegExp, string][] = [
     "Internet instável ou sem conexão no momento (download do modelo de legenda, samples ou servidor)."],
   [/audiodecoder|audioencoder|videodecoder|videoencoder|webcodecs|offscreencanvas|not supported|notsupportederror|unsupported/i,
     "O navegador não tem um recurso usado nesta etapa (WebCodecs/codec). Comum em navegadores antigos ou dentro de apps (Instagram/TikTok)."],
+  [/decoder failure|buffer has no frame/i,
+    "O decodificador de vídeo do navegador (WebCodecs) falhou com este vídeo — comum no iPhone com vídeo HEVC em HDR. O app passa a ler os quadros pelo player do navegador."],
   [/decode|encodingerror|unable to decode|demux|corrupt/i, "O navegador não conseguiu ler o formato/codec deste arquivo."],
   [/webgl|context lost|contextlost/i, "A aceleração gráfica (WebGL) do aparelho falhou ou foi liberada pelo sistema."],
   [/notallowederror|permission|denied/i, "O navegador bloqueou a ação (permissão negada, download ou compartilhamento bloqueado)."],
@@ -306,7 +308,8 @@ function reportPreviousCrash() {
   }
 }
 
-const NOISE = /ResizeObserver loop|chrome-extension:|moz-extension:|safari-(web-)?extension:|^Script error\.?$|NEXT_REDIRECT|NEXT_NOT_FOUND/i;
+// EmptyRanges: defeito dos controles nativos do player do Safari (played/syncControl), não do app
+const NOISE = /ResizeObserver loop|chrome-extension:|moz-extension:|safari-(web-)?extension:|^Script error\.?$|NEXT_REDIRECT|NEXT_NOT_FOUND|EmptyRanges/i;
 
 let installed = false;
 /** Liga o registro global (uma vez, no layout). */

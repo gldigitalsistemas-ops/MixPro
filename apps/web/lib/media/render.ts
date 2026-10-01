@@ -8,6 +8,7 @@ import {
   CanvasSink,
   CanvasSource,
   Input,
+  type InputVideoTrack,
   Mp4OutputFormat,
   Output,
   QUALITY_HIGH,
@@ -19,6 +20,8 @@ import { composeAudiogram, composeFrame, envelope, outputSize, type AudiogramSty
 import { keptDuration, spliceAudio, type Segment } from "./cuts";
 import { MediaError, type ExportResult } from "./export";
 import type { LoadedMedia } from "./load";
+import { ElementFrameReader, isDecodeFailure, markCodecsFailed, prefersElement } from "./element-frames";
+import { reportError } from "@/lib/error-log";
 
 const FPS_AUDIOGRAM = 30;
 
@@ -39,6 +42,16 @@ async function feedAudio(source: AudioBufferSource, channels: Signal, sampleRate
     onProgress((pos + len) / total);
   }
   source.close();
+}
+
+/** Quadros por segundo da leitura pelo player: o do vídeo, no máximo 30 (cada quadro é uma busca). */
+async function readerFps(track: InputVideoTrack): Promise<number> {
+  try {
+    const stats = await track.computePacketStats(60);
+    return Math.min(30, Math.max(12, Math.round(stats.averagePacketRate || 30)));
+  } catch {
+    return 30;
+  }
 }
 
 /**
@@ -93,25 +106,56 @@ export async function renderVideo(opts: {
       if (track) {
         // lê já em tamanho reduzido (a rotação do celular é aplicada pelo sink)
         const scale = Math.min(1, (Math.max(size.width, size.height) * 1.05) / Math.max(srcW, srcH));
-        const sink = new CanvasSink(track, {
-          width: Math.max(2, Math.round(srcW * scale)),
-          height: Math.max(2, Math.round(srcH * scale)),
-          fit: "fill",
-          poolSize: 2,
-        });
+        const fw = Math.max(2, Math.round(srcW * scale));
+        const fh = Math.max(2, Math.round(srcH * scale));
+        const sink = new CanvasSink(track, { width: fw, height: fh, fit: "fill", poolSize: 2 });
+        // reserva: o player do navegador (HEVC HDR do iPhone falha no WebCodecs do Safari)
+        let reader: ElementFrameReader | null = null;
+        let fps = 30;
+        if (prefersElement(media.file)) {
+          reader = await ElementFrameReader.open(media.file);
+          fps = await readerFps(track);
+        }
         let outBase = 0;
-        for (const seg of segments) {
-          const segLen = seg.end - seg.start;
-          for await (const { canvas: frame, timestamp, duration: d } of sink.canvases(seg.start, seg.end)) {
-            const rel = Math.max(0, timestamp - seg.start);
-            const dur = Math.max(0.001, Math.min(d, segLen - rel));
-            ctx.clearRect(0, 0, size.width, size.height);
-            composeFrame(ctx, size.width, size.height, frame, frame.width, frame.height, Math.max(timestamp, seg.start), look);
-            await videoSource.add(outBase + rel, dur);
-            videoP = (outBase + rel) / duration;
-            report();
+        const draw = async (frame: CanvasImageSource & { width: number; height: number }, timestamp: number, d: number, seg: Segment, segLen: number) => {
+          const rel = Math.max(0, timestamp - seg.start);
+          const dur = Math.max(0.001, Math.min(d, segLen - rel));
+          // fundo preto antes: o Safari recusa criar o quadro de um canvas nunca desenhado ("Buffer has no frame")
+          ctx.fillStyle = "#000";
+          ctx.fillRect(0, 0, size.width, size.height);
+          composeFrame(ctx, size.width, size.height, frame, frame.width, frame.height, Math.max(timestamp, seg.start), look);
+          await videoSource.add(outBase + rel, dur);
+          videoP = (outBase + rel) / duration;
+          report();
+          return timestamp + d;
+        };
+        try {
+          for (const seg of segments) {
+            const segLen = seg.end - seg.start;
+            let next = seg.start;
+            if (!reader) {
+              try {
+                for await (const { canvas: frame, timestamp, duration: d } of sink.canvases(seg.start, seg.end)) {
+                  next = await draw(frame, timestamp, d, seg, segLen);
+                }
+              } catch (err) {
+                if (!isDecodeFailure(err)) throw err;
+                // o decodificador falhou: continua deste ponto pelo player e lembra para as próximas vezes
+                markCodecsFailed(media.file);
+                reportError("exportar", err, { severity: "aviso", context: { motivo: "WebCodecs falhou; usando o player", codec: track.codec } });
+                reader = await ElementFrameReader.open(media.file);
+                fps = await readerFps(track);
+              }
+            }
+            if (reader) {
+              for await (const { canvas: frame, timestamp, duration: d } of reader.frames(next, seg.end, fps, fw, fh)) {
+                await draw(frame, timestamp, d, seg, segLen);
+              }
+            }
+            outBase += segLen;
           }
-          outBase += segLen;
+        } finally {
+          reader?.close();
         }
       } else {
         const env = envelope(outAudio, sr, FPS_AUDIOGRAM);
