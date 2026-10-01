@@ -112,3 +112,19 @@ test("Reamostragem 44,1 → 48 → 44,1 kHz preserva o sinal (erro < -80 dB) e o
   for (let i = 2000; i < sr - 2000; i++) err = Math.max(err, Math.abs(y[i] - x[i]));
   assert.ok(20 * Math.log10(err) < -80, `erro ${err}`);
 });
+
+test("resampleMono = média dos canais reamostrada (sem a cópia mono intermediária)", async () => {
+  const { resample, resampleMono } = await import("./resample");
+  const n = 4800;
+  const a = new Float32Array(n);
+  const b = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    a[i] = Math.sin((2 * Math.PI * 440 * i) / 48000);
+    b[i] = 0.5 * Math.sin((2 * Math.PI * 1000 * i) / 48000);
+  }
+  const mono = a.map((v, i) => (v + b[i]) / 2);
+  const ref = resample(mono, 48000, 16000);
+  const got = resampleMono([a, b], 48000, 16000);
+  assert.equal(got.length, ref.length);
+  for (let i = 0; i < ref.length; i++) assert.ok(Math.abs(got[i] - ref[i]) < 1e-5);
+});

@@ -40,7 +40,7 @@ import { ReverbPanel } from "./reverb-panel";
 import { reverbFromChain, withReverb, type ReverbTweak } from "@/lib/reverb-tweak";
 import { AutoSetupCard } from "./auto-setup-card";
 import { analyzeAudio } from "@/lib/dsp/analyze";
-import { autoSetup, pickPreset, type AutoSetup } from "@/lib/auto-setup";
+import { autoSetup, instrumentCategories, instrumentOfCategory, pickPreset, type AutoSetup } from "@/lib/auto-setup";
 import { analyzeVideoColor } from "@/lib/media/frames";
 import { ctaOptions, nicheById, suggestNiche, type NicheId, type Platform } from "@/lib/captions/niches";
 import { outputToSource } from "@/lib/media/before-after";
@@ -98,10 +98,10 @@ function Steps() {
 
 type Tab = "som" | "legendas" | "video" | "baixar";
 
-const TABS: { id: Tab; label: string; audioLabel?: string; icon: typeof SlidersHorizontal }[] = [
+const TABS: { id: Tab; label: string; icon: typeof SlidersHorizontal }[] = [
   { id: "som", label: "Som", icon: SlidersHorizontal },
   { id: "legendas", label: "Legendas", icon: Captions },
-  { id: "video", label: "Vídeo", audioLabel: "Edição", icon: Clapperboard },
+  { id: "video", label: "Vídeo", icon: Clapperboard },
   { id: "baixar", label: "Baixar", icon: Download },
 ];
 
@@ -549,7 +549,11 @@ export function Studio() {
     () => (media ? speechSegments(media.channels, media.sampleRate, media.audioStart, videoTools?.cut ?? "off", words) : []),
     [media, videoTools?.cut, words],
   );
-  const cutting = (videoTools?.cut ?? "off") !== "off";
+  // só áudio: o app só trata o som e baixa (sem cortes, legenda, vídeo, capa e post)
+  const audioOnly = media?.kind === "audio";
+  // aba de vídeo guardada numa sessão antiga não aparece para áudio
+  const view: Tab = audioOnly && (tab === "legendas" || tab === "video") ? "som" : tab;
+  const cutting = !audioOnly && (videoTools?.cut ?? "off") !== "off";
   // chamada final (CTA): sugestões conforme o nicho; aparece no fim do vídeo já cortado
   const ctaChoices = useMemo(() => ctaOptions(nicheById(niche)), [niche]);
   const endCta = useMemo<EndCta | null>(() => {
@@ -565,12 +569,12 @@ export function Studio() {
       format: videoTools?.format ?? "original",
       fit: videoTools?.fit ?? "blur",
       watermark: videoTools?.watermark ?? false,
-      captions: captionState?.burnIn ? captionRender : null,
+      captions: !audioOnly && captionState?.burnIn ? captionRender : null,
       fontFamily: captionRender?.fontFamily ?? (typeof window === "undefined" ? "sans-serif" : captionFontFamily()),
       color: media?.kind === "video" ? (videoTools?.color ?? null) : null,
-      cta: endCta,
+      cta: audioOnly ? null : endCta,
     }),
-    [videoTools, captionState?.burnIn, captionRender, media?.kind, endCta],
+    [videoTools, captionState?.burnIn, captionRender, media?.kind, endCta, audioOnly],
   );
 
   const styleSettings: StyleSettings = {
@@ -865,19 +869,19 @@ export function Studio() {
 
           <div className="flex flex-col gap-4">
             <div className="sticky top-[calc(4rem+env(safe-area-inset-top))] z-30 -mx-4 bg-bg/90 px-4 py-2 backdrop-blur-xl md:static md:mx-0 md:bg-transparent md:p-0 md:backdrop-blur-none">
-              <div className="grid grid-cols-4 gap-1 rounded-2xl border border-border bg-surface/60 p-1" role="tablist" aria-label="Ferramentas">
-                {TABS.map(({ id, label, audioLabel, icon: Icon }) => (
+              <div className={cn("grid gap-1 rounded-2xl border border-border bg-surface/60 p-1", audioOnly ? "grid-cols-2" : "grid-cols-4")} role="tablist" aria-label="Ferramentas">
+                {TABS.filter((t) => !audioOnly || t.id === "som" || t.id === "baixar").map(({ id, label, icon: Icon }) => (
                   <button
                     key={id}
                     role="tab"
-                    aria-selected={tab === id}
+                    aria-selected={view === id}
                     onClick={() => setTab(id)}
                     className={cn(
                       "flex h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-medium transition sm:h-11 sm:flex-row sm:gap-2 sm:text-sm",
-                      tab === id ? "bg-brand text-white" : "text-muted hover:text-text",
+                      view === id ? "bg-brand text-white" : "text-muted hover:text-text",
                     )}
                   >
-                    <Icon className="size-4" aria-hidden /> {media.kind === "audio" && audioLabel ? audioLabel : label}
+                    <Icon className="size-4" aria-hidden /> {label}
                   </button>
                 ))}
               </div>
@@ -885,11 +889,17 @@ export function Studio() {
 
             <StyleBar current={styleSettings} onApply={applyStyle} />
 
-            {tab === "som" && auto && (
+            {view === "som" && auto && (
               <AutoSetupCard
                 setup={auto}
                 imageNotes={media.kind === "video" && videoTools?.color.auto ? (videoTools.color.correction?.notes ?? null) : null}
                 applied={!chosenPreset && !chosenNoise}
+                instrument={auto.instrument ? (instrumentOfCategory(preset?.categoryId) ?? auto.instrument) : null}
+                onInstrument={(g) => {
+                  const p = catalog ? pickPreset(catalog.presets, instrumentCategories(g)) : null;
+                  if (p) choosePreset(p);
+                  else toast.error("Ainda não há presets para essa escolha. Veja a aba Instrumentos.");
+                }}
                 onReset={() => {
                   setPreset(null);
                   setCategoryId(null);
@@ -901,7 +911,7 @@ export function Studio() {
               />
             )}
 
-            {tab === "som" && (
+            {view === "som" && (
               <>
                 <Card className="p-4">
                   <h2 className="mb-3 font-display text-lg font-semibold">Escolha o som</h2>
@@ -975,13 +985,13 @@ export function Studio() {
                 <Card className="p-4">
                   <MusicPicker sampleRate={media.sampleRate} channels={media.channels.length} value={music} onChange={setMusic} />
                 </Card>
-                <Button variant="secondary" onClick={() => setTab("legendas")}>
-                  Próximo: legendas
+                <Button variant="secondary" onClick={() => setTab(audioOnly ? "baixar" : "legendas")}>
+                  Próximo: {audioOnly ? "baixar" : "legendas"}
                 </Button>
               </>
             )}
 
-            {tab === "legendas" && (
+            {view === "legendas" && (
               <>
                 <Card className="p-4">
                   <h2 className="mb-3 font-display text-lg font-semibold">Legendas automáticas</h2>
@@ -994,15 +1004,15 @@ export function Studio() {
                   />
                 </Card>
                 <Button variant="secondary" onClick={() => setTab("video")}>
-                  Próximo: {media.kind === "video" ? "vídeo" : "edição"}
+                  Próximo: vídeo
                 </Button>
               </>
             )}
 
-            {tab === "video" && videoTools && (
+            {view === "video" && videoTools && (
               <>
                 <Card className="p-4">
-                  <h2 className="mb-3 font-display text-lg font-semibold">{media.kind === "video" ? "Vídeo" : "Edição"}</h2>
+                  <h2 className="mb-3 font-display text-lg font-semibold">Vídeo</h2>
                   <VideoTools
                     media={media}
                     videoUrl={videoUrl}
@@ -1021,7 +1031,7 @@ export function Studio() {
               </>
             )}
 
-            {tab === "baixar" && (
+            {view === "baixar" && !audioOnly && (
               <Card className="p-4">
                 <PostComposer
                   niche={niche}
@@ -1047,7 +1057,7 @@ export function Studio() {
 
             {/* sempre montado (só escondido fora da aba): trocar de aba no meio da geração não perde o vídeo */}
             {(
-              <Card className={cn("p-4", tab !== "baixar" && "hidden")}>
+              <Card className={cn("p-4", view !== "baixar" && "hidden")}>
                 <h2 className="mb-3 font-display text-lg font-semibold">Baixar</h2>
                 <ExportPanel
                   media={media}
@@ -1063,10 +1073,10 @@ export function Studio() {
                   segments={segments}
                   cutting={cutting}
                   look={look}
-                  audiogram={media.kind === "audio" ? (videoTools?.audiogram ?? null) : null}
+                  audiogram={null}
                   music={music}
-                  words={words}
-                  postText={postText}
+                  words={audioOnly ? null : words}
+                  postText={audioOnly ? "" : postText}
                   social={social}
                   onSocialChange={setSocial}
                   balance={account?.balance ?? null}

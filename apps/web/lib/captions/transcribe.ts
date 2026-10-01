@@ -1,6 +1,6 @@
 "use client";
 
-import { resample } from "@/lib/dsp/resample";
+import { resampleMono } from "@/lib/dsp/resample";
 import type { Signal } from "@/lib/dsp/types";
 import type { AsrModel, AsrRequest, AsrResponse } from "./asr.worker";
 import type { Word } from "./model";
@@ -29,10 +29,7 @@ export function transcribe(
     if (current === w) current = null;
   };
 
-  const n = channels[0].length;
-  const mono = new Float32Array(n);
-  for (const ch of channels) for (let i = 0; i < n; i++) mono[i] += ch[i] / channels.length;
-  const audio = resample(mono, sampleRate, 16000);
+  const audio = resampleMono(channels.slice(0, 2), sampleRate, 16000);
 
   return new Promise((resolve, reject) => {
     w.onmessage = (e: MessageEvent<AsrResponse>) => {

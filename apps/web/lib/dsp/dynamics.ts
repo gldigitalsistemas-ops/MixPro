@@ -54,43 +54,42 @@ export function limiter(
   const la = Math.max(1, Math.round(p.lookahead_ms * 1e-3 * sr));
   const total = n + la;
   const aRel = coef(p.release_ms, sr);
-
-  const h = new Float64Array(total);
-  for (let i = 0; i < n; i++) {
-    const peak = linkedLevel(audio, i) * inGain;
-    h[i] = Math.min(1, ceiling / Math.max(peak, 1e-12));
-  }
-  for (let i = n; i < total; i++) h[i] = 1;
-
-  // mínimo em janela deslizante (deque monotônico)
-  const minWin = new Float64Array(total);
-  const dq = new Int32Array(total);
-  let head = 0;
-  let tail = 0;
-  for (let i = 0; i < total; i++) {
-    while (tail > head && h[dq[tail - 1]] >= h[i]) tail--;
-    dq[tail++] = i;
-    if (dq[head] < i - la) head++;
-    minWin[i] = h[dq[head]];
-  }
-  let s = 1;
-  for (let i = 0; i < total; i++) {
-    const v = minWin[i];
-    s = v < s ? v : aRel * s + (1 - aRel) * v;
-    minWin[i] = s;
-  }
-
-  // y[k] = x[k] * média(minWin[k .. k+la])
-  let acc = 0;
-  for (let j = 0; j <= la; j++) acc += minWin[j];
   const w = la + 1;
-  for (let k = 0; k < n; k++) {
+
+  // Em fluxo: só a janela de lookahead fica na memória (antes eram 3 buffers do tamanho do áudio,
+  // ~575 MB num áudio estéreo de 10 min, o que derrubava o navegador do celular).
+  const cap = w + 1;
+  const dqIdx = new Int32Array(cap); // deque monotônico: mínimo na janela [i-la, i]
+  const dqVal = new Float64Array(cap);
+  let head = 0;
+  let size = 0;
+  const sm = new Float64Array(w); // ganho já com release, das últimas la+1 amostras
+  let s = 1;
+  let acc = 0;
+  for (let i = 0; i < total; i++) {
+    const h = i < n ? Math.min(1, ceiling / Math.max(linkedLevel(audio, i) * inGain, 1e-12)) : 1;
+    while (size > 0 && dqVal[(head + size - 1) % cap] >= h) size--;
+    dqIdx[(head + size) % cap] = i;
+    dqVal[(head + size) % cap] = h;
+    size++;
+    if (dqIdx[head] < i - la) {
+      head = (head + 1) % cap;
+      size--;
+    }
+    const v = dqVal[head];
+    s = v < s ? v : aRel * s + (1 - aRel) * v;
+    sm[i % w] = s;
+    acc += s;
+    if (i < la) continue;
+
+    // y[k] = x[k] * média(ganho[k .. k+la]); a amostra i ainda não foi alterada (k < i)
+    const k = i - la;
     const g = (acc / w) * inGain;
     for (const ch of audio) {
       const y = ch[k] * g;
       ch[k] = y > ceiling ? ceiling : y < -ceiling ? -ceiling : y;
     }
-    acc += (k + w < total ? minWin[k + w] : 1) - minWin[k];
+    acc -= sm[k % w];
   }
   return audio;
 }

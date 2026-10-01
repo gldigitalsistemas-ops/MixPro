@@ -13,6 +13,10 @@ import { applySections, butterworth } from "./filters";
 import type { Signal } from "./types";
 
 export type ContentKind = "speech" | "singing" | "drums" | "instrument" | "music";
+export type InstrumentType = "violao" | "guitarra" | "baixo" | "teclado";
+/** "mic": celular ou microfone (tem sala e ruído); "plugado": cabo, interface ou pedaleira. */
+export type RecordingSource = "mic" | "plugado";
+export type InstrumentGuess = { type: InstrumentType; source: RecordingSource };
 
 export type AudioAnalysis = {
   kind: ContentKind;
@@ -26,7 +30,21 @@ export type AudioAnalysis = {
   /** Energia abaixo de 60 Hz em relação ao total (vento, ar-condicionado, batida na mesa). */
   rumble: number;
   features: { syllabic: number; depth: number; voiceBand: number; low: number; air: number; harmonicity: number };
+  /** Palpite de instrumento e de como foi gravado (só quando o tipo é instrumento). */
+  instrument: InstrumentGuess | null;
 };
+
+/**
+ * Palpite simples (o usuário confirma no cartão do ajuste automático):
+ *  - baixo: a maior parte da energia abaixo de 250 Hz;
+ *  - violão: cordas com bastante brilho acima de 6 kHz; guitarra (captador ou caixa) quase não tem;
+ *  - plugado: fundo muito silencioso entre as notas (sem sala, sem ruído do ambiente).
+ * Teclado não dá para separar com segurança: fica para o usuário escolher.
+ */
+export function guessInstrument(f: { bassShare: number; air: number; snrDb: number }): InstrumentGuess {
+  const type: InstrumentType = f.bassShare > 0.55 ? "baixo" : f.air > 0.008 ? "violao" : "guitarra";
+  return { type, source: f.snrDb >= 45 ? "plugado" : "mic" };
+}
 
 const FRAME_S = 0.02;
 const FS = 1 / FRAME_S;
@@ -159,6 +177,7 @@ export function analyzeAudio(audio: Signal, sr: number): AudioAnalysis {
   const low = energy(x, [...butterworth("hp", 2, 40, sr), ...butterworth("lp", 2, 120, sr)]) / total;
   const air = energy(x, butterworth("hp", 4, 6000, sr)) / total;
   const rumble = energy(x, butterworth("lp", 4, 60, sr)) / total;
+  const bassShare = energy(x, [...butterworth("hp", 2, 30, sr), ...butterworth("lp", 4, 250, sr)]) / total;
 
   const db = frameDb(x, hop);
   const snrDb = Math.max(0, pct(db, 0.9) - pct(db, 0.1));
@@ -193,5 +212,6 @@ export function analyzeAudio(audio: Signal, sr: number): AudioAnalysis {
 
   // remoção de ruído só para fala: em canto, música e instrumentos ela estraga o som (o "fundo" é música)
   const noise = kind !== "speech" ? "clean" : snrDb < 18 ? "noisy" : snrDb < 30 ? "some" : "clean";
-  return { kind, confidence, snrDb, noise, clipping, rumble, features: { syllabic, depth, voiceBand, low, air, harmonicity: harm } };
+  const instrument = kind === "instrument" ? guessInstrument({ bassShare, air, snrDb }) : null;
+  return { kind, confidence, snrDb, noise, clipping, rumble, features: { syllabic, depth, voiceBand, low, air, harmonicity: harm }, instrument };
 }

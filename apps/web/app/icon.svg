@@ -1,18 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="g" x1="0" x2="1">
+    <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="97.3" x2="414.7" y1="0" y2="0">
       <stop offset="0" stop-color="#d946ef"/>
       <stop offset="0.5" stop-color="#7c3aed"/>
       <stop offset="1" stop-color="#3b82f6"/>
     </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.42" r="0.7">
+      <stop offset="0" stop-color="#2a1660"/>
+      <stop offset="1" stop-color="#06061a"/>
+    </radialGradient>
   </defs>
-  <rect width="512" height="512" rx="112" fill="#06061a"/>
+  <rect width="512" height="512" rx="112" fill="url(#glow)"/>
   <g fill="url(#g)">
-    <rect x="96" y="208" width="36" height="96" rx="18"/>
-    <rect x="160" y="148" width="36" height="216" rx="18"/>
-    <rect x="224" y="100" width="36" height="312" rx="18"/>
-    <rect x="288" y="172" width="36" height="168" rx="18"/>
-    <rect x="352" y="124" width="36" height="264" rx="18"/>
-    <rect x="416" y="196" width="0" height="120" rx="18"/>
+    <rect x="97.3" y="210.7" width="34.0" height="90.7" rx="17.0"/>
+    <rect x="154.0" y="154.0" width="34.0" height="204.1" rx="17.0"/>
+    <rect x="210.7" y="108.6" width="34.0" height="294.8" rx="17.0"/>
+    <rect x="267.3" y="176.6" width="34.0" height="158.7" rx="17.0"/>
+    <rect x="324.0" y="131.3" width="34.0" height="249.4" rx="17.0"/>
+    <rect x="380.7" y="199.3" width="34.0" height="113.4" rx="17.0"/>
   </g>
 </svg>

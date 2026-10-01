@@ -289,7 +289,7 @@ export function ExportPanel(props: Props) {
         <span>
           <span className="block text-sm font-medium">Volume ideal para redes sociais</span>
           <span className="block text-xs text-muted">
-            Ajusta para -14 LUFS, o padrão de Instagram, TikTok e YouTube. Seu vídeo não fica mais baixo que os outros.
+            Ajusta para -14 LUFS, o padrão de Instagram, TikTok, YouTube e Spotify. Seu {media.kind === "video" ? "vídeo" : "áudio"} não fica mais baixo que os outros.
           </span>
         </span>
       </label>

@@ -55,3 +55,26 @@ export function resample(x: Float32Array<ArrayBuffer>, from: number, to: number)
   }
   return out;
 }
+
+/**
+ * Mistura os canais em mono já reamostrando, sem criar a cópia mono na taxa original
+ * (num áudio de 10 min a 48 kHz isso economiza ~110 MB — importante no celular).
+ */
+export function resampleMono(channels: readonly Float32Array<ArrayBuffer>[], from: number, to: number): Float32Array<ArrayBuffer> {
+  if (channels.length === 1) return resample(channels[0], from, to);
+  const [a, b] = channels;
+  const ratio = to / from;
+  const outLen = Math.round(a.length * ratio);
+  const out = new Float32Array(outLen);
+  const scale = Math.min(1, ratio);
+  const half = ZEROS / scale;
+  for (let j = 0; j < outLen; j++) {
+    const center = j / ratio;
+    const lo = Math.max(0, Math.ceil(center - half));
+    const hi = Math.min(a.length - 1, Math.floor(center + half));
+    let s = 0;
+    for (let i = lo; i <= hi; i++) s += (a[i] + b[i]) * kernel((i - center) * scale);
+    out[j] = s * scale * 0.5;
+  }
+  return out;
+}

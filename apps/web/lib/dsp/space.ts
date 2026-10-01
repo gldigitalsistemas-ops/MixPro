@@ -103,11 +103,21 @@ export function reverb(
   const combs = Array.from({ length: sides }, (_, s) => COMB.map((t) => new Comb(scale(t + s * SPREAD))));
   const aps = Array.from({ length: sides }, (_, s) => ALLPASS.map((t) => new AllPass(scale(t + s * SPREAD))));
 
-  const dry = audio.map((ch) => ch.slice());
-  const read = (c: number, i: number) => (i >= pre ? dry[c][i - pre] : 0);
+  // só as últimas `pre` amostras secas ficam guardadas (copiar o áudio inteiro pesava no celular)
+  const ringLen = pre + 1;
+  const ring = audio.map(() => new Float32Array(ringLen));
+  const dry: [number, number] = [0, 0];
 
   for (let i = 0; i < n; i++) {
-    const input = (stereo ? read(0, i) + read(1, i) : read(0, i)) * inGain;
+    const slot = i % ringLen;
+    const back = (i + 1) % ringLen; // = i - pre
+    let input = 0;
+    for (let c = 0; c < audio.length; c++) {
+      dry[c] = audio[c][i];
+      ring[c][slot] = dry[c];
+      if (i >= pre) input += ring[c][back];
+    }
+    input *= inGain;
     let outL = 0;
     let outR = 0;
     for (let j = 0; j < COMB.length; j++) {
@@ -119,10 +129,10 @@ export function reverb(
       if (stereo) outR = aps[1][j].process(outR);
     }
     if (stereo) {
-      audio[0][i] = dry[0][i] * (1 - m) + (outL * wet1 + outR * wet2) * m;
-      audio[1][i] = dry[1][i] * (1 - m) + (outR * wet1 + outL * wet2) * m;
+      audio[0][i] = dry[0] * (1 - m) + (outL * wet1 + outR * wet2) * m;
+      audio[1][i] = dry[1] * (1 - m) + (outR * wet1 + outL * wet2) * m;
     } else {
-      audio[0][i] = dry[0][i] * (1 - m) + outL * wet1 * m;
+      audio[0][i] = dry[0] * (1 - m) + outL * wet1 * m;
     }
   }
   return audio;

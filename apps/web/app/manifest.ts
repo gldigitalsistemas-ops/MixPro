@@ -24,7 +24,7 @@ export default function manifest(): MetadataRoute.Manifest & ShareTarget {
     icons: [
       { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
       { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
-      { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+      { src: "/icons/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
     // Android: aparece no menu "Compartilhar" da galeria depois de instalado
     share_target: {

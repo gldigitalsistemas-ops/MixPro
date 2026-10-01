@@ -45,13 +45,13 @@ export const metadata: Metadata = {
 };
 
 const FEATURES = [
-  { icon: Wand2, title: "Som de estúdio", text: "58 presets feitos por engenheiro de áudio: voz de criador, podcast, vocal, rap, instrumentos e masterização." },
+  { icon: Wand2, title: "Som de estúdio", text: "Mais de 70 presets feitos por engenheiro de áudio: voz de criador, podcast, vocal, rap, instrumentos e masterização." },
   { icon: Drum, title: "Bateria de estúdio", text: "Gravou a bateria no celular? O app acha bumbo, caixa e tons e dá o som de estúdio: worship, pop rock, reggae, groove, soul e mais." },
   { icon: Waves, title: "Adeus, ruído", text: "Tira ventilador, ar-condicionado, rua e chiado com inteligência artificial." },
   { icon: Captions, title: "Legendas automáticas", text: "A IA escreve o que você fala, palavra por palavra, no estilo dos Reels e TikTok." },
   { icon: Scissors, title: "Corte de silêncios", text: "Remove pausas e “é…”, “hã…” automaticamente. Vídeo mais dinâmico, sem editar." },
   { icon: RectangleVertical, title: "Formato vertical", text: "Transforma vídeo deitado em 9:16 com fundo desfocado, pronto para o feed." },
-  { icon: AudioLines, title: "Audiograma", text: "Transforma podcast ou música em vídeo com onda animada e legendas." },
+  { icon: AudioLines, title: "Violão, guitarra, baixo e teclado", text: "Gravou no celular ou plugou no cabo? Presets para cada jeito de gravar, com amplificadores e 10 caixas de estúdio." },
   { icon: Send, title: "Post pronto", text: "Texto do post e hashtags tirados da sua fala. Um toque e está no Instagram, TikTok ou WhatsApp." },
 ];
 

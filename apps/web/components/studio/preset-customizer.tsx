@@ -6,6 +6,7 @@ import { AMP_MODELS, MODULES, type ModuleType, type NumberParam, type ParamSpec 
 import type { ChainDoc, ChainStep } from "@/lib/dsp/chain";
 import { cn } from "@/lib/cn";
 import type { CabIR } from "@/lib/drums/library";
+import { isBuiltinCab } from "@/lib/dsp/cab-ir";
 
 /** Ajustes técnicos que ficam em "Mais ajustes" para não assustar quem está começando. */
 const ADVANCED = new Set(["knee_db", "lookahead_ms", "hold_ms", "predelay_ms", "width", "damping", "bass_mono_hz", "output_db", "slope_db_oct", "lowpass_hz", "blend", "level_db", "cabinet"]);
@@ -154,21 +155,30 @@ function IrPicker({ value, irs, group, onChange }: { value: string; irs: CabIR[]
   if (!list.length) return null;
   return (
     <label className="flex flex-col gap-1 text-xs text-muted">
-      Caixa gravada (IR)
+      Caixa e microfone (IR)
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="h-9 rounded-lg border border-border-strong bg-black/20 px-2 text-sm text-text outline-none focus:border-violet-400"
       >
         <option value="">Caixa simulada (do amplificador)</option>
-        {list.map((i) => (
-          <option key={i.id} value={i.id}>
-            {i.name}
-          </option>
-        ))}
+        {[
+          { label: "Caixas do Mix Pro", items: list.filter((i) => isBuiltinCab(i.id)) },
+          { label: "Caixas gravadas em estúdio", items: list.filter((i) => !isBuiltinCab(i.id)) },
+        ]
+          .filter((g) => g.items.length)
+          .map((g) => (
+            <optgroup key={g.label} label={g.label}>
+              {g.items.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.name}
+                </option>
+              ))}
+            </optgroup>
+          ))}
       </select>
       <span className="text-[11px] text-subtle">
-        {list.find((i) => i.id === value)?.description ?? "Caixa e microfone de verdade, gravados em estúdio: o som fica mais real."}
+        {list.find((i) => i.id === value)?.description ?? "Escolha uma caixa e um microfone: o som fica mais real que a caixa simulada."}
       </span>
     </label>
   );

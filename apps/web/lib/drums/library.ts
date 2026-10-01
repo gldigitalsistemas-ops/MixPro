@@ -7,6 +7,7 @@
  */
 import type { DrumPiece } from "@mixpro/contracts";
 import type { DrumSampleSet, DrumSlot } from "@/lib/dsp/drums/studio";
+import { CABS, isBuiltinCab, synthCabIR } from "@/lib/dsp/cab-ir";
 import { publicEnv } from "@/lib/public-env";
 import { supabaseBrowser } from "@/lib/supabase/client";
 
@@ -98,12 +99,24 @@ export async function unlockKit(kitId: string): Promise<number> {
   return data as number;
 }
 
+/** Caixas do Mix Pro (geradas no app, sem download). */
+export const BUILTIN_IRS: CabIR[] = CABS.map((c, i) => ({
+  id: c.id,
+  kind: c.kind,
+  name: c.name,
+  description: c.description,
+  file: "",
+  active: true,
+  position: i,
+}));
+
+/** Caixas enviadas no admin; no estúdio vêm junto as caixas do Mix Pro (o admin vê só as enviadas). */
 export async function fetchIRs(includeInactive = false): Promise<CabIR[]> {
   let q = supabaseBrowser().from("cab_irs").select("*").order("position").order("created_at");
   if (!includeInactive) q = q.eq("active", true);
   const { data, error } = await q;
-  if (error) return [];
-  return (data ?? []) as CabIR[];
+  const uploaded = error ? [] : ((data ?? []) as CabIR[]);
+  return includeInactive ? uploaded : [...BUILTIN_IRS, ...uploaded];
 }
 
 const irCache = new Map<string, Promise<Float32Array>>();
@@ -114,6 +127,8 @@ export function loadIR(ir: CabIR, sampleRate: number): Promise<Float32Array> {
   let p = irCache.get(key);
   if (!p) {
     p = (async () => {
+      const builtin = isBuiltinCab(ir.id) ? CABS.find((c) => c.id === ir.id) : undefined;
+      if (builtin) return synthCabIR(builtin, sampleRate);
       const res = await fetch(sampleUrl(ir.file), { cache: "force-cache" });
       if (!res.ok) throw new Error(`IR ${ir.file}: ${res.status}`);
       const buf = await new OfflineAudioContext(1, 1, sampleRate).decodeAudioData(await res.arrayBuffer());

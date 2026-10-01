@@ -76,7 +76,7 @@ export function IrManager() {
   }
 
   async function remove(ir: CabIR) {
-    if (!confirm(`Apagar “${ir.name}”? Presets que usam esta caixa voltam para a caixa simulada.`)) return;
+    if (!confirm(`Apagar “${ir.name}”? Presets que usam esta caixa voltam para a caixa simulada do amplificador.`)) return;
     const { error } = await sb.from("cab_irs").delete().eq("id", ir.id);
     if (error) return toast.error("Não foi possível apagar.");
     await sb.storage.from(BUCKET).remove([ir.file]);
@@ -141,7 +141,7 @@ export function IrManager() {
                 </h2>
                 {!list.length ? (
                   <p className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted">
-                    Nenhuma ainda. Sem IR, o amplificador usa a caixa simulada.
+                    Nenhuma enviada. O app já oferece as 5 caixas do Mix Pro para este instrumento.
                   </p>
                 ) : (
                   <Card className="divide-y divide-border overflow-hidden">

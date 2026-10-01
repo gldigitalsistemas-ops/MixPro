@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { analyzeAudio } from "./analyze";
+import { analyzeAudio, guessInstrument } from "./analyze";
 import { applySections, butterworth } from "./filters";
 
 const SR = 16000;
@@ -117,4 +117,12 @@ test("Gravação estourada é detectada", () => {
   const x = speechLike(10).map((v) => Math.max(-1, Math.min(1, v * 8)));
   assert.ok(analyzeAudio([x], SR).clipping > 0.001);
   assert.equal(analyzeAudio([speechLike(10)], SR).clipping, 0);
+});
+
+test("palpite de instrumento: baixo pelo grave, violão pelo brilho, plugado pelo fundo silencioso", () => {
+  assert.equal(guessInstrument({ bassShare: 0.7, air: 0.001, snrDb: 30 }).type, "baixo");
+  assert.equal(guessInstrument({ bassShare: 0.2, air: 0.03, snrDb: 30 }).type, "violao");
+  assert.equal(guessInstrument({ bassShare: 0.2, air: 0.001, snrDb: 30 }).type, "guitarra");
+  assert.equal(guessInstrument({ bassShare: 0.2, air: 0.001, snrDb: 60 }).source, "plugado");
+  assert.equal(guessInstrument({ bassShare: 0.2, air: 0.001, snrDb: 20 }).source, "mic");
 });
