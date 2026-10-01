@@ -1,5 +1,6 @@
 "use client";
 
+import { openPicker } from "@/lib/media/file-access";
 import { useRef, useState } from "react";
 import { Music2, X } from "lucide-react";
 import { Chip, ProgressBar } from "@/components/ui/misc";
@@ -60,9 +61,7 @@ export function MusicPicker({
         accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg"
         className="hidden"
         onChange={(e) => {
-          const f = e.target.files?.[0];
-          e.target.value = "";
-          void pick(f);
+          void pick(e.target.files?.[0]);
         }}
       />
       {loading !== null ? (
@@ -88,7 +87,7 @@ export function MusicPicker({
       ) : (
         <button
           type="button"
-          onClick={() => input.current?.click()}
+          onClick={() => openPicker(input.current)}
           className="flex items-center gap-3 rounded-2xl border border-dashed border-border-strong p-3 text-left text-sm hover:border-violet-400/60"
         >
           <Music2 className="size-5 shrink-0 text-violet-300" />

@@ -105,6 +105,8 @@ function deviceInfo(): Context {
 // ------------------------------------------------------------------ causa provável
 
 const CAUSES: [RegExp, string][] = [
+  [/notfounderror|can ?not be found|could not be found|notreadableerror|not readable/i,
+    "O sistema apagou a cópia temporária do arquivo escolhido (comum no iPhone ao escolher da Galeria ou com vídeo no iCloud). O app usa a cópia salva no aparelho quando existe; senão pede para escolher de novo."],
   [/out of memory|allocation failed|array buffer allocation|invalid array length|memory access out of bounds|cannot allocate|wasm.*memory|could not allocate/i,
     "Falta de memória no aparelho: arquivo longo/pesado ou muitos apps abertos. Reduzir o uso de memória nessa etapa."],
   [/chunkloaderror|loading chunk|dynamically imported module|importing a module script failed|failed to load module/i,

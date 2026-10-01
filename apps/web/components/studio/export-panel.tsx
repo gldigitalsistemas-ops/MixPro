@@ -1,5 +1,6 @@
 "use client";
 
+import { isFileGone, readableFile } from "@/lib/media/file-access";
 import { beginTask, reportError } from "@/lib/error-log";
 import { useEffect, useRef, useState } from "react";
 import { AudioLines, Copy, Download, Film, Music, Share2, Sparkles } from "lucide-react";
@@ -29,6 +30,9 @@ import { BatchExport } from "./batch-export";
 import { keepAwake } from "@/lib/wake-lock";
 import { isPhone } from "@/lib/device";
 import { cn, formatDuration } from "@/lib/cn";
+
+const FILE_GONE =
+  "O celular liberou o vídeo que você escolheu e ele não pode mais ser lido. Toque em “Trocar” e escolha o mesmo vídeo de novo: suas escolhas continuam salvas.";
 
 export type Target = "video" | AudioFormat;
 type Phase = { label: string; progress: number } | null;
@@ -185,6 +189,10 @@ export function ExportPanel(props: Props) {
       setPhase({ label: "Aplicando o som no arquivo inteiro…", progress: 0 });
       const processed = await processFull();
       let out;
+      // no iPhone o vídeo escolhido da Galeria pode ter sido apagado pelo sistema: usa a cópia salva no aparelho
+      const file = target === "video" ? await readableFile(media.file) : media.file;
+      if (!file) throw new MediaError(FILE_GONE);
+      const src = file === media.file ? media : { ...media, file };
       if (target === "video") {
         const compare = comparing && target === "video";
         const render = media.kind === "audio" || compare || needsRender(look, cutting);
@@ -200,9 +208,9 @@ export function ExportPanel(props: Props) {
             audio = ba.audio;
             finalLook = { ...look, beforeAfter: { split: ba.split } };
           }
-          out = await renderVideo({ media, audio, segments, look: finalLook, audiogram, postAudio: withMusic, onProgress });
+          out = await renderVideo({ media: src, audio, segments, look: finalLook, audiogram, postAudio: withMusic, onProgress });
         } else {
-          out = await exportVideo(media, withMusic(processed.channels), onProgress);
+          out = await exportVideo(src, withMusic(processed.channels), onProgress);
         }
       } else {
         const label = "Gerando o arquivo de áudio…";
@@ -210,7 +218,7 @@ export function ExportPanel(props: Props) {
         const audio = withMusic(
           cutting ? spliceAudio(processed.channels, media.sampleRate, media.audioStart, segments) : processed.channels,
         );
-        out = await exportAudio(media, audio, target, (p) => setPhase({ label, progress: p * 100 }));
+        out = await exportAudio(src, audio, target, (p) => setPhase({ label, progress: p * 100 }));
       }
 
       await spend(`${settingsKey}_${target}`, target === "video" ? "video" : "audio");
@@ -224,7 +232,10 @@ export function ExportPanel(props: Props) {
     } catch (err) {
       if (err instanceof NoCreditsError) onNeedCredits();
       else if (err instanceof NeedLoginError) void requireLogin("Entre na sua conta para baixar.");
-      else if (err instanceof MediaError) {
+      else if (isFileGone(err)) {
+        reportError("exportar", err, { severity: "aviso", context: { formato: target, motivo: "arquivo apagado pelo sistema" } });
+        toast.error(FILE_GONE);
+      } else if (err instanceof MediaError) {
         reportError("exportar", err, { severity: "aviso", context: { formato: target, preset: preset.slug } });
         toast.error(err.message);
       } else {

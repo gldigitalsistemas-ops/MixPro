@@ -1,5 +1,6 @@
 "use client";
 
+import { openPicker } from "@/lib/media/file-access";
 import { reportError } from "@/lib/error-log";
 import { useRef, useState } from "react";
 import { CheckCircle2, Download, Files, Loader2, Share2, XCircle } from "lucide-react";
@@ -172,9 +173,9 @@ export function BatchExport(props: {
         accept={ACCEPT}
         className="hidden"
         onChange={(e) => {
-          const files = [...(e.target.files ?? [])];
-          e.target.value = "";
-          void start(files);
+          // o campo só é limpo ao abrir o seletor: limpar aqui fazia o iPhone apagar a cópia
+          // temporária do vídeo da Galeria antes da leitura ("NotFoundError")
+          void start([...(e.target.files ?? [])]);
         }}
       />
       <div className="flex items-start gap-3">
@@ -188,7 +189,7 @@ export function BatchExport(props: {
           </p>
         </div>
       </div>
-      <Button variant="secondary" onClick={() => input.current?.click()} disabled={running}>
+      <Button variant="secondary" onClick={() => openPicker(input.current)} disabled={running}>
         <Files className="size-4" /> {running ? "Processando…" : "Escolher os arquivos"}
       </Button>
 

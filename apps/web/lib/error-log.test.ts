@@ -27,4 +27,5 @@ test("causa provável a partir da mensagem", () => {
   assert.match(probableCause("TypeError: Failed to fetch", "legendas", "erro", env), /Internet/);
   assert.match(probableCause("A página fechou", "gerar legendas", "queda", detectEnv(UA.instagram)), /Instagram/);
   assert.match(probableCause("x is not a function", "app", "erro", env), /Erro inesperado/);
+  assert.match(probableCause("NotFoundError: The object can not be found here.", "abrir-arquivo", "erro", env), /cópia temporária/);
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import { readableFile } from "@/lib/media/file-access";
 import { reportError } from "@/lib/error-log";
 import { useEffect, useRef, useState } from "react";
 import { ImageDown, Loader2, Share2, Sparkles } from "lucide-react";
@@ -117,7 +118,9 @@ export function CoverMaker({ media, look, suggestion }: { media: LoadedMedia; lo
   async function findBest() {
     setLoading(true);
     try {
-      const best = await bestCoverFrames(media.file, media.duration);
+      const file = await readableFile(media.file);
+      if (!file) throw new DOMException("arquivo apagado pelo sistema", "NotFoundError");
+      const best = await bestCoverFrames(file, media.duration);
       const withUrls = await Promise.all(best.map(async (f) => ({ ...f, url: await toDataUrl(f.canvas) })));
       setFrames(withUrls);
       if (withUrls[0]) setTime(withUrls[0].t);
@@ -134,7 +137,9 @@ export function CoverMaker({ media, look, suggestion }: { media: LoadedMedia; lo
     if (time === null) return null;
     await ensureCaptionFont();
     const srcW = Math.min(1080, maxSide * 1.2);
-    const [frame] = await sampleFrames(media.file, [time], srcW);
+    const file = await readableFile(media.file);
+    if (!file) throw new DOMException("arquivo apagado pelo sistema", "NotFoundError");
+    const [frame] = await sampleFrames(file, [time], srcW);
     if (!frame) return null;
     const size = outputSize(frame.width, frame.height, format);
     const scale = Math.min(1, maxSide / Math.max(size.width, size.height));

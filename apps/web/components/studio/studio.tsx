@@ -1,5 +1,6 @@
 "use client";
 
+import { isFileGone, openPicker } from "@/lib/media/file-access";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Captions, Clapperboard, Download, FileAudio, FileVideo, RefreshCw, ShieldCheck, SlidersHorizontal, Upload } from "lucide-react";
 import { ABPlayer, type ABSource } from "@/components/audio/ab-player";
@@ -435,12 +436,18 @@ export function Studio() {
         }, 1500);
       }
     } catch (err) {
-      const userProblem = err instanceof MediaLoadError && err.code !== "decode";
+      const userProblem = (err instanceof MediaLoadError && err.code !== "decode") || isFileGone(err);
       reportError("abrir-arquivo", err, {
         severity: userProblem ? "aviso" : "erro",
         context: { codigo: err instanceof MediaLoadError ? err.code : undefined, tamanho_mb: Math.round(file.size / 1e6), tipo: file.type || file.name.split(".").pop() },
       });
-      toast.error(err instanceof MediaLoadError ? err.message : "Não foi possível abrir esse arquivo.");
+      toast.error(
+        err instanceof MediaLoadError
+          ? err.message
+          : isFileGone(err)
+            ? "O celular não liberou esse vídeo para leitura. Escolha de novo; se ele estiver no iCloud, espere baixar na Galeria antes."
+            : "Não foi possível abrir esse arquivo.",
+      );
     } finally {
       endTask();
       setLoading(null);
@@ -753,7 +760,7 @@ export function Studio() {
     }
   }
 
-  const pick = () => inputRef.current?.click();
+  const pick = () => openPicker(inputRef.current);
 
   return (
     <>
@@ -763,8 +770,9 @@ export function Studio() {
         accept={ACCEPT}
         className="hidden"
         onChange={(e) => {
+          // o campo só é limpo ao abrir o seletor: limpar aqui fazia o iPhone apagar a cópia
+          // temporária do vídeo da Galeria antes da leitura ("NotFoundError")
           const f = e.target.files?.[0];
-          e.target.value = "";
           if (f) void openFile(f);
         }}
       />
