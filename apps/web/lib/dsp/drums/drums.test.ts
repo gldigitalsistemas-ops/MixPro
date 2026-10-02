@@ -223,3 +223,18 @@ test("Sem metrônomo, nada é tratado como metrônomo", () => {
   const { audio } = phoneGroove();
   assert.equal(detectDrums(audio, SR).metronome, false);
 });
+
+test("Gravação real com metrônomo (90 bpm): clique não vira caixa; a caixa no 2 e no 4 fica", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const b = readFileSync(fileURLToPath(new URL("../fixtures/bateria-com-clique-real.wav", import.meta.url)));
+  const sr = b.readUInt32LE(24);
+  const x = new Float32Array((b.length - 44) / 2);
+  for (let i = 0; i < x.length; i++) x[i] = b.readInt16LE(44 + i * 2) / 32768;
+  const { hits, metronome } = detectDrums([x], sr);
+  assert.equal(metronome, true);
+  const snares = hits.filter((h) => h.piece === "snare").map((h) => h.sample / sr);
+  const near = (t: number) => snares.some((s) => Math.abs(s - t) < 0.06);
+  for (const t of [3.63, 4.97, 6.28, 7.63, 8.95, 10.3, 11.62, 12.94]) assert.ok(near(t), `faltou a caixa em ${t}s`);
+  for (const t of [0.3, 0.97, 1.63, 2.3, 4.3, 6.97, 9.63, 12.28]) assert.ok(!near(t), `clique virou caixa em ${t}s`);
+});
