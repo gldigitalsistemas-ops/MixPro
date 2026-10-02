@@ -34,7 +34,8 @@ const canSeparateHere = () => {
   if (typeof navigator === "undefined") return true;
   if (isPhone()) return false;
   const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
-  return mem === undefined || mem >= 4;
+  // a separação usa ~3,5–4 GB no pico (medido com música real de 6,5 min): só com 8 GB ou mais
+  return mem === undefined || mem >= 8;
 };
 const ISOLATION_FLAG = "mixpro.vs-isolation";
 
@@ -190,14 +191,12 @@ export function VSStudio() {
       if (media.duration > MAX_MINUTES * 60) {
         throw new MediaLoadError("too_long", `A música tem mais de ${MAX_MINUTES} minutos. Corte um trecho e tente de novo.`);
       }
+      // sem cópias: o áudio decodificado vai direto para o worker (memória é o limite aqui)
       const [l, r] = media.channels.length > 1 ? media.channels : [media.channels[0], media.channels[0]];
-      const left = media.sampleRate === SR ? l.slice() : resample(l, media.sampleRate, SR);
-      const right = media.sampleRate === SR ? (r === l ? left.slice() : r.slice()) : resample(r, media.sampleRate, SR);
+      const left = media.sampleRate === SR ? l : resample(l, media.sampleRate, SR);
+      const right = media.sampleRate === SR ? (r === l ? l.slice() : r) : resample(r, media.sampleRate, SR);
       const seconds = left.length / SR;
       setPhase({ kind: "separating", p: { stage: "download", value: 0 }, seconds });
-      // a bateria é calculada depois; uma cópia mono da música serve de reserva para o clique
-      const mono = new Float32Array(left.length);
-      for (let i = 0; i < mono.length; i++) mono[i] = (left[i] + right[i]) / 2;
       let sepStart = 0;
       const res = await separateStems(
         left,
@@ -210,7 +209,7 @@ export function VSStudio() {
         },
         ctrl.signal,
       );
-      // batidas: pela bateria separada (mais limpa); sem bateria, pela música inteira
+      // batidas: pela bateria separada (mais limpa); sem bateria, pela soma das pistas (= a música)
       const drums = res.stems[STEMS.indexOf("drums")];
       const dm = new Float32Array(drums[0].length);
       let energy = 0;
@@ -218,8 +217,14 @@ export function VSStudio() {
         dm[i] = (drums[0][i] + drums[1][i]) / 65536;
         energy += dm[i] * dm[i];
       }
-      const hasDrums = Math.sqrt(energy / Math.max(1, dm.length)) > 0.01;
-      const b = trackBeats(hasDrums ? dm : mono, SR);
+      if (Math.sqrt(energy / Math.max(1, dm.length)) <= 0.01) {
+        for (let i = 0; i < dm.length; i++) {
+          let v = 0;
+          for (const st of res.stems) v += st[0][i] + st[1][i];
+          dm[i] = v / 65536;
+        }
+      }
+      const b = trackBeats(dm, SR);
       const key = fnv(`${file.name}|${file.size}|${file.lastModified}`);
       setName(file.name);
       setFileKey(key);
@@ -395,9 +400,9 @@ export function VSStudio() {
         )}
         {!canSeparate ? (
           <div className="flex flex-col gap-3 rounded-3xl border border-amber-400/40 bg-amber-400/10 p-5 text-sm">
-            <p className="font-semibold">Abra o Mix Pro no computador para criar o VS</p>
+            <p className="font-semibold">Para criar o VS, use um computador com 8 GB de RAM ou mais</p>
             <p className="text-muted">
-              A IA que separa as pistas precisa de mais memória do que o navegador do celular libera (cerca de 3 GB): aqui a página
+              A IA que separa as pistas precisa de mais memória do que este aparelho tem livre (cerca de 4 GB; computador com 8 GB de RAM ou mais): aqui a página
               fecharia no meio. No computador (Chrome ou Edge) funciona e leva mais ou menos 1,5× a duração da música.
             </p>
             <Button
