@@ -16,18 +16,45 @@ export class SeparateAbort extends Error {
 
 /**
  * O arquivo de partida dos workers tem nome fixo e fica no cache do navegador por 1 ano. Uma cópia
- * guardada antes desta página ser isolada (sem o cabeçalho COEP) é recusada aqui e o worker nem
- * abre. Baixa de novo esses arquivos, ignorando o cache, para tentar outra vez.
+ * guardada antes desta página ser isolada (sem o cabeçalho COEP) é recusada aqui e o worker nem abre.
+ * Por isso o endereço real do arquivo é anotado ao criar o worker; se ele não abrir, a segunda
+ * tentativa usa o mesmo endereço com "?r=…" — outro endereço para o navegador, que então busca no
+ * servidor (com os cabeçalhos atuais) em vez do cache.
  */
-async function refreshWorkerScripts() {
-  const urls = new Set(
-    performance
-      .getEntriesByType("resource")
-      .map((e) => e.name.split("#")[0])
-      .filter((u) => u.startsWith(location.origin) && /\/_next\/static\/.*worker.*\.js/.test(u)),
-  );
-  await Promise.all([...urls].map((u) => fetch(u, { cache: "reload" }).catch(() => {})));
-  return urls.size;
+let workerUrl: string | null = null;
+let workerOpts: WorkerOptions | undefined;
+
+function createWorker(bust?: string): Worker {
+  if (bust && workerUrl) {
+    const u = new URL(workerUrl, location.href);
+    u.searchParams.set("r", bust);
+    return new Worker(u.toString(), workerOpts);
+  }
+  const Native = globalThis.Worker;
+  // anota o endereço que o empacotador gera para o worker (ele chama o Worker global)
+  globalThis.Worker = class extends Native {
+    constructor(url: string | URL, opts?: WorkerOptions) {
+      workerUrl = String(url);
+      workerOpts = opts;
+      super(url, opts);
+    }
+  };
+  try {
+    return new Worker(new URL("./separate.worker.ts", import.meta.url), { type: "module" });
+  } finally {
+    globalThis.Worker = Native;
+  }
+}
+
+/** O que o servidor entrega para o arquivo do worker (vai junto no registro de erro). */
+async function probeWorkerScript(): Promise<string> {
+  if (!workerUrl) return "endereço do worker desconhecido";
+  try {
+    const res = await fetch(new URL(workerUrl, location.href).toString().split("#")[0], { cache: "no-store" });
+    return `worker ${res.status} coep=${res.headers.get("cross-origin-embedder-policy") ?? "-"} corp=${res.headers.get("cross-origin-resource-policy") ?? "-"} isolada=${self.crossOriginIsolated}`;
+  } catch (err) {
+    return `worker inacessível: ${(err as Error).message}`;
+  }
 }
 
 /** Separa em segundo plano. `left/right` a 44,1 kHz são transferidos (deixam de valer aqui). */
@@ -38,19 +65,21 @@ export async function separateStems(
   signal?: AbortSignal,
 ): Promise<{ stems: Int16Array[][]; threads: number }> {
   let w = await openWorker();
-  if (!w) {
-    // o worker nem abriu (cópia antiga no cache): renova os arquivos e tenta uma vez
-    await refreshWorkerScripts();
-    w = await openWorker();
-    if (!w) throw new Error("Falha ao iniciar a separação (worker não abriu mesmo depois de renovar o cache)");
-  }
+  // o worker nem abriu (cópia antiga no cache): tenta de novo buscando no servidor
+  if (!w) w = await openWorker(Date.now().toString(36));
+  if (!w) throw new Error(`Falha ao iniciar a separação (worker não abriu nem buscando no servidor) — ${await probeWorkerScript()}`);
   return run(w, left, right, onProgress, signal);
 }
 
 /** Cria o worker e espera ele avisar que abriu (null se não abrir). */
-function openWorker(): Promise<Worker | null> {
+function openWorker(bust?: string): Promise<Worker | null> {
   return new Promise((resolve) => {
-    const w = new Worker(new URL("./separate.worker.ts", import.meta.url), { type: "module" });
+    let w: Worker;
+    try {
+      w = createWorker(bust);
+    } catch {
+      return resolve(null);
+    }
     const timer = setTimeout(() => fail(), 60_000);
     const fail = () => {
       clearTimeout(timer);
