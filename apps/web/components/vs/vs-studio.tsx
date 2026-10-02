@@ -24,7 +24,8 @@ import { clearVS, loadVS, peekVS, saveVS } from "@/lib/vs/store";
 import { clickTrack, trackBeats, type Beats } from "@/lib/vs/tempo";
 
 const PREVIEW_S = 20;
-const MAX_MINUTES = 15;
+// 10 min: pistas + IA ficam abaixo de ~3 GB num computador de 8 GB (15 min passava de 3,5 GB)
+const MAX_MINUTES = 10;
 /**
  * A IA de separação usa ~2,6 GB de memória por bloco (medido): o navegador do celular fecha a
  * página bem antes disso. No celular, só abrir VS já separados; separar, no computador.

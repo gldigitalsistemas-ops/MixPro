@@ -9,6 +9,7 @@ import { STEMS, separate } from "./demucs";
 
 export type SeparateRequest = { left: Float32Array; right: Float32Array };
 export type SeparateResponse =
+  | { type: "ready" }
   | { type: "download"; progress: number }
   | { type: "stage"; stage: "carregando" | "separando" }
   | { type: "progress"; done: number; total: number }
@@ -75,6 +76,9 @@ function load() {
   session.catch(() => (session = null));
   return session;
 }
+
+// avisa que abriu: só então a página manda o áudio (se não abrir, ela renova o cache e tenta de novo)
+post({ type: "ready" });
 
 self.onmessage = async (e: MessageEvent<SeparateRequest>) => {
   try {
