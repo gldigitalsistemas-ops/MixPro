@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, RotateCcw, Wand2 } from "lucide-react";
+import { Check, ChevronDown, RotateCcw, SlidersHorizontal, Wand2 } from "lucide-react";
 import { INSTRUMENT_LABEL, KIND_LABEL, SOURCE_LABEL, type AutoSetup } from "@/lib/auto-setup";
 import type { InstrumentGuess, InstrumentType, RecordingSource } from "@/lib/dsp/analyze";
 import { cn } from "@/lib/cn";
@@ -14,6 +14,9 @@ export function AutoSetupCard({
   imageNotes,
   instrument,
   onInstrument,
+  decision,
+  onAccept,
+  onManual,
 }: {
   setup: AutoSetup;
   applied: boolean;
@@ -23,6 +26,11 @@ export function AutoSetupCard({
   /** Instrumento e gravação em uso (marcados no seletor). */
   instrument?: InstrumentGuess | null;
   onInstrument?: (g: InstrumentGuess) => void;
+  /** O que o usuário decidiu sobre o ajuste automático (null = ainda ouvindo). */
+  decision?: "aceito" | "manual" | null;
+  onAccept?: () => void;
+  /** Zera o ajuste e deixa o usuário mixar do jeito dele. */
+  onManual?: () => void;
 }) {
   const [open, setOpen] = useState(true);
   return (
@@ -36,7 +44,13 @@ export function AutoSetupCard({
             {applied ? "Ajuste automático aplicado" : "Ajuste automático"} · detectamos {KIND_LABEL[setup.kind]}
           </span>
           <span className="block text-xs text-muted">
-            {applied ? "Já está tocando na prévia. Mude o que quiser." : "Você mudou as escolhas; dá para voltar ao automático."}
+            {decision === "manual"
+              ? "Você está mixando do seu jeito: escolha um preset ou personalize do zero abaixo."
+              : applied
+                ? decision === "aceito"
+                  ? "Ajuste aceito. Mude o que quiser abaixo."
+                  : "Ouça a prévia e decida: aceitar o ajuste ou fazer a sua mixagem."
+                : "Você mudou as escolhas; dá para voltar ao automático."}
           </span>
         </span>
         <ChevronDown className={cn("size-4 shrink-0 text-muted transition", open && "rotate-180")} />
@@ -71,6 +85,20 @@ export function AutoSetupCard({
               <RotateCcw className="size-3.5" /> Voltar ao ajuste automático
             </button>
           )}
+        </div>
+      )}
+      {applied && !decision && onAccept && onManual && (
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <button type="button" onClick={onAccept} className="bg-brand flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-white">
+            <Check className="size-4" /> Aceitar ajuste automático
+          </button>
+          <button
+            type="button"
+            onClick={onManual}
+            className="flex items-center justify-center gap-2 rounded-xl border border-border-strong px-3 py-2.5 text-sm font-semibold hover:bg-white/5"
+          >
+            <SlidersHorizontal className="size-4" /> Fazer minha mixagem
+          </button>
         </div>
       )}
     </div>

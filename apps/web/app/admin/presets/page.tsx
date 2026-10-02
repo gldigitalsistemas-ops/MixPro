@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ButtonLink } from "@/components/ui/button";
 import type { PresetChain } from "@mixpro/contracts";
+import { OrderEditor } from "./order";
 
 export const metadata = { title: "Presets" };
 
@@ -23,12 +24,13 @@ export default async function AdminPresets(props: PageProps<"/admin/presets">) {
   const sp = await props.searchParams;
   const showArchived = sp.arquivados === "1";
   const supabase = await supabaseServer();
-  const [{ data: cats }, { data }] = await Promise.all([
-    supabase.from("preset_categories").select("id,name,position").order("position"),
+  const [{ data: cats }, { data }, { data: tabsSetting }] = await Promise.all([
+    supabase.from("preset_categories").select("id,name,position,group_id").order("position"),
     supabase
       .from("presets")
       .select("id,name,slug,style,active,archived_at,category_id,version:preset_versions!presets_current_version_fk(version,chain)")
       .order("position"),
+    supabase.from("system_settings").select("value").eq("key", "studio_tabs").maybeSingle(),
   ]);
   const rows = ((data ?? []) as unknown as Row[]).filter((r) => (showArchived ? r.archived_at : !r.archived_at));
   const pending = rows.filter((r) => !r.version?.chain?.chain?.length).length;
@@ -52,6 +54,8 @@ export default async function AdminPresets(props: PageProps<"/admin/presets">) {
           </ButtonLink>
         </div>
       </div>
+
+      {!showArchived && <OrderEditor categories={(cats ?? []) as { id: string; name: string; group_id: string; position: number }[]} savedTabs={tabsSetting?.value} />}
 
       {(cats ?? []).map((c) => {
         const items = rows.filter((r) => r.category_id === c.id);

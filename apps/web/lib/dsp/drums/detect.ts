@@ -89,6 +89,39 @@ function onsets(e: Float32Array, hopSec: number): Onset[] {
 
 const near = (list: Onset[], frame: number, tol: number) => list.find((o) => Math.abs(o.frame - frame) <= tol);
 
+/**
+ * Metrônomo (clique no fone vazando ou na caixinha de som): cai na faixa da esteira da caixa, mas
+ * - some muito rápido (em ~40 ms já caiu 15 dB; a caixa ressoa),
+ * - não tem corpo (150–400 Hz não sobe junto),
+ * - vem sempre com a mesma força (o baterista nunca bate igual) — o acento do 1 é tolerado,
+ * - cai numa grade de tempo exata.
+ * Devolve os quadros dos cliques (vazio se não houver metrônomo).
+ */
+function metronomeClicks(cands: { frame: number; peak: number }[], hopSec: number): Set<number> {
+  const out = new Set<number>();
+  // poucos cliques sobram fora das batidas (a maioria cai junto com bumbo e caixa): 4 bastam,
+  // porque os outros critérios (curto, sem corpo, força constante, grade exata) são rígidos
+  if (cands.length < 4) return out;
+  const peaks = cands.map((c) => c.peak).sort((a, b) => a - b);
+  const med = peaks[Math.floor(peaks.length / 2)];
+  const steady = cands.filter((c) => Math.abs(c.peak - med) <= 2.5);
+  if (steady.length / cands.length < 0.6 || steady.length < 4) return out;
+  // grade: intervalos (0,25–2 s) que são múltiplos do intervalo mais curto e comum
+  const iois: number[] = [];
+  for (let i = 1; i < steady.length; i++) iois.push((steady[i].frame - steady[i - 1].frame) * hopSec);
+  const plausible = iois.filter((v) => v >= 0.25 && v <= 2).sort((a, b) => a - b);
+  if (plausible.length < 3) return out;
+  const period = plausible[Math.floor(plausible.length * 0.25)];
+  const onGrid = iois.filter((v) => {
+    const r = v / period;
+    return Math.round(r) >= 1 && Math.abs(r - Math.round(r)) <= 0.06;
+  }).length;
+  if (onGrid / iois.length < 0.75) return out;
+  // cliques: os regulares e o acento (até 8 dB acima), todos curtos e sem corpo
+  for (const c of cands) if (c.peak >= med - 2.5 && c.peak <= med + 8) out.add(c.frame);
+  return out;
+}
+
 /** Posição exata do ataque: primeira amostra acima de 30% do pico local no sinal da banda. */
 function refine(x: Float32Array, center: number, sr: number): number {
   const from = Math.max(0, center - Math.round(sr * 0.012));
@@ -99,7 +132,7 @@ function refine(x: Float32Array, center: number, sr: number): number {
   return center;
 }
 
-export function detectDrums(audio: Signal, sr: number): { hits: Hit[]; counts: Record<Piece, number> } {
+export function detectDrums(audio: Signal, sr: number): { hits: Hit[]; counts: Record<Piece, number>; metronome: boolean } {
   const m = mono(audio);
   const hop = Math.max(1, Math.round(sr * 0.003));
   const hopSec = hop / sr;
@@ -131,12 +164,28 @@ export function detectDrums(audio: Signal, sr: number): { hits: Hit[]; counts: R
   // grave forte no mesmo instante = bumbo (o corpo que sobe é do bumbo, não de uma caixa)
   const strongLow = ons.low.filter((o) => o.peak >= kickRef - 8);
 
+  // corpo subindo junto com um ataque (caixa e tons têm; metrônomo e chimbal não)
+  const bodyRiseAt = (f: number) => env.body[f] - Math.min(env.body[Math.max(0, f - 4)], env.body[Math.max(0, f - 8)]);
+  const bodyStrongAt = (f: number) => peakAt("body", f) >= bodyRef - 12 && bodyRiseAt(f) >= 5;
+
+  // Metrônomo: ataques curtos e sem corpo na faixa da esteira, mesma força, em grade exata
+  const decayFrames = Math.round(0.04 / hopSec);
+  const shortDecay = (f: number) => f + decayFrames < env.wires.length && peakAt("wires", f) - env.wires[f + decayFrames] >= 15;
+  const clickCands = ons.wires
+    .filter((w) => !bodyStrongAt(w.frame) && !near(strongLow, w.frame, tol) && shortDecay(w.frame))
+    .map((w) => ({ frame: w.frame, peak: w.peak }));
+  const clicks = metronomeClicks(clickCands, hopSec);
+  const isClick = (f: number) => [...clicks].some((c) => Math.abs(c - f) <= tol);
+
   // Caixa: a esteira (1,8–6,5 kHz) sobe junto com o corpo, e mais forte que o brilho dos pratos
   for (const w of ons.wires) {
     if (w.peak < snareRef - 15) continue;
     // o corpo (150–400 Hz) sobe junto com a esteira; no chimbal/prato ele não sobe
-    const bodyRise = env.body[w.frame] - Math.min(env.body[Math.max(0, w.frame - 4)], env.body[Math.max(0, w.frame - 8)]);
-    const bodyStrong = peakAt("body", w.frame) >= bodyRef - 12 && bodyRise >= 5;
+    const bodyStrong = bodyStrongAt(w.frame);
+    // com metrônomo: ataque curtíssimo na faixa da esteira é clique, mesmo junto com o bumbo (o corpo
+    // é do bumbo). Caixa de verdade ressoa (não é curta) e passa, inclusive batida junto com o clique.
+    const withKickHere = near(strongLow, w.frame, tol);
+    if (clicks.size && shortDecay(w.frame) && (!bodyStrong || withKickHere)) continue;
     const air = near(ons.air, w.frame, tol);
     const wiresOnly = !air || w.peak - air.peak > 3;
     const withKick = near(strongLow, w.frame, tol);
@@ -167,7 +216,7 @@ export function detectDrums(audio: Signal, sr: number): { hits: Hit[]; counts: R
   const kickFrames = hits.filter((h) => h.piece === "kick").map((h) => Math.round(h.sample / hop));
 
   // tom de verdade tem o estalo da baqueta (agudos); sem ele é só o batimento de tons soando juntos
-  const stick = (f: number) => Boolean(near(ons.wires, f, tol) || near(ons.air, f, tol));
+  const stick = (f: number) => Boolean((near(ons.wires, f, tol) && !isClick(f)) || near(ons.air, f, tol));
   for (const t of lowToms) {
     if (!stick(t.frame)) continue;
     hits.push({ piece: "tom", sample: refine(sig.low, t.frame * hop, sr), velocity: vel(t.peak, kickRef) });
@@ -188,7 +237,7 @@ export function detectDrums(audio: Signal, sr: number): { hits: Hit[]; counts: R
   // (o clique da baqueta no bumbo e no tom também tem agudos)
   const drumFrames = hits.filter((h) => h.piece === "kick" || h.piece === "tom").map((h) => Math.round(h.sample / hop));
   for (const a of ons.air) {
-    if (a.peak < airRef - 18 || isSnare(a.frame)) continue;
+    if (a.peak < airRef - 18 || isSnare(a.frame) || isClick(a.frame)) continue;
     if (drumFrames.some((f) => Math.abs(f - a.frame) <= tol) && a.peak < airRef - 6) continue;
     hits.push({ piece: "cymbal", sample: a.frame * hop, velocity: vel(a.peak, airRef) });
   }
@@ -196,5 +245,5 @@ export function detectDrums(audio: Signal, sr: number): { hits: Hit[]; counts: R
   hits.sort((a, b) => a.sample - b.sample);
   const counts = { kick: 0, snare: 0, tom: 0, cymbal: 0 } as Record<Piece, number>;
   for (const h of hits) counts[h.piece]++;
-  return { hits, counts };
+  return { hits, counts, metronome: clicks.size > 0 };
 }

@@ -7,6 +7,7 @@ import type { ChainDoc, ChainStep } from "@/lib/dsp/chain";
 import { cn } from "@/lib/cn";
 import type { CabIR } from "@/lib/drums/library";
 import { isBuiltinCab } from "@/lib/dsp/cab-ir";
+import { defaultStep } from "@/lib/mix";
 
 /** Ajustes técnicos que ficam em "Mais ajustes" para não assustar quem está começando. */
 const ADVANCED = new Set(["knee_db", "lookahead_ms", "hold_ms", "predelay_ms", "width", "damping", "bass_mono_hz", "output_db", "slope_db_oct", "lowpass_hz", "blend", "level_db", "cabinet"]);
@@ -51,13 +52,6 @@ const HINT: Partial<Record<ModuleType, string>> = {
   limiter: "Segura os picos e deixa o som mais alto.",
 };
 
-function defaultStep(type: ModuleType): ChainStep {
-  const params: Record<string, unknown> = {};
-  for (const [name, p] of Object.entries(MODULES[type].params) as [string, ParamSpec][]) params[name] = p.default;
-  if (type === "reverb" || type === "delay") params.mix = 15;
-  if (type === "saturation") params.mix = 50;
-  return { type, params };
-}
 
 /** Frequências: o controle anda em escala logarítmica (como nos plugins). */
 const isLog = (p: NumberParam) => p.unit === "Hz" && p.max / Math.max(1, p.min) > 20;

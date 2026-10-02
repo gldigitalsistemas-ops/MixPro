@@ -39,6 +39,23 @@ import { CustomizePanel } from "./customize-panel";
 import { clearSession, loadSession, saveSessionFile, saveSessionState, type SavedSession } from "@/lib/session-store";
 import { beginTask, reportError, setErrorContext } from "@/lib/error-log";
 import { InAppWarning } from "./in-app-warning";
+import { supabaseBrowser } from "@/lib/supabase/client";
+import { AmpTab } from "./amp-tab";
+import { MasterPanel } from "./master-panel";
+import {
+  DEFAULT_TAB_ORDER,
+  ampOf,
+  isMasterCategory,
+  isVirtualPreset,
+  originalPreset,
+  setAmp,
+  starterPreset,
+  tabOrder,
+  withMaster,
+  type AmpChoice,
+  type Instrument,
+  type SoundTab,
+} from "@/lib/mix";
 import { ReverbPanel } from "./reverb-panel";
 import { reverbFromChain, withReverb, type ReverbTweak } from "@/lib/reverb-tweak";
 import { AutoSetupCard } from "./auto-setup-card";
@@ -144,6 +161,12 @@ export function Studio() {
   // edição anterior salva no aparelho (ex.: o navegador fechou a página): oferece continuar
   const [resume, setResume] = useState<SavedSession | null>(null);
   const [auto, setAuto] = useState<AutoSetup | null>(null);
+  /** Decisão sobre o ajuste automático: aceitar ou fazer a própria mixagem. */
+  const [autoDecision, setAutoDecision] = useState<"aceito" | "manual" | null>(null);
+  /** Masterização no fim da mixagem (id do preset de master; null = sem master). */
+  const [masterId, setMasterId] = useState<string | null>(null);
+  /** Ordem das abas de "Escolha o som" (definida no admin). */
+  const [soundTabs, setSoundTabs] = useState<SoundTab[]>(DEFAULT_TAB_ORDER);
   // descrição do post: nicho, plataforma, variação ("Outra sugestão") e o texto editado pela pessoa
   const [chosenNiche, setNiche] = useState<NicheId | null>(null);
   const [chosenPlatform, setPlatform] = useState<Platform | null>(null);
@@ -174,6 +197,19 @@ export function Studio() {
     void loadCatalog();
     track("studio_open");
   }, [loadCatalog]);
+
+  // ordem das abas de "Escolha o som" (o admin organiza)
+  useEffect(() => {
+    supabaseBrowser()
+      .from("system_settings")
+      .select("value")
+      .eq("key", "studio_tabs")
+      .maybeSingle()
+      .then(
+        ({ data }) => data && setSoundTabs(tabOrder(data.value)),
+        () => {},
+      );
+  }, []);
 
   // Vídeo recebido pelo menu "Compartilhar" da galeria (app instalado)
   useEffect(() => {
@@ -263,7 +299,15 @@ export function Studio() {
   // reverb: um controle só (Small/Médio/Large + quantidade) para todos os presets
   const reverbBase = useMemo(() => (drumChain ? reverbFromChain(drumChain) : null), [drumChain]);
   const reverbEff = reverbTweak ?? reverbBase;
-  const chain = useMemo(() => (drumChain ? withReverb(drumChain, reverbTweak) : null), [drumChain, reverbTweak]);
+  const mixChain = useMemo(() => (drumChain ? withReverb(drumChain, reverbTweak) : null), [drumChain, reverbTweak]);
+  // masterização no fim (não vale para "Música pronta", que já é um master)
+  const masters = useMemo(() => {
+    const ids = new Set((catalog?.categories ?? []).filter((c) => c.groupId === "master").map((c) => c.id));
+    return (catalog?.presets ?? []).filter((p) => ids.has(p.categoryId));
+  }, [catalog]);
+  const masterAllowed = !isMasterCategory(catalog?.categories.find((c) => c.id === preset?.categoryId));
+  const masterPreset = masterAllowed ? (masters.find((m) => m.id === masterId) ?? null) : null;
+  const chain = useMemo(() => (mixChain ? withMaster(mixChain, masterPreset) : null), [mixChain, masterPreset]);
 
   // baixa os samples escolhidos (uma vez por peça; ficam em memória)
   const drumKey = drumEff && drumLibrary && media ? `${JSON.stringify(drumEff.samples)}@${media.sampleRate}` : null;
@@ -290,16 +334,15 @@ export function Studio() {
 
   // Amplificador com caixa gravada (IR): baixa as IRs usadas pela cadeia
   const irIds = useMemo(
-    () => [...new Set((chain?.chain ?? []).filter((m) => m.type === "amp" && m.params?.ir).map((m) => String(m.params!.ir)))].sort(),
-    [chain],
+    () => [...new Set((mixChain?.chain ?? []).filter((m) => m.type === "amp" && m.params?.ir).map((m) => String(m.params!.ir)))].sort(),
+    [mixChain],
   );
-  const usesAmp = Boolean(chain?.chain.some((m) => m.type === "amp"));
   useEffect(() => {
-    if (!usesAmp || irList) return;
+    if (irList) return;
     fetchIRs()
       .then(setIrList)
       .catch(() => setIrList([]));
-  }, [usesAmp, irList]);
+  }, [irList]);
   const irKey = irIds.length && media ? `${irIds.join(",")}@${media.sampleRate}` : "";
   useEffect(() => {
     if (!irKey || !irList || !media) return;
@@ -362,6 +405,9 @@ export function Studio() {
     if (get<DrumTweaks | null>("drumTweaks") !== undefined) setDrumTweaks(get<DrumTweaks | null>("drumTweaks")!);
     if (get<ReverbTweak | null>("reverbTweak") !== undefined) setReverbTweak(get<ReverbTweak | null>("reverbTweak")!);
     if (get<{ presetId: string; chain: ChainDoc } | null>("custom") !== undefined) setCustom(get<{ presetId: string; chain: ChainDoc } | null>("custom")!);
+    if (get<string | null>("masterId") !== undefined) setMasterId(get<string | null>("masterId")!);
+    const decision = get<"aceito" | "manual" | null>("autoDecision");
+    if (decision !== undefined) setAutoDecision(decision);
     if (get<NicheId | null>("niche") !== undefined) setNiche(get<NicheId | null>("niche")!);
     if (get<Platform | null>("platform") !== undefined) setPlatform(get<Platform | null>("platform")!);
     if (get<string | null>("postEdit") !== undefined) setPostEdit(get<string | null>("postEdit")!);
@@ -393,6 +439,8 @@ export function Studio() {
     setDrumTweaks(null);
     setReverbTweak(null);
     setCustom(null);
+    setAutoDecision(null);
+    setMasterId(null);
     setFullPreview(false);
     setPostEdit(null);
     setPostVariant(0);
@@ -469,6 +517,8 @@ export function Studio() {
         drumTweaks,
         reverbTweak,
         custom,
+        masterId,
+        autoDecision,
         niche: chosenNiche,
         platform: chosenPlatform,
         postEdit,
@@ -477,7 +527,7 @@ export function Studio() {
       });
     }, 800);
     return () => clearTimeout(t);
-  }, [media, loading, chosenPreset, categoryId, chosenIntensity, chosenNoise, social, captionState, videoTools, drumTweaks, reverbTweak, custom, chosenNiche, chosenPlatform, postEdit, postVariant, tab]);
+  }, [media, loading, chosenPreset, categoryId, chosenIntensity, chosenNoise, social, captionState, videoTools, drumTweaks, reverbTweak, custom, masterId, autoDecision, chosenNiche, chosenPlatform, postEdit, postVariant, tab]);
 
   useEffect(() => {
     if (window.location.search.includes("compartilhado=1")) return;
@@ -588,7 +638,8 @@ export function Studio() {
   // só áudio: o app só trata o som e baixa (sem cortes, legenda, vídeo, capa e post)
   const audioOnly = media?.kind === "audio";
   // aba de vídeo guardada numa sessão antiga não aparece para áudio
-  const view: Tab = audioOnly && (tab === "legendas" || tab === "video") ? "som" : tab;
+  // só áudio: uma tela só (som, master e baixar), sem abas
+  const view: Tab = audioOnly ? "som" : tab;
   const cutting = !audioOnly && (videoTools?.cut ?? "off") !== "off";
   // chamada final (CTA): sugestões conforme o nicho; aparece no fim do vídeo já cortado
   const ctaChoices = useMemo(() => ctaOptions(nicheById(niche)), [niche]);
@@ -662,10 +713,38 @@ export function Studio() {
     [toggleFavorite, toast, requireLogin],
   );
 
+  /** "Personalizar do zero": base com todos os módulos, já em edição. */
+  function startFromScratch(kind: Instrument | "voz", catId: string) {
+    const p = starterPreset(kind, catId || (preset?.categoryId ?? ""));
+    choosePreset(p);
+    // cópia: a edição precisa ser outro objeto para o editor abrir (igual ao preset = "não personalizando")
+    setCustom({ presetId: p.id, chain: structuredClone(p.chain) });
+    setAutoDecision((d) => d ?? "manual");
+  }
+
+  /** Amplificador e caixa escolhidos na aba Amplificadores, aplicados no som atual. */
+  function applyAmp(choice: AmpChoice) {
+    if (!preset || !mixChain) return;
+    if (customizing && custom) setCustom({ presetId: preset.id, chain: setAmp(custom.chain, choice) });
+    else {
+      setCustom({ presetId: preset.id, chain: setAmp(freezeChain(mixChain, dspIntensity), choice) });
+      setDrumTweaks(null);
+      setReverbTweak(null);
+    }
+  }
+
+  /** "Fazer minha mixagem": tira o ajuste automático e começa do som original. */
+  function mixManually() {
+    choosePreset(originalPreset(preset?.categoryId ?? "vocal-pop"));
+    setNoise("off");
+    setMasterId(null);
+    setAutoDecision("manual");
+  }
+
   function startCustomizing() {
     if (!preset || !chain) return;
     // parte exatamente do que a pessoa está ouvindo (intensidade e ajustes da bateria incluídos)
-    setCustom({ presetId: preset.id, chain: freezeChain(chain, dspIntensity) });
+    setCustom({ presetId: preset.id, chain: freezeChain(mixChain ?? chain, dspIntensity) });
     setDrumTweaks(null);
     setReverbTweak(null);
   }
@@ -678,8 +757,8 @@ export function Studio() {
         name,
         categoryId: preset.categoryId,
         // preset do usuário herda a base; preset compartilhado por link não tem base no catálogo
-        basePresetId: preset.userPresetId ? (preset.basePresetId ?? null) : preset.id.startsWith("s-") ? null : preset.id,
-        chain: freezeChain(chain, dspIntensity),
+        basePresetId: preset.userPresetId ? (preset.basePresetId ?? null) : isVirtualPreset(preset.id) ? null : preset.id,
+        chain: freezeChain(mixChain ?? chain, dspIntensity),
       });
       setUserPresets((list) => [...list.filter((p) => p.id !== saved.id), saved]);
       choosePreset(saved);
@@ -907,7 +986,7 @@ export function Studio() {
           </div>
 
           <div className="flex flex-col gap-4">
-            <div className="sticky top-[calc(4rem+env(safe-area-inset-top))] z-30 -mx-4 bg-bg/90 px-4 py-2 backdrop-blur-xl md:static md:mx-0 md:bg-transparent md:p-0 md:backdrop-blur-none">
+            <div className={cn("sticky top-[calc(4rem+env(safe-area-inset-top))] z-30 -mx-4 bg-bg/90 px-4 py-2 backdrop-blur-xl md:static md:mx-0 md:bg-transparent md:p-0 md:backdrop-blur-none", audioOnly && "hidden")}>
               <div className={cn("grid gap-1 rounded-2xl border border-border bg-surface/60 p-1", audioOnly ? "grid-cols-2" : "grid-cols-4")} role="tablist" aria-label="Ferramentas">
                 {TABS.filter((t) => !audioOnly || t.id === "som" || t.id === "baixar").map(({ id, label, icon: Icon }) => (
                   <button
@@ -933,6 +1012,9 @@ export function Studio() {
                 setup={auto}
                 imageNotes={media.kind === "video" && videoTools?.color.auto ? (videoTools.color.correction?.notes ?? null) : null}
                 applied={!chosenPreset && !chosenNoise}
+                decision={autoDecision}
+                onAccept={() => setAutoDecision("aceito")}
+                onManual={mixManually}
                 instrument={auto.instrument ? (instrumentOfCategory(preset?.categoryId) ?? auto.instrument) : null}
                 onInstrument={(g) => {
                   const p = catalog ? pickPreset(catalog.presets, instrumentCategories(g)) : null;
@@ -940,6 +1022,7 @@ export function Studio() {
                   else toast.error("Ainda não há presets para essa escolha. Veja a aba Instrumentos.");
                 }}
                 onReset={() => {
+                  setAutoDecision(null);
                   setPreset(null);
                   setCategoryId(null);
                   setNoise(null);
@@ -967,6 +1050,9 @@ export function Studio() {
                       userPresets={preset?.id.startsWith("s-") ? [preset, ...userPresets] : userPresets}
                       onDeleteUserPreset={onDeleteUserPreset}
                       onShareUserPreset={onShareUserPreset}
+                      tabs={soundTabs}
+                      onStartFromScratch={startFromScratch}
+                      ampTab={<AmpTab value={ampOf(mixChain)} irs={irList} onChange={applyAmp} />}
                     />
                   ) : catalogError ? (
                     <div className="flex flex-col items-center gap-3 py-6 text-center text-sm text-muted">
@@ -1024,9 +1110,16 @@ export function Studio() {
                 <Card className="p-4">
                   <MusicPicker sampleRate={media.sampleRate} channels={media.channels.length} value={music} onChange={setMusic} />
                 </Card>
-                <Button variant="secondary" onClick={() => setTab(audioOnly ? "baixar" : "legendas")}>
-                  Próximo: {audioOnly ? "baixar" : "legendas"}
-                </Button>
+                {masterAllowed && masters.length > 0 && (
+                  <Card className="p-4">
+                    <MasterPanel masters={masters} value={masterPreset?.id ?? null} onChange={setMasterId} />
+                  </Card>
+                )}
+                {!audioOnly && (
+                  <Button variant="secondary" onClick={() => setTab("legendas")}>
+                    Próximo: legendas
+                  </Button>
+                )}
               </>
             )}
 
@@ -1096,7 +1189,7 @@ export function Studio() {
 
             {/* sempre montado (só escondido fora da aba): trocar de aba no meio da geração não perde o vídeo */}
             {(
-              <Card className={cn("p-4", view !== "baixar" && "hidden")}>
+              <Card className={cn("p-4", !audioOnly && view !== "baixar" && "hidden")}>
                 <h2 className="mb-3 font-display text-lg font-semibold">Baixar</h2>
                 <ExportPanel
                   media={media}

@@ -8,8 +8,10 @@ import { detectDrums, type Piece } from "./detect";
 const SR = 48000;
 
 /** Groove gravado "no celular": 100 bpm, bumbo 1 e 3 (+ "e" do 3), caixa 2 e 4, chimbal em colcheias, virada de tons. */
-function phoneGroove() {
-  const secs = 10;
+function phoneGroove(opts: { metronome?: boolean } = {}) {
+  const secs = opts.metronome ? 13 : 10;
+  // com metrônomo, a gravação começa com a contagem (4 cliques sozinhos) antes da bateria
+  const start = opts.metronome ? 0.25 + 4 * (60 / 100) : 0.25;
   const n = SR * secs;
   const x = new Float32Array(n);
   let seed = 5;
@@ -53,7 +55,7 @@ function phoneGroove() {
   };
 
   for (let bar = 0; bar < 3; bar++) {
-    const b0 = 0.25 + bar * 4 * beat;
+    const b0 = start + bar * 4 * beat;
     kick(b0);
     kick(b0 + 2 * beat);
     kick(b0 + 2.5 * beat);
@@ -61,12 +63,24 @@ function phoneGroove() {
     snare(b0 + 3 * beat);
     for (let e = 0; e < 8; e++) if (e !== 2 && e !== 6) hat(b0 + e * beat * 0.5);
   }
-  const fill = 0.25 + 3 * 4 * beat;
+  const fill = start + 3 * 4 * beat;
   kick(fill);
   tom(fill + beat, 160);
   tom(fill + 1.5 * beat, 120);
   tom(fill + 2 * beat, 95);
   snare(fill + 3 * beat);
+
+  // metrônomo vazando do fone/caixinha: clique curto e afinado em todos os tempos, acento no 1
+  if (opts.metronome) {
+    for (let k = 0; k * beat + 0.25 < secs - 0.1; k++) {
+      const accent = k % 4 === 0;
+      const f = accent ? 2000 : 1500;
+      add(0.25 + k * beat, (i) => {
+        const s = i / SR;
+        return (accent ? 0.3 : 0.2) * Math.exp(-s / 0.006) * (Math.sin(2 * Math.PI * f * s) + 0.5 * Math.sin(2 * Math.PI * 2 * f * s));
+      }, SR * 0.04);
+    }
+  }
 
   // sala + microfone de celular + ruído de fundo
   let [room] = reverb([x], SR, { room_size: 45, damping: 50, width: 100, predelay_ms: 6, mix: 22 });
@@ -193,4 +207,19 @@ test("Reverb: Large deixa mais cauda que Small", () => {
     return out[0].slice(from).reduce((s, v) => s + v * v, 0);
   };
   assert.ok(tail("large") > tail("small") * 1.3, `large ${tail("large")} small ${tail("small")}`);
+});
+
+test("Metrônomo vazando na gravação é ignorado: não vira caixa nem prato", () => {
+  const { audio, truth } = phoneGroove({ metronome: true });
+  const { hits, metronome } = detectDrums(audio, SR);
+  assert.equal(metronome, true, "metrônomo não reconhecido");
+  const sn = score(hits.filter((h) => h.piece === "snare").map((h) => h.sample / SR), truth.filter((t) => t.piece === "snare").map((t) => t.t));
+  assert.ok(sn.recall >= 0.85 && sn.precision >= 0.85, `caixa com metrônomo ${JSON.stringify(sn)}`);
+  const kick = score(hits.filter((h) => h.piece === "kick").map((h) => h.sample / SR), truth.filter((t) => t.piece === "kick").map((t) => t.t));
+  assert.ok(kick.recall >= 0.85 && kick.precision >= 0.8, `bumbo com metrônomo ${JSON.stringify(kick)}`);
+});
+
+test("Sem metrônomo, nada é tratado como metrônomo", () => {
+  const { audio } = phoneGroove();
+  assert.equal(detectDrums(audio, SR).metronome, false);
 });
