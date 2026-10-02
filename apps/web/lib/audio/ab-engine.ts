@@ -10,7 +10,7 @@ export type ABSide = "A" | "B";
 type Listener = () => void;
 
 let sharedCtx: AudioContext | null = null;
-function audioContext(): AudioContext {
+export function audioContext(): AudioContext {
   if (!sharedCtx) sharedCtx = new AudioContext({ latencyHint: "interactive" });
   return sharedCtx;
 }
@@ -44,7 +44,7 @@ function silentWavUrl(): string {
  * No iPhone o Web Audio obedece à chave de modo silencioso (o player de vídeo não).
  * Colocar a sessão em "playback" faz a prévia tocar como um app de música. Precisa rodar no toque.
  */
-function enableMediaPlayback() {
+export function enableMediaPlayback() {
   const nav = navigator as Navigator & { audioSession?: { type: string } };
   try {
     if (nav.audioSession) nav.audioSession.type = "playback";

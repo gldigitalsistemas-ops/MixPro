@@ -27,6 +27,22 @@ const nextConfig: NextConfig = {
       // o service worker nunca pode ficar preso no cache (senão uma versão velha continua no celular)
       { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] },
       { source: "/api/version", headers: [{ key: "Cache-Control", value: "no-store" }] },
+      // scripts dos workers precisam declarar a mesma política para rodar dentro da página isolada do VS
+      {
+        source: "/_next/static/:path*",
+        headers: [
+          { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
+          { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+        ],
+      },
+      // VS: página isolada para a IA de separação usar várias threads (SharedArrayBuffer)
+      {
+        source: "/vs",
+        headers: [
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+          { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
+        ],
+      },
     ];
   },
 };

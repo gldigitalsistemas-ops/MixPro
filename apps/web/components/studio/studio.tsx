@@ -2,7 +2,7 @@
 
 import { isFileGone, openPicker } from "@/lib/media/file-access";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Captions, Clapperboard, Download, FileAudio, FileVideo, RefreshCw, ShieldCheck, SlidersHorizontal, Upload } from "lucide-react";
+import { AudioLines, Captions, Clapperboard, Download, FileAudio, FileVideo, RefreshCw, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { ABPlayer, type ABSource } from "@/components/audio/ab-player";
 import { IntensitySelector } from "@/components/presets/intensity";
 import { Button } from "@/components/ui/button";
@@ -94,6 +94,22 @@ import {
 } from "@/lib/user-presets";
 
 const ACCEPT = "video/*,audio/*,.mp4,.mov,.m4a,.mp3,.wav,.aac,.flac,.ogg,.webm";
+const AUDIO_ACCEPT = "audio/*,.m4a,.mp3,.wav,.aac,.flac,.ogg";
+const VIDEO_ACCEPT = "video/*,.mp4,.mov,.webm";
+
+function UploadCard({ icon, title, text, onClick }: { icon: React.ReactNode; title: string; text: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="glass flex flex-col items-center gap-3 rounded-3xl border-2 border-dashed border-border-strong px-5 py-8 text-center transition hover:border-violet-400/60"
+    >
+      <span className="bg-brand grid size-14 place-items-center rounded-2xl text-white shadow-[0_8px_30px_-6px_rgb(124_58_237/0.7)]">{icon}</span>
+      <span className="font-display text-lg font-semibold">{title}</span>
+      <span className="text-xs text-muted">{text}</span>
+    </button>
+  );
+}
 
 function Steps() {
   const items = [
@@ -839,7 +855,15 @@ export function Studio() {
     }
   }
 
-  const pick = () => openPicker(inputRef.current);
+  const pick = () => {
+    if (inputRef.current) inputRef.current.accept = ACCEPT;
+    openPicker(inputRef.current);
+  };
+  /** Seletor só de áudio ou só de vídeo (a galeria do celular já abre no tipo certo). */
+  const pickOf = (accept: string) => {
+    if (inputRef.current) inputRef.current.accept = accept;
+    openPicker(inputRef.current);
+  };
 
   return (
     <>
@@ -896,8 +920,7 @@ export function Studio() {
             </div>
           )}
 
-          <button
-            onClick={pick}
+          <div
             onDragOver={(e) => {
               e.preventDefault();
               setDragOver(true);
@@ -909,34 +932,40 @@ export function Studio() {
               const f = e.dataTransfer.files?.[0];
               if (f) void openFile(f);
             }}
-            disabled={loading !== null}
-            className={cn(
-              "glass mx-auto flex w-full max-w-2xl flex-col items-center gap-4 rounded-3xl border-2 border-dashed px-6 py-12 transition",
-              dragOver ? "border-violet-400 bg-primary/10" : "border-border-strong hover:border-violet-400/60",
-            )}
+            className={cn("mx-auto grid w-full max-w-3xl gap-3 rounded-3xl transition sm:grid-cols-3", dragOver && "bg-primary/10")}
           >
             {loading !== null ? (
-              <div className="flex w-full max-w-xs flex-col items-center gap-3">
+              <div className="glass col-span-full flex flex-col items-center gap-3 rounded-3xl border-2 border-dashed border-violet-400 px-6 py-12">
                 <p className="text-sm">Lendo o áudio do arquivo…</p>
-                <ProgressBar value={loading} label="Lendo o arquivo" />
+                <ProgressBar value={loading} label="Lendo o arquivo" className="max-w-xs" />
               </div>
             ) : (
               <>
-                <span className="bg-brand grid size-16 place-items-center rounded-2xl text-white shadow-[0_8px_30px_-6px_rgb(124_58_237/0.7)]">
-                  <Upload className="size-7" />
-                </span>
-                <span className="font-display text-xl font-semibold">Escolher vídeo ou áudio</span>
-                <span className="flex items-center gap-4 text-xs text-muted">
-                  <span className="flex items-center gap-1">
-                    <FileVideo className="size-4" /> MP4, MOV
+                <UploadCard
+                  icon={<FileAudio className="size-7" />}
+                  title="Enviar áudio"
+                  text="Trate o som e baixe pronto. MP3, WAV, M4A."
+                  onClick={() => pickOf(AUDIO_ACCEPT)}
+                />
+                <UploadCard
+                  icon={<FileVideo className="size-7" />}
+                  title="Enviar vídeo"
+                  text="Som, legendas, imagem e capa. MP4, MOV."
+                  onClick={() => pickOf(VIDEO_ACCEPT)}
+                />
+                <a
+                  href="/vs"
+                  className="glass flex flex-col items-center gap-3 rounded-3xl border-2 border-dashed border-border-strong px-5 py-8 text-center transition hover:border-violet-400/60"
+                >
+                  <span className="bg-brand grid size-14 place-items-center rounded-2xl text-white shadow-[0_8px_30px_-6px_rgb(124_58_237/0.7)]">
+                    <AudioLines className="size-7" />
                   </span>
-                  <span className="flex items-center gap-1">
-                    <FileAudio className="size-4" /> MP3, WAV, M4A
-                  </span>
-                </span>
+                  <span className="font-display text-lg font-semibold">Música para criar VS</span>
+                  <span className="text-xs text-muted">Separa voz, bateria, baixo e instrumentos e cria o clique. Novo!</span>
+                </a>
               </>
             )}
-          </button>
+          </div>
 
           <p className="flex items-center justify-center gap-2 text-center text-xs text-muted">
             <ShieldCheck className="size-4 text-green-400" /> Seu arquivo é processado no seu aparelho e não é enviado para

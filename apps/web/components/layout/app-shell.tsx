@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Coins, Gift, Mic2, MonitorDown, Shield, SlidersHorizontal, UserRound } from "lucide-react";
+import { Coins, Gift, Mic2, MonitorDown, Shield, AudioLines, SlidersHorizontal, UserRound } from "lucide-react";
 import { useInstallApp } from "@/components/pwa/pwa";
 import { useAccountCtx } from "@/components/account/account-provider";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { cn } from "@/lib/cn";
 
 const NAV = [
   { href: "/estudio", label: "Estúdio", icon: SlidersHorizontal },
+  { href: "/vs", label: "Criar VS", short: "VS", icon: AudioLines },
   { href: "/mixagem-profissional", label: "Mixagem Pro", short: "Pro", icon: Mic2 },
   { href: "/creditos", label: "Créditos", icon: Coins },
   { href: "/indicar", label: "Indicar", icon: Gift },
@@ -98,7 +99,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         className="safe-x fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden"
         aria-label="Navegação"
       >
-        {NAV.map(({ href, label, short, icon: Icon }) => (
+        {/* 5 itens cabem no celular: "Indicar" fica na página Conta */}
+        {NAV.filter((n) => n.href !== "/indicar").map(({ href, label, short, icon: Icon }) => (
           <Link
             key={href}
             href={href}
