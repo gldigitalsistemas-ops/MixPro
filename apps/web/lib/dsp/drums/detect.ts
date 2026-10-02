@@ -97,15 +97,25 @@ const near = (list: Onset[], frame: number, tol: number) => list.find((o) => Mat
  * - cai numa grade de tempo exata.
  * Devolve os quadros dos cliques (vazio se não houver metrônomo).
  */
-function metronomeClicks(cands: { frame: number; peak: number }[], hopSec: number): Set<number> {
-  const out = new Set<number>();
+type Metronome = { frames: Set<number>; period: number; level: number };
+
+function metronomeClicks(cands: { frame: number; peak: number; alone: boolean }[], hopSec: number): Metronome {
+  const out: Metronome = { frames: new Set<number>(), period: 0, level: 0 };
   // poucos cliques sobram fora das batidas (a maioria cai junto com bumbo e caixa): 4 bastam,
   // porque os outros critérios (curto, sem corpo, força constante, grade exata) são rígidos
   if (cands.length < 4) return out;
-  const peaks = cands.map((c) => c.peak).sort((a, b) => a - b);
-  const med = peaks[Math.floor(peaks.length / 2)];
+  // nível do clique: o volume com mais candidatos em ±2,5 dB (bumbos fracos também entram como
+  // candidatos e puxavam a mediana para baixo)
+  let med = cands[0].peak;
+  let best = 0;
+  for (const c of cands) {
+    const k = cands.filter((d) => Math.abs(d.peak - c.peak) <= 2.5).length;
+    if (k > best) [best, med] = [k, c.peak];
+  }
   const steady = cands.filter((c) => Math.abs(c.peak - med) <= 2.5);
-  if (steady.length / cands.length < 0.6 || steady.length < 4) return out;
+  if (steady.length / cands.length < 0.4 || steady.length < 4) return out;
+  // precisa haver cliques sem bumbo junto (contagem, tempos sem bumbo): bumbo regular não é metrônomo
+  if (steady.filter((c) => c.alone).length < Math.min(4, Math.ceil(steady.length / 3))) return out;
   // grade: intervalos (0,25–2 s) que são múltiplos do intervalo mais curto e comum
   const iois: number[] = [];
   for (let i = 1; i < steady.length; i++) iois.push((steady[i].frame - steady[i - 1].frame) * hopSec);
@@ -117,10 +127,52 @@ function metronomeClicks(cands: { frame: number; peak: number }[], hopSec: numbe
     return Math.round(r) >= 1 && Math.abs(r - Math.round(r)) <= 0.06;
   }).length;
   if (onGrid / iois.length < 0.75) return out;
-  // cliques: os regulares e o acento (até 8 dB acima), todos curtos e sem corpo
-  for (const c of cands) if (c.peak >= med - 2.5 && c.peak <= med + 8) out.add(c.frame);
+  // cliques: os regulares e o acento (até 8 dB acima)
+  for (const c of cands) if (c.peak >= med - 2.5 && c.peak <= med + 8) out.frames.add(c.frame);
+  out.period = period;
+  out.level = med;
   return out;
 }
+
+/**
+ * Planura do espectro (0–1) logo no ataque, de 500 Hz a 10 kHz: o clique do metrônomo é tonal
+ * (a energia fica em poucas frequências, ~0,05–0,15); caixa, prato e estalo de baqueta são ruído
+ * (~0,3 ou mais), inclusive quando a caixa bate junto com o clique.
+ */
+function makeFlatness(x: Float32Array, sr: number) {
+  const N = 1024;
+  const k0 = Math.max(1, Math.round((500 * N) / sr));
+  const k1 = Math.min(N / 2 - 1, Math.round((10000 * N) / sr));
+  const cos = new Float32Array(N);
+  const sin = new Float32Array(N);
+  const win = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    cos[i] = Math.cos((2 * Math.PI * i) / N);
+    sin[i] = Math.sin((2 * Math.PI * i) / N);
+    win[i] = 0.5 - 0.5 * cos[i];
+  }
+  const frame = new Float32Array(N);
+  return (start: number): number => {
+    if (start < 0 || start + N > x.length) return 1;
+    for (let i = 0; i < N; i++) frame[i] = x[start + i] * win[i];
+    let logSum = 0;
+    let sum = 0;
+    for (let k = k0; k <= k1; k++) {
+      let re = 0;
+      let im = 0;
+      for (let i = 0, idx = 0; i < N; i++, idx = (idx + k) & (N - 1)) {
+        re += frame[i] * cos[idx];
+        im -= frame[i] * sin[idx];
+      }
+      const p = re * re + im * im + 1e-20;
+      logSum += Math.log(p);
+      sum += p;
+    }
+    const bins = k1 - k0 + 1;
+    return Math.exp(logSum / bins) / (sum / bins);
+  };
+}
+const TONAL = 0.2;
 
 /** Posição exata do ataque: primeira amostra acima de 30% do pico local no sinal da banda. */
 function refine(x: Float32Array, center: number, sr: number): number {
@@ -154,9 +206,9 @@ export function detectDrums(audio: Signal, sr: number): { hits: Hit[]; counts: R
 
   const tol = Math.round(0.025 / hopSec);
   const kickRef = percentile(ons.low.map((o) => o.peak), 0.9);
-  const snareRef = percentile(ons.wires.map((o) => o.peak), 0.9);
-  const bodyRef = percentile(ons.body.map((o) => o.peak), 0.9);
-  const airRef = percentile(ons.air.map((o) => o.peak), 0.9);
+  let snareRef = percentile(ons.wires.map((o) => o.peak), 0.9);
+  let bodyRef = percentile(ons.body.map((o) => o.peak), 0.9);
+  let airRef = percentile(ons.air.map((o) => o.peak), 0.9);
   const vel = (peak: number, ref: number) => Math.min(1.4, Math.max(0.06, 10 ** ((peak - ref) / 20)));
 
   const hits: Hit[] = [];
@@ -171,11 +223,49 @@ export function detectDrums(audio: Signal, sr: number): { hits: Hit[]; counts: R
   // Metrônomo: ataques curtos e sem corpo na faixa da esteira, mesma força, em grade exata
   const decayFrames = Math.round(0.04 / hopSec);
   const shortDecay = (f: number) => f + decayFrames < env.wires.length && peakAt("wires", f) - env.wires[f + decayFrames] >= 15;
+  // clique de verdade (fone vazando, caixinha na sala) ressoa e às vezes tem um tom grave que cai na
+  // faixa do corpo: o que denuncia é ser tonal. Caixa batida junto com o clique vira ruído e não entra.
+  const flatness = makeFlatness(m, sr);
+  const flat = new Map<number, number>();
+  const flatAt = (f: number) => {
+    if (!flat.has(f)) flat.set(f, flatness(Math.max(0, f * hop - Math.round(sr * 0.003))));
+    return flat.get(f)!;
+  };
   const clickCands = ons.wires
-    .filter((w) => !bodyStrongAt(w.frame) && !near(strongLow, w.frame, tol) && shortDecay(w.frame))
-    .map((w) => ({ frame: w.frame, peak: w.peak }));
-  const clicks = metronomeClicks(clickCands, hopSec);
+    .filter((w) => (!bodyStrongAt(w.frame) && !near(strongLow, w.frame, tol) && shortDecay(w.frame)) || flatAt(w.frame) < TONAL)
+    .map((w) => ({ frame: w.frame, peak: w.peak, alone: !near(strongLow, w.frame, tol) }));
+  const metro = metronomeClicks(clickCands, hopSec);
+  const clicks = metro.frames;
+  // com o metrônomo reconhecido, todo ataque no volume do clique e na grade de tempo é clique, mesmo
+  // quando o chimbal bate junto e tira a "tonalidade" dele
+  if (clicks.size) {
+    const known = [...clicks].sort((a, b) => a - b);
+    for (const w of ons.wires) {
+      if (clicks.has(w.frame) || w.peak < metro.level - 2.5 || w.peak > metro.level + 8) continue;
+      let nearest = known[0];
+      for (const c of known) if (Math.abs(c - w.frame) < Math.abs(nearest - w.frame)) nearest = c;
+      const r = (Math.abs(w.frame - nearest) * hopSec) / metro.period;
+      if (Math.round(r) <= 8 && Math.abs(r - Math.round(r)) <= 0.06) clicks.add(w.frame);
+    }
+  }
   const isClick = (f: number) => [...clicks].some((c) => Math.abs(c - f) <= tol);
+  if (clicks.size) {
+    // o clique costuma ser mais alto que a bateria: as referências de volume passam a ignorá-lo
+    // (senão a caixa de verdade parecia fraca demais e era descartada)
+    const free = (list: Onset[]) => list.filter((o) => !isClick(o.frame) || flatAt(o.frame) >= TONAL).map((o) => o.peak);
+    snareRef = percentile(free(ons.wires), 0.9);
+    bodyRef = percentile(free(ons.body), 0.9);
+    airRef = percentile(free(ons.air), 0.9);
+  }
+  // Tambor por baixo do clique: a caixa no 2 e no 4 cai junto com o clique e fica ~20 dB abaixo dele,
+  // mas o corpo (150–400 Hz) sobe muito acima do clique sozinho. Nível do clique sozinho = quartil
+  // inferior (os tempos sem tambor), comparado em cada clique.
+  const clickFrames = [...clicks];
+  const clickBody = percentile(clickFrames.map((f) => peakAt("body", f)), 0.25);
+  const clickAir = percentile(clickFrames.map((f) => peakAt("air", f)), 0.25);
+  const drumUnder = (f: number) => peakAt("body", f) >= clickBody + 12;
+  // clique sem tambor por baixo: não é bumbo, caixa, tom nem surdo
+  const clickOnly = (f: number) => clicks.size > 0 && isClick(f) && !drumUnder(f);
 
   // Caixa: a esteira (1,8–6,5 kHz) sobe junto com o corpo, e mais forte que o brilho dos pratos
   for (const w of ons.wires) {
@@ -185,7 +275,15 @@ export function detectDrums(audio: Signal, sr: number): { hits: Hit[]; counts: R
     // com metrônomo: ataque curtíssimo na faixa da esteira é clique, mesmo junto com o bumbo (o corpo
     // é do bumbo). Caixa de verdade ressoa (não é curta) e passa, inclusive batida junto com o clique.
     const withKickHere = near(strongLow, w.frame, tol);
-    if (clicks.size && shortDecay(w.frame) && (!bodyStrong || withKickHere)) continue;
+    if (clicks.size && isClick(w.frame)) {
+      // no clique: só conta se há tambor por baixo e não é o bumbo (o laço do bumbo cuida dele);
+      // a esteira acrescenta chiado acima do clique sozinho, o tom não
+      if (!drumUnder(w.frame) || withKickHere) continue;
+      if (peakAt("air", w.frame) < clickAir + 0.5) continue;
+      snareFrames.push(w.frame);
+      hits.push({ piece: "snare", sample: refine(sig.body, w.frame * hop, sr), velocity: vel(peakAt("body", w.frame), bodyRef) });
+      continue;
+    }
     const air = near(ons.air, w.frame, tol);
     const wiresOnly = !air || w.peak - air.peak > 3;
     const withKick = near(strongLow, w.frame, tol);
@@ -226,6 +324,7 @@ export function detectDrums(audio: Signal, sr: number): { hits: Hit[]; counts: R
   // Tons: corpo (150–400 Hz) sem esteira e sem bumbo no mesmo instante
   for (const b of ons.body) {
     if (tomFrames.some((f) => Math.abs(f - b.frame) <= tol)) continue;
+    if (clickOnly(b.frame)) continue;
     if (b.peak < bodyRef - 10 || isSnare(b.frame) || kickFrames.some((k) => Math.abs(k - b.frame) <= tol)) continue;
     const wires = near(ons.wires, b.frame, tol);
     if (wires && wires.peak > snareRef - 10) continue;
