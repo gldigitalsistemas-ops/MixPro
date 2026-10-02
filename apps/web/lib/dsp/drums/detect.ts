@@ -55,7 +55,11 @@ function percentile(values: number[], p: number): number {
 }
 
 /** Ataques: subida de energia em 9 ms acima de um limiar adaptativo, no máximo um a cada 60 ms. */
-function onsets(e: Float32Array, hopSec: number): Onset[] {
+function onsets(e: Float32Array, hopSec: number, sens = 0): Onset[] {
+  // sens (dB, de -9 a +9): positivo aceita ataques mais fracos; 0 = como sempre foi
+  const minFlux = 6 - sens * 0.35;
+  const margin = 4 - sens * 0.25;
+  const floorGap = 12 - sens * 0.6;
   const k = 3;
   const flux = new Float32Array(e.length);
   // subida total em 9 ms (ataques que se espalham por 2 quadros também contam inteiros)
@@ -65,7 +69,7 @@ function onsets(e: Float32Array, hopSec: number): Onset[] {
   const minGap = Math.round(0.06 / hopSec);
   const out: Onset[] = [];
   for (let f = k; f < e.length - 1; f++) {
-    if (flux[f] < 6 || flux[f] < flux[f - 1] || flux[f] < flux[f + 1]) continue;
+    if (flux[f] < minFlux || flux[f] < flux[f - 1] || flux[f] < flux[f + 1]) continue;
     // limiar local: média do fluxo na vizinhança + margem
     let s = 0;
     let c = 0;
@@ -73,10 +77,10 @@ function onsets(e: Float32Array, hopSec: number): Onset[] {
       s += flux[j];
       c++;
     }
-    if (flux[f] < s / c + 4) continue;
+    if (flux[f] < s / c + margin) continue;
     let peak = e[f];
     for (let j = f; j < Math.min(e.length, f + 10); j++) peak = Math.max(peak, e[j]);
-    if (peak < floor + 12) continue;
+    if (peak < floor + floorGap) continue;
     const last = out[out.length - 1];
     if (last && f - last.frame < minGap) {
       if (flux[f] > last.rise) out[out.length - 1] = { frame: f, rise: flux[f], peak };
@@ -184,7 +188,25 @@ function refine(x: Float32Array, center: number, sr: number): number {
   return center;
 }
 
-export function detectDrums(audio: Signal, sr: number): { hits: Hit[]; counts: Record<Piece, number>; metronome: boolean } {
+/**
+ * Sensibilidade de cada peça (0–100). 50 = automático: o limiar já é calculado pelo volume do próprio
+ * arquivo. Acima de 50 pega batidas mais fracas (ghost notes); abaixo, ignora vazamento e sala.
+ * Cada ponto de 50 equivale a 9 dB no limiar.
+ */
+export type DrumSensitivity = { kick: number; snare: number; tom: number };
+export const AUTO_SENSITIVITY: DrumSensitivity = { kick: 50, snare: 50, tom: 50 };
+const sensDb = (v: number | undefined) => ((Math.min(100, Math.max(0, v ?? 50)) - 50) / 50) * 9;
+
+export function detectDrums(
+  audio: Signal,
+  sr: number,
+  sensitivity: DrumSensitivity = AUTO_SENSITIVITY,
+): { hits: Hit[]; counts: Record<Piece, number>; metronome: boolean } {
+  const sKick = sensDb(sensitivity.kick);
+  const sSnare = sensDb(sensitivity.snare);
+  const sTom = sensDb(sensitivity.tom);
+  // cada fader também mexe nos ataques da faixa da sua peça
+  const bandSens: Record<string, number> = { low: sKick, wires: sSnare, body: sTom };
   const m = mono(audio);
   const hop = Math.max(1, Math.round(sr * 0.003));
   const hopSec = hop / sr;
@@ -196,7 +218,7 @@ export function detectDrums(audio: Signal, sr: number): { hits: Hit[]; counts: R
     applySections(x, BANDS[band](sr));
     sig[band] = x;
     env[band] = energy(x, hop, WINDOW[band]);
-    ons[band] = onsets(env[band], hopSec);
+    ons[band] = onsets(env[band], hopSec, bandSens[band] ?? 0);
   }
   const peakAt = (band: Band, f: number) => {
     let p = -120;
@@ -207,6 +229,8 @@ export function detectDrums(audio: Signal, sr: number): { hits: Hit[]; counts: R
   const tol = Math.round(0.025 / hopSec);
   const kickRef = percentile(ons.low.map((o) => o.peak), 0.9);
   let snareRef = percentile(ons.wires.map((o) => o.peak), 0.9);
+  // referência com tudo (inclusive o clique): régua para "caixa junto com o bumbo" quando há metrônomo
+  const snareRefAll = snareRef;
   let bodyRef = percentile(ons.body.map((o) => o.peak), 0.9);
   let airRef = percentile(ons.air.map((o) => o.peak), 0.9);
   const vel = (peak: number, ref: number) => Math.min(1.4, Math.max(0.06, 10 ** ((peak - ref) / 20)));
@@ -263,13 +287,17 @@ export function detectDrums(audio: Signal, sr: number): { hits: Hit[]; counts: R
   const clickFrames = [...clicks];
   const clickBody = percentile(clickFrames.map((f) => peakAt("body", f)), 0.25);
   const clickAir = percentile(clickFrames.map((f) => peakAt("air", f)), 0.25);
-  const drumUnder = (f: number) => peakAt("body", f) >= clickBody + 12;
+  const drumUnder = (f: number) => peakAt("body", f) >= clickBody + 12 - sSnare;
+  // Com metrônomo, as caixas reais costumam bater junto com o clique (2 e 4): o corpo delas vira a
+  // régua para as batidas fora do clique (notas fantasmas, chimbal e pedal ficam bem abaixo)
+  const underClick = clickFrames.filter((f) => drumUnder(f) && !near(strongLow, f, tol)).map((f) => peakAt("body", f));
+  const snareBodyRef = underClick.length >= 3 ? percentile(underClick, 0.5) : null;
   // clique sem tambor por baixo: não é bumbo, caixa, tom nem surdo
   const clickOnly = (f: number) => clicks.size > 0 && isClick(f) && !drumUnder(f);
 
   // Caixa: a esteira (1,8–6,5 kHz) sobe junto com o corpo, e mais forte que o brilho dos pratos
   for (const w of ons.wires) {
-    if (w.peak < snareRef - 15) continue;
+    if (w.peak < snareRef - 15 - sSnare) continue;
     // o corpo (150–400 Hz) sobe junto com a esteira; no chimbal/prato ele não sobe
     const bodyStrong = bodyStrongAt(w.frame);
     // com metrônomo: ataque curtíssimo na faixa da esteira é clique, mesmo junto com o bumbo (o corpo
@@ -287,8 +315,11 @@ export function detectDrums(audio: Signal, sr: number): { hits: Hit[]; counts: R
     const air = near(ons.air, w.frame, tol);
     const wiresOnly = !air || w.peak - air.peak > 3;
     const withKick = near(strongLow, w.frame, tol);
-    if (withKick && w.peak < snareRef - 3) continue;
-    if (bodyStrong || (wiresOnly && w.peak >= snareRef - 6)) {
+    // com metrônomo, a referência sem o clique fica baixa (a caixa de verdade bate junto com o clique)
+    // e o estalo do pedal do bumbo passaria por caixa: junto do bumbo, só caixa forte de verdade
+    if (withKick && w.peak < (clicks.size ? snareRefAll : snareRef) - 3) continue;
+    if (snareBodyRef !== null && peakAt("body", w.frame) < snareBodyRef - 12 - sSnare) continue;
+    if (bodyStrong || (wiresOnly && w.peak >= snareRef - 6 - sSnare)) {
       snareFrames.push(w.frame);
       hits.push({ piece: "snare", sample: refine(sig.wires, w.frame * hop, sr), velocity: vel(w.peak, snareRef) });
     }
@@ -301,10 +332,12 @@ export function detectDrums(audio: Signal, sr: number): { hits: Hit[]; counts: R
   const typicalRatio = percentile(ons.low.map((o) => subRatio(o.frame)), 0.5);
   const lowToms: Onset[] = [];
   for (const l of ons.low) {
-    if (l.peak < kickRef - 14) continue;
+    // surdo e tons graves passam pelo limiar dos tons; o bumbo, pelo do bumbo
+    const lowTom = subRatio(l.frame) < typicalRatio - 6;
+    if (l.peak < kickRef - 14 - (lowTom ? sTom : sKick)) continue;
     const body = near(ons.body, l.frame, tol);
     if (isSnare(l.frame) && l.peak < kickRef - 5) continue;
-    if (subRatio(l.frame) < typicalRatio - 6) {
+    if (lowTom) {
       lowToms.push(l);
       continue;
     }
@@ -325,7 +358,7 @@ export function detectDrums(audio: Signal, sr: number): { hits: Hit[]; counts: R
   for (const b of ons.body) {
     if (tomFrames.some((f) => Math.abs(f - b.frame) <= tol)) continue;
     if (clickOnly(b.frame)) continue;
-    if (b.peak < bodyRef - 10 || isSnare(b.frame) || kickFrames.some((k) => Math.abs(k - b.frame) <= tol)) continue;
+    if (b.peak < bodyRef - 10 - sTom || isSnare(b.frame) || kickFrames.some((k) => Math.abs(k - b.frame) <= tol)) continue;
     const wires = near(ons.wires, b.frame, tol);
     if (wires && wires.peak > snareRef - 10) continue;
     if (!stick(b.frame)) continue;

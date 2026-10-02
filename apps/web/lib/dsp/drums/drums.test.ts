@@ -237,4 +237,21 @@ test("Gravação real com metrônomo (90 bpm): clique não vira caixa; a caixa n
   const near = (t: number) => snares.some((s) => Math.abs(s - t) < 0.06);
   for (const t of [3.63, 4.97, 6.28, 7.63, 8.95, 10.3, 11.62, 12.94]) assert.ok(near(t), `faltou a caixa em ${t}s`);
   for (const t of [0.3, 0.97, 1.63, 2.3, 4.3, 6.97, 9.63, 12.28]) assert.ok(!near(t), `clique virou caixa em ${t}s`);
+  // nada além das caixas do 2 e do 4 (nem bumbo no contratempo, nem nota fraca)
+  assert.equal(snares.length, 8, `caixas: ${snares.map((t) => t.toFixed(2)).join(" ")}`);
+});
+
+test("Sensibilidade: automático (50) é o padrão; subir pega mais caixas, baixar pega menos", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const b = readFileSync(fileURLToPath(new URL("../fixtures/bateria-com-clique-real.wav", import.meta.url)));
+  const sr = b.readUInt32LE(24);
+  const x = new Float32Array((b.length - 44) / 2);
+  for (let i = 0; i < x.length; i++) x[i] = b.readInt16LE(44 + i * 2) / 32768;
+  const auto = detectDrums([x], sr);
+  assert.deepEqual(detectDrums([x], sr, { kick: 50, snare: 50, tom: 50 }).hits, auto.hits);
+  const snares = (s: number) => detectDrums([x], sr, { kick: 50, snare: s, tom: 50 }).counts.snare;
+  assert.ok(snares(0) <= auto.counts.snare && auto.counts.snare <= snares(100));
+  // mexer só na caixa não muda o bumbo
+  assert.equal(detectDrums([x], sr, { kick: 50, snare: 0, tom: 50 }).counts.kick, auto.counts.kick);
 });

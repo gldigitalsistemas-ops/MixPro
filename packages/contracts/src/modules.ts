@@ -325,6 +325,10 @@ export const MODULES = {
       snare: num("Volume da caixa", "dB", -12, 12, 0.5, 0, false),
       toms: num("Volume dos tons", "dB", -12, 12, 0.5, 0, false),
       floor: num("Volume do surdo", "dB", -12, 12, 0.5, 0, false),
+      // detecção: 50 = automático (calibrado pelo próprio arquivo)
+      kick_sens: num("Sensibilidade do bumbo", "%", 0, 100, 1, 50, false),
+      snare_sens: num("Sensibilidade da caixa", "%", 0, 100, 1, 50, false),
+      tom_sens: num("Sensibilidade dos tons e surdo", "%", 0, 100, 1, 50, false),
       kick_tune: tune("Afinação do bumbo"),
       snare_tune: tune("Afinação da caixa"),
       toms_tune: tune("Afinação dos tons"),

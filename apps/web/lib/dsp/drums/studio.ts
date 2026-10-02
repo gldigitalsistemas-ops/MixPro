@@ -8,7 +8,7 @@ import { applySections, butterworth } from "../filters";
 import { resample } from "../resample";
 import { reverb } from "../space";
 import type { Signal } from "../types";
-import { detectDrums, type Hit } from "./detect";
+import { detectDrums, type DrumSensitivity, type Hit } from "./detect";
 import { KITS, kickSample, snareSample, tomSample, type KitId } from "./kits";
 
 export type DrumSlot = "kick" | "snare" | "tom1" | "tom2" | "floor" | "rimshot";
@@ -34,6 +34,10 @@ type Params = {
   snare: number;
   toms: number;
   floor: number;
+  /** Sensibilidade da detecção (50 = automático). */
+  kick_sens?: number;
+  snare_sens?: number;
+  tom_sens?: number;
   kick_tune: number;
   snare_tune: number;
   toms_tune: number;
@@ -113,8 +117,12 @@ export function assignTomSlots(pitches: number[]): ("tom1" | "tom2" | "floor")[]
 export type SlotHit = { slot: DrumSlot; sample: number; velocity: number; pitch?: number };
 
 /** Tambores detectados, já com o tom separado em tom 1, tom 2 e surdo. */
-export function analyzeDrums(audio: Signal, sr: number): { hits: SlotHit[]; counts: Record<DrumSlot, number> } {
-  const { hits } = detectDrums(audio, sr);
+export function analyzeDrums(
+  audio: Signal,
+  sr: number,
+  sensitivity?: DrumSensitivity,
+): { hits: SlotHit[]; counts: Record<DrumSlot, number> } {
+  const { hits } = detectDrums(audio, sr, sensitivity);
   const n = audio[0].length;
   const mono = new Float32Array(n);
   for (const ch of audio) for (let i = 0; i < n; i++) mono[i] += ch[i] / audio.length;
@@ -168,7 +176,7 @@ export function drumStudio(audio: Signal, sr: number, p: Params): Signal {
   let hasRoom = false;
 
   if (mix > 0.001) {
-    const { hits } = analyzeDrums(audio, sr);
+    const { hits } = analyzeDrums(audio, sr, { kick: p.kick_sens ?? 50, snare: p.snare_sens ?? 50, tom: p.tom_sens ?? 50 });
     const mono = new Float32Array(n);
     for (const ch of audio) for (let i = 0; i < n; i++) mono[i] += ch[i] / audio.length;
     const peak = refPeak(mono);

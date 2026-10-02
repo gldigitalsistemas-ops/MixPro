@@ -39,6 +39,10 @@ export type DrumTweaks = {
   sample_mix: number;
   reverb_size: string;
   reverb: number;
+  /** Sensibilidade da detecção de cada peça (50 = automático). */
+  kick_sens: number;
+  snare_sens: number;
+  tom_sens: number;
 };
 
 /** Volume e afinação de cada peça (os dois tons dividem os mesmos controles). */
@@ -104,6 +108,9 @@ export function drumDefaults(params: Record<string, unknown>, library: DrumLibra
     sample_mix: numOf(params.sample_mix, 60),
     reverb_size: typeof params.reverb_size === "string" ? params.reverb_size : "medium",
     reverb: numOf(params.reverb, 25),
+    kick_sens: numOf(params.kick_sens, 50),
+    snare_sens: numOf(params.snare_sens, 50),
+    tom_sens: numOf(params.tom_sens, 50),
   };
 }
 
@@ -132,12 +139,17 @@ export function withDrumTweaks<T extends { chain: { type: string; params?: Recor
               sample_mix: { value: t.sample_mix, neutral: 0 },
               reverb_size: t.reverb_size,
               reverb: { value: t.reverb, neutral: 0 },
+              kick_sens: t.kick_sens,
+              snare_sens: t.snare_sens,
+              tom_sens: t.tom_sens,
             },
           }
         : m,
     ),
   };
 }
+
+const sensLabel = (v: number) => (v === 50 ? "Automático" : v > 50 ? `+${v - 50}` : `${v - 50}`);
 
 const sameTweaks = (a: DrumTweaks, b: DrumTweaks) => JSON.stringify(a) === JSON.stringify(b);
 const tuneLabel = (st: number) => (st === 0 ? "original" : `${st > 0 ? "+" : "−"}${String(Math.abs(st) / 2).replace(".", ",")} tom`);
@@ -202,14 +214,14 @@ export function DrumPanel({
     let alive = true;
     const t = setTimeout(async () => {
       const { analyzeDrums } = await import("@/lib/dsp/drums/studio");
-      const r = analyzeDrums(media.channels, media.sampleRate);
+      const r = analyzeDrums(media.channels, media.sampleRate, { kick: value.kick_sens, snare: value.snare_sens, tom: value.tom_sens });
       if (alive) setCounts(r.counts);
-    }, 300);
+    }, 400);
     return () => {
       alive = false;
       clearTimeout(t);
     };
-  }, [media]);
+  }, [media, value.kick_sens, value.snare_sens, value.tom_sens]);
 
   useEffect(() => () => audio.current?.pause(), []);
 
@@ -390,6 +402,48 @@ export function DrumPanel({
           );
         })}
       </ul>
+
+      <div className="flex flex-col gap-2 rounded-2xl border border-border p-3">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className="text-sm font-medium">Sensibilidade da detecção</p>
+            <p className="text-[11px] text-muted">
+              No meio (Automático) o app calcula pelo seu vídeo. Para a direita pega batidas mais fracas; para a esquerda ignora
+              vazamento, sala e metrônomo.
+            </p>
+          </div>
+          {(value.kick_sens !== 50 || value.snare_sens !== 50 || value.tom_sens !== 50) && (
+            <button
+              type="button"
+              onClick={() => set({ kick_sens: 50, snare_sens: 50, tom_sens: 50 })}
+              className="flex shrink-0 items-center gap-1 text-xs text-muted hover:text-text"
+            >
+              <RotateCcw className="size-3.5" /> Automático
+            </button>
+          )}
+        </div>
+        {(
+          [
+            ["kick_sens", "Bumbo"],
+            ["snare_sens", "Caixa"],
+            ["tom_sens", "Tons e surdo"],
+          ] as const
+        ).map(([key, label]) => (
+          <Slider
+            key={key}
+            label={label}
+            value={value[key]}
+            display={sensLabel(value[key])}
+            min={0}
+            max={100}
+            step={5}
+            onChange={(v) => set({ [key]: v })}
+          />
+        ))}
+        <p className="text-[11px] text-subtle">
+          Metrônomo virando caixa? Baixe a caixa. Faltando batidas fracas (ghost notes)? Suba. Ouça a prévia e veja a contagem acima.
+        </p>
+      </div>
 
       <Slider label="Som de estúdio (quanto dos samples entra)" value={value.sample_mix} display={`${value.sample_mix} %`} min={0} max={100} step={5} onChange={(v) => set({ sample_mix: v })} />
       {rooms && (
