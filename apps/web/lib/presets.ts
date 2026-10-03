@@ -12,6 +12,8 @@ export type StudioPreset = {
   categoryId: string;
   chain: ChainDoc;
   defaultIntensity: number;
+  /** preset_versions.id da versão atual (só presets do catálogo; vai no ExportJob). */
+  versionId?: string | null;
   /** Preset salvo pelo usuário (id da tabela user_presets). */
   userPresetId?: string;
   /** Preset do catálogo em que o preset do usuário foi baseado. */
@@ -27,6 +29,7 @@ type Row = {
   description: string | null;
   style: string | null;
   category_id: string;
+  current_version_id: string | null;
   version: { chain: ChainDoc; default_intensity: number } | null;
 };
 
@@ -36,7 +39,7 @@ export async function fetchPresets(): Promise<{ presets: StudioPreset[]; categor
     sb
       .from("presets")
       .select(
-        "id, slug, name, description, style, category_id, version:preset_versions!presets_current_version_fk(chain, default_intensity)",
+        "id, slug, name, description, style, category_id, current_version_id, version:preset_versions!presets_current_version_fk(chain, default_intensity)",
       )
       .eq("active", true)
       .is("archived_at", null)
@@ -56,6 +59,7 @@ export async function fetchPresets(): Promise<{ presets: StudioPreset[]; categor
       categoryId: r.category_id,
       chain: r.version!.chain,
       defaultIntensity: r.version!.default_intensity,
+      versionId: r.current_version_id,
     }));
   const categories = (c.data ?? []).map((r) => ({
     id: r.id as string,

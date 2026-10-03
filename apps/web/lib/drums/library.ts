@@ -43,14 +43,7 @@ export type DrumKit = {
 export type CabIR = { id: string; kind: "guitar" | "bass"; name: string; description: string | null; file: string; active: boolean; position: number };
 
 export const SLOT_PIECE: Record<DrumSlot, DrumPiece> = { kick: "kick", snare: "snare", tom1: "tom", tom2: "tom", floor: "floor", rimshot: "rimshot" };
-export const SLOT_PARAM: Record<DrumSlot, string> = {
-  kick: "kick_sample",
-  snare: "snare_sample",
-  tom1: "tom1_sample",
-  tom2: "tom2_sample",
-  floor: "floor_sample",
-  rimshot: "rimshot_sample",
-};
+export { SLOT_PARAM } from "./tweaks";
 export const SLOT_LABEL: Record<DrumSlot, string> = { kick: "Bumbo", snare: "Caixa", tom1: "Tom 1", tom2: "Tom 2", floor: "Surdo", rimshot: "Caixa com aro" };
 export const KIT_FIELD: Record<DrumSlot, keyof DrumKit> = {
   kick: "kick_id",

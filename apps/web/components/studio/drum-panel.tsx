@@ -15,6 +15,9 @@ import {
   type DrumLibraryItem,
 } from "@/lib/drums/library";
 import type { LoadedMedia } from "@/lib/media/load";
+import type { DrumTweaks } from "@/lib/drums/tweaks";
+
+export { withDrumTweaks, type DrumTweaks } from "@/lib/drums/tweaks";
 import { cn } from "@/lib/cn";
 
 /** Peças com card próprio (o aro fica dentro do card da caixa). */
@@ -24,26 +27,6 @@ const ALL_SLOTS: DrumSlot[] = [...SLOTS, "rimshot"];
 type Volume = "kick" | "snare" | "toms" | "floor";
 type Tune = "kick_tune" | "snare_tune" | "toms_tune" | "floor_tune";
 
-export type DrumTweaks = {
-  samples: Record<DrumSlot, string>;
-  kick: number;
-  snare: number;
-  toms: number;
-  floor: number;
-  kick_tune: number;
-  snare_tune: number;
-  toms_tune: number;
-  floor_tune: number;
-  rimshot: number;
-  room: number;
-  sample_mix: number;
-  reverb_size: string;
-  reverb: number;
-  /** Sensibilidade da detecção de cada peça (50 = automático). */
-  kick_sens: number;
-  snare_sens: number;
-  tom_sens: number;
-};
 
 /** Volume e afinação de cada peça (os dois tons dividem os mesmos controles). */
 const CONTROLS: Record<Exclude<DrumSlot, "rimshot">, { volume?: Volume; tune?: Tune }> = {
@@ -111,41 +94,6 @@ export function drumDefaults(params: Record<string, unknown>, library: DrumLibra
     kick_sens: numOf(params.kick_sens, 50),
     snare_sens: numOf(params.snare_sens, 50),
     tom_sens: numOf(params.tom_sens, 50),
-  };
-}
-
-/** Aplica as escolhas na cadeia do preset (mantendo o resto igual). */
-export function withDrumTweaks<T extends { chain: { type: string; params?: Record<string, unknown> }[] }>(doc: T, t: DrumTweaks | null): T {
-  if (!t) return doc;
-  return {
-    ...doc,
-    chain: doc.chain.map((m) =>
-      m.type === "drum_studio"
-        ? {
-            ...m,
-            params: {
-              ...m.params,
-              ...Object.fromEntries(ALL_SLOTS.map((s) => [SLOT_PARAM[s], t.samples[s]])),
-              kick: t.kick,
-              snare: t.snare,
-              toms: t.toms,
-              floor: t.floor,
-              kick_tune: t.kick_tune,
-              snare_tune: t.snare_tune,
-              toms_tune: t.toms_tune,
-              floor_tune: t.floor_tune,
-              rimshot: t.rimshot,
-              room: { value: t.room, neutral: 0 },
-              sample_mix: { value: t.sample_mix, neutral: 0 },
-              reverb_size: t.reverb_size,
-              reverb: { value: t.reverb, neutral: 0 },
-              kick_sens: t.kick_sens,
-              snare_sens: t.snare_sens,
-              tom_sens: t.tom_sens,
-            },
-          }
-        : m,
-    ),
   };
 }
 
