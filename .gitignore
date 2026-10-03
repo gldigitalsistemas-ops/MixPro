@@ -15,3 +15,6 @@ apps/web/.env.local
 
 # cache de samples/IRs e saídas dos scripts de exportação em Node
 apps/web/.cache/
+
+# mídia pessoal para os testes de paridade (NUNCA versionar nem enviar)
+apps/web/fixtures-local/
