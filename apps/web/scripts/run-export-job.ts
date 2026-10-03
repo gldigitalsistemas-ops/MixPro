@@ -1,7 +1,7 @@
 /**
  * Executa a parte de ÁUDIO de um ExportJob em Node, com o mesmo código do app:
- *   WAV de entrada → samples/IRs do job → processAudio (lib/export/process-audio.ts) → cortes →
- *   música de fundo → gravação (exportAudio de lib/media/export.ts, com o mesmo dither).
+ *   WAV de entrada → samples/IRs do job → processJobAudio (lib/export/audio-job.ts: processAudio →
+ *   cortes → música de fundo) → gravação (exportAudio de lib/media/export.ts, com o mesmo dither).
  *
  * Uso (de apps/web):
  *   ../../packages/contracts/node_modules/.bin/tsx scripts/run-export-job.ts \
@@ -19,13 +19,12 @@ import { parseArgs } from "node:util";
 import { exportJobSchema } from "@mixpro/contracts";
 import { integratedLoudness, samplePeak } from "@/lib/dsp/loudness";
 import type { Signal } from "@/lib/dsp/types";
-import { spliceAudio } from "@/lib/media/cuts";
 import { exportAudio } from "@/lib/media/export";
 import type { LoadedMedia } from "@/lib/media/load";
-import { mixMusic, prepareMusic, safeCeiling } from "@/lib/media/music";
+import { prepareMusic } from "@/lib/media/music";
 import { encodeWithFfmpeg } from "./ffmpeg-encode";
 import { loadJobAssets } from "@/lib/export/node-assets";
-import { processAudio } from "@/lib/export/process-audio";
+import { processJobAudio } from "@/lib/export/audio-job";
 import { decodeWav } from "@/lib/export/wav";
 
 // O pacote do RNNoise só aceita carregar "na web" (window ou worker): em Node basta declarar o
@@ -86,25 +85,15 @@ async function main() {
   const assets = await loadJobAssets(job, sr, { storageUrl, cacheDir: a.cache! });
   mark("assets");
 
-  const processed = await processAudio(input.channels, sr, {
-    chain: job.audio.chain,
-    intensity: job.audio.intensity,
-    social: job.audio.social.enabled,
-    denoise: job.audio.denoise,
-    preroll: 0,
-    drumSamples: assets.drumSamples,
-    impulses: assets.impulses,
-  });
-  mark("dsp");
-
-  // mesmo caminho do executeExportJob para arquivo de áudio: cortes → música
-  let out = job.cuts.applied ? spliceAudio(processed.channels, sr, job.source.audio_start_s, job.cuts.segments) : processed.channels;
+  // música de fundo (quando houver) na taxa e nos canais do áudio, como o music-picker faz
+  let music = null;
   if (job.audio.music) {
     if (!a.music) throw new Error("o job tem música de fundo: informe --music (WAV)");
     const m = decodeWav(await readFile(a.music));
-    const music = prepareMusic({ name: "musica", channels: m.channels, sampleRate: m.sampleRate }, sr, out.length);
-    out = safeCeiling(mixMusic(out, music, sr, job.audio.music.level, 0, out[0].length), sr);
+    music = prepareMusic({ name: "musica", channels: m.channels, sampleRate: m.sampleRate }, sr, input.channels.length);
   }
+  // mesmo caminho do executeExportJob para arquivo de áudio: DSP → cortes → música
+  const out = await processJobAudio(job, input.channels, sr, { drumSamples: assets.drumSamples, impulses: assets.impulses, music });
   mark("edicao");
   if (a["float-out"]) await writeFile(a["float-out"], Buffer.concat(out.map((c) => Buffer.from(c.buffer, c.byteOffset, c.byteLength))));
 

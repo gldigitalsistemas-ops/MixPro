@@ -90,7 +90,7 @@ async function main() {
   const minutes = args.minutos!.split(",").map(Number);
   const chains = args.cadeias!.split(",");
   console.log(`máquina: ${cpus().length} núcleos lógicos, ${cpus()[0].model}, ${(totalmem() / 2 ** 30).toFixed(1)} GB, Node ${process.version}`);
-  console.log("cadeia | min | canais | relógio (s) | CPU (s) | CPU/relógio | x tempo real | RSS pico (MB) | assets (s) | DSP (s)");
+  console.log("cadeia | min | canais | relógio (s) | CPU (s) | CPU/relógio | x tempo real | RSS pico (MB) | assets (s) | DSP+cortes (s)");
   for (const chain of chains)
     for (const m of minutes)
       for (const ch of [1, 2]) {
@@ -122,7 +122,7 @@ async function main() {
         const e = c.etapas_ms;
         results.push({ chain, minutos: m, canais: ch, ...c });
         console.log(
-          [chain, m, ch, (c.relogio_ms / 1000).toFixed(1), (c.cpu_ms / 1000).toFixed(1), c.cpu_por_relogio, (dur / (c.relogio_ms / 1000)).toFixed(1), c.pico_rss_mb, ((e.assets - e.leitura) / 1000).toFixed(1), ((e.dsp - e.assets) / 1000).toFixed(1)].join(" | "),
+          [chain, m, ch, (c.relogio_ms / 1000).toFixed(1), (c.cpu_ms / 1000).toFixed(1), c.cpu_por_relogio, (dur / (c.relogio_ms / 1000)).toFixed(1), c.pico_rss_mb, ((e.assets - e.leitura) / 1000).toFixed(1), ((e.edicao - e.assets) / 1000).toFixed(1)].join(" | "),
         );
       }
   writeFileSync(join(OUT, "resultado.json"), JSON.stringify({ cpus: cpus().length, modelo: cpus()[0].model, ram_gb: totalmem() / 2 ** 30, node: process.version, results }, null, 1));

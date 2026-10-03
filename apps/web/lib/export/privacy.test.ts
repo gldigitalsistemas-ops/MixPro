@@ -1,7 +1,8 @@
 /**
- * Privacidade: o ExportJob (fala transcrita, texto do CTA, nome do preset do usuário) NUNCA vai para
- * reportError, track/track_event, beginTask, console ou qualquer log. Teste estático sobre o código
- * que monta e executa o job.
+ * Privacidade: o ExportJob (fala transcrita, texto e @ do CTA, nome do preset do usuário) NUNCA vai
+ * para reportError, track/track_event, beginTask, console ou qualquer log. Teste estático sobre o
+ * código que monta e executa o job: app, lib/export (inclusive a validação do servidor) e os
+ * scripts do servidor (scripts/*-export-job.ts).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -17,6 +18,9 @@ const FILES = [
     .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
     .map((f) => join(EXPORT_DIR, f)),
   join(WEB, "components/studio/export-panel.tsx"),
+  ...readdirSync(join(WEB, "scripts"))
+    .filter((f) => /export-job\.ts$|ffmpeg-encode\.ts$/.test(f))
+    .map((f) => join(WEB, "scripts", f)),
 ];
 
 /** Chamadas que mandam dados para fora (logs, eventos, registro de queda). */
@@ -39,11 +43,20 @@ test("nenhuma chamada de log/evento recebe o ExportJob", () => {
     for (const m of src.matchAll(SINKS)) {
       calls++;
       // Boolean(...) só manda sim/não (ex.: "tinha legenda"), nunca o conteúdo
-      const args = argsAt(src, m.index! + m[0].length - 1).replace(/Boolean\([^()]*\)/g, "true");
-      assert.doesNotMatch(args, /\bjob\b|\bexportJob\b|buildExportJob|idempotency_ref|\.captions\b|\.cta\b/, `${file}: ${m[0]}${args.slice(0, 120)})`);
+      // textos fixos entre aspas não carregam dados (ex.: a mensagem de uso "--job job.json");
+      // template literals continuam verificados, porque é neles que um valor poderia entrar
+      const args = argsAt(src, m.index! + m[0].length - 1)
+        .replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, '""')
+        .replace(/Boolean\([^()]*\)/g, "true");
+      assert.doesNotMatch(args, /\bjob\b|\bexportJob\b|buildExportJob|idempotency_ref|\.captions\b|\.cta\b|\bcta\b|\.handle\b/, `${file}: ${m[0]}${args.slice(0, 120)})`);
     }
   }
   assert.ok(calls > 3, "o teste deve ter encontrado as chamadas do painel");
+});
+
+test("os scripts do servidor estão na verificação (e o CTA também)", () => {
+  assert.ok(FILES.some((f) => f.endsWith("run-export-job.ts")), "run-export-job.ts verificado");
+  assert.ok(FILES.some((f) => f.endsWith("server-validate.ts")), "server-validate.ts verificado");
 });
 
 test("lib/export não registra nada sozinho e os módulos de log não importam o job", () => {

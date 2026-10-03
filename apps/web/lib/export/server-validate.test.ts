@@ -52,7 +52,6 @@ const VALID: Record<string, ExportState> = {
     segments: [{ start: 0.021333, end: 12.5 }, { start: 13.1, end: 95.5 }],
     // num alvo de áudio o visual não importa para o arquivo (só entra no p_ref)
     look: { ...plain, format: "9:16", watermark: true, color: DEFAULT_LOOK },
-    comparing: true,
   }),
   "vídeo → só trocar o áudio": state({ target: "video", media: { ...state().media, kind: "video" } }),
 };
@@ -73,12 +72,13 @@ test("jobs reais do app (buildExportJob) passam na validação do servidor", () 
 /** Cada adulteração e o código esperado. */
 const TAMPER: [string, ExportState, (j: Loose) => void, string][] = [
   ["legendas (letra) vindas do cliente", VALID["áudio → MP3"], (j) => (j.captions = { captions: [], style: "destaque", position: "bottom" }), "OUT_OF_SCOPE"],
-  ["CTA", VALID["áudio → MP3"], (j) => (j.look.cta = { text: "Siga", handle: "@x", start: 1, end: 2 }), "OUT_OF_SCOPE"],
+  ["CTA em alvo de vídeo (forçaria render)", VALID["vídeo → só trocar o áudio"], (j) => (j.look.cta = { text: "Siga", handle: "@x", start: 1, end: 2 }), "OUT_OF_SCOPE"],
   ["música de fundo (fora da v1)", VALID["áudio → MP3"], (j) => (j.audio.music = { fingerprint: "01234567", level: "media", upload_ref: null }), "OUT_OF_SCOPE"],
   ["audiograma", VALID["áudio → MP3"], (j) => (j.look.audiogram = { palette: 0, title: "x", has_image: false, upload_ref: null }), "OUT_OF_SCOPE"],
   ["render declarado", VALID["vídeo → só trocar o áudio"], (j) => (j.output.render = true), "OUT_OF_SCOPE"],
   ["vídeo com cor ativa fingindo não precisar de render", VALID["vídeo → só trocar o áudio"], (j) => (j.look.color = { ...DEFAULT_LOOK }), "OUT_OF_SCOPE"],
   ["vídeo com antes → depois", VALID["vídeo → só trocar o áudio"], (j) => (j.look.before_after = true), "OUT_OF_SCOPE"],
+  ["antes → depois em alvo de áudio (recusado por decisão, embora inerte)", VALID["áudio → MP3"], (j) => (j.look.before_after = true), "OUT_OF_SCOPE"],
   ["kind e alvo incoerentes", VALID["áudio → MP3"], (j) => (j.kind = "video"), "INVALID_JOB"],
   ["mais de 10 min", VALID["áudio → MP3"], (j) => (j.source.duration_s = SERVER_LIMITS.maxDurationS + 1), "TOO_LONG"],
   ["3 canais", VALID["áudio → MP3"], (j) => (j.source.channels = 3), "INVALID_JOB"],

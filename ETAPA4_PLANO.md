@@ -312,7 +312,7 @@ criação, **e de novo** no serviço:
 
 | Item | Regra | Por quê |
 |---|---|---|
-| Escopo | `output.render = false`; `captions = null`; `look.cta = null`; `look.before_after = false`; `look.audiogram = null`; `look.color` sem efeito; `kind = audio`, ou `video` com remux | Fora disso precisa de render. Também elimina legendas e textos do usuário. |
+| Escopo | `output.render = false`; `captions = null`; `look.audiogram = null`; `audio.music = null`; `look.before_after = false`; **CTA só em alvo de áudio** (ver "Mudança da fatia 1" abaixo); em alvo de vídeo também `look.cta = null` e nenhum visual que exija render (recalculado com `rendersVideo`) | Fora disso precisa de render. Legendas continuam recusadas (podem ser letra inédita). |
 | Música de fundo | v1: `audio.music = null` (seção 11, item 5) | Exige um segundo upload. |
 | Duração | **medida no arquivo** (ffprobe + amostras decodificadas), nunca o `duration_s` do job. Máximo **15 min** [CÓDIGO: limite do computador]; recusa se `|medida − job| > 0,1 s` [ESTIMATIVA] | O job pode mentir; a medida decide o custo. |
 | Taxa e canais | medidos; recusa se diferirem do `job.source`. Aplicar a regra do app: no máximo 2 canais, estéreo idêntico vira mono | O app faz assim [CÓDIGO]. |
@@ -325,12 +325,35 @@ criação, **e de novo** no serviço:
 | Assets | **ignorar `files`/`file` do job.** Para cada id, buscar `drum_samples`/`cab_irs` **ativos** no banco e usar os caminhos de lá. Só aceitar ids `synth` e `mp:` que existam em `CABS`. Downloads só de `<SUPABASE_URL>/storage/v1/object/public/drum-samples/` | Impede apontar o servidor para outro lugar (SSRF) e reaproveitar caminhos alheios. |
 | IR | depois de decodificar, ≤ 250 ms [CÓDIGO: `irFromChannels`]; arquivo ≤ 2 MB [ESTIMATIVA] | — |
 | Samples | ≤ 12 camadas por peça [CÓDIGO: check da tabela]; arquivo ≤ 2 MB cada [ESTIMATIVA] | — |
-| Cortes | `segments` ordenados, sem sobreposição, dentro de `[audio_start, audio_start + duração medida]`, ≤ 1.000 trechos (cabe nos 64 KB do JSON; ajustado na fatia 1) [ESTIMATIVA] | `spliceAudio` com entradas absurdas. |
+| Cortes | `segments` ordenados, sem sobreposição, dentro de `[audio_start, audio_start + duração medida]`, ≤ 1.000 trechos (cabe nos 64 KB do JSON; ajustado na fatia 1). No nível "dinâmico", projetado para 10 min [MEDIDO]: 127–157 trechos nos arquivos reais, 166 numa fala sintética e 588 num pior caso artificial (falas e pausas curtas o tempo todo) | `spliceAudio` com entradas absurdas. |
 | `idempotency_ref` | regex do `spend_export_credit` [CÓDIGO] **e** igual ao recalculado com `audioRef`/`editRef` a partir do próprio job [CÓDIGO: `lib/export/refs.ts`]. Exceção: o `fileKey` usa nome e data, que o servidor não tem; ele é aceito como veio | Garante que o ref corresponde à cadeia e às opções enviadas. |
 | Tamanho do JSON | ≤ 64 KB [ESTIMATIVA] | Sem legendas, um job real tem poucos KB. |
 | `engine.dsp_version` | precisa ser igual ao do serviço; se não, `VERSION_MISMATCH` e o cliente usa o aparelho | Evita som diferente do que a prévia mostrou. |
 
 ---
+
+### Mudança da fatia 1: CTA em alvo de áudio (aprovada em 2026-10-03)
+
+- **Por quê:** o CTA vem **ligado por padrão** em todo vídeo [CÓDIGO: `defaultVideoTools`].
+  Recusá-lo mandaria para o aparelho quase todo "vídeo → MP3/WAV/M4A".
+- **Regra:** o CTA é aceito **só quando o alvo é áudio** (wav/mp3/m4a). Em alvo de vídeo (remux)
+  continua recusado, porque força render.
+- **Inerte para o som:** o CTA só entra no p_ref (`editRef`). Um teste prova que o mesmo job com e
+  sem CTA, em alvo de áudio, dá o **mesmo `sha256_f32`** pelo caminho do executor
+  (`lib/export/audio-job.ts`, usado também pelo script).
+- **Limites:** texto ≤ **70** e @ ≤ **32** unidades UTF-16. São os da interface [CÓDIGO:
+  `video-tools.tsx`: texto `slice(0, 70)`; @ `slice(0, 31)` + "@"]. A maior sugestão pronta tem 47
+  [MEDIDO]. Acima disso (só por job forjado ou sessão muito antiga), o job é recusado (`LIMIT`) e
+  cai no aparelho.
+- **Privacidade:** o CTA fica no JSON do job e é **apagado junto com ele no `done`**. Nunca vai
+  para logs, `reportError` ou `track`. O teste estático cobre `lib/export`, o painel e os scripts
+  do servidor, e procura `cta`, `.handle`, `job` e `idempotency_ref` nos argumentos de log. Ele
+  detectou um vazamento injetado de propósito. O apagar no `done` será testado na fatia 4, no banco.
+- **Antes → depois em alvo de áudio:** confirmado no código que **não altera o áudio**. O
+  `executeExportJob` só usa `before_after` no ramo de vídeo [CÓDIGO]. Ele muda só o p_ref
+  (`"antes-depois"` no `editRef`), e um teste prova o mesmo `sha256_f32`. **Por decisão, continua
+  recusado em qualquer alvo** (`OUT_OF_SCOPE` → aparelho). Pode ser liberado em alvo de áudio no
+  futuro sem risco para o som.
 
 ## 5. Decodificação da mídia do usuário no servidor
 

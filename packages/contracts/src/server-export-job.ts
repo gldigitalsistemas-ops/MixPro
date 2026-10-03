@@ -23,6 +23,12 @@ export const SERVER_LIMITS = {
   maxSegments: 1000,
   /** Folga entre os trechos de corte e a duração declarada (s). */
   segmentSlackS: 0.05,
+  /**
+   * CTA (só em alvo de áudio, onde não muda o som e só entra no p_ref): os mesmos limites da
+   * interface (video-tools.tsx: texto slice(0, 70); @ slice(0, 31) + "@"), em unidades UTF-16.
+   */
+  maxCtaText: 70,
+  maxCtaHandle: 32,
   /** Tamanho máximo do JSON do job (bytes, UTF-8). */
   maxJobBytes: 64 * 1024,
 } as const;
@@ -40,14 +46,20 @@ function checks(j: ExportJob, ctx: z.RefinementCtx) {
   // ----- escopo da v1: só áudio processado (sem render, sem textos do usuário, sem música)
   if (j.output.render) issue("OUT_OF_SCOPE", ["output", "render"]);
   if (j.captions !== null) issue("OUT_OF_SCOPE", ["captions"]);
-  if (j.look.cta !== null) issue("OUT_OF_SCOPE", ["look", "cta"]);
+  // CTA: aceito só em alvo de áudio (no vídeo ele força render); tamanho igual ao da interface
+  if (j.look.cta !== null) {
+    if (j.output.target === "video") issue("OUT_OF_SCOPE", ["look", "cta"]);
+    if (j.look.cta.text.length > SERVER_LIMITS.maxCtaText) issue("LIMIT", ["look", "cta", "text"]);
+    if (j.look.cta.handle.length > SERVER_LIMITS.maxCtaHandle) issue("LIMIT", ["look", "cta", "handle"]);
+  }
   if (j.look.audiogram !== null) issue("OUT_OF_SCOPE", ["look", "audiogram"]);
   if (j.audio.music !== null) issue("OUT_OF_SCOPE", ["audio", "music"]);
+  // antes → depois: recusado em qualquer alvo (decisão da fatia 1), embora seja inerte no áudio
+  if (j.look.before_after) issue("OUT_OF_SCOPE", ["look", "before_after"]);
   if ((j.kind === "video") !== (j.output.target === "video")) issue("INVALID_JOB", ["kind"]);
   if (j.output.target === "video") {
     // vídeo só trocando o áudio: o servidor devolve o áudio e o aparelho junta com o vídeo
     if (j.source.media !== "video") issue("OUT_OF_SCOPE", ["source", "media"]);
-    if (j.look.before_after) issue("OUT_OF_SCOPE", ["look", "before_after"]);
   }
 
   // ----- origem (o serviço confere de novo contra o arquivo decodificado)
