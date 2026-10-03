@@ -407,6 +407,18 @@ for (const [name, s] of Object.entries(SCENARIOS)) {
     const bad = close(got.metrics, audioGolden(name).metrics);
     assert.deepEqual(bad, [], `medidas fora da tolerância em ${name}:\n${bad.join("\n")}`);
   });
+  // o caminho novo (processAudio, usado pelo dsp.worker e pelo script Node) contra o mesmo golden
+  test(`golden áudio [processAudio]: ${name}`, async () => {
+    if (UPDATE) return;
+    const { processAudio } = await import("./process-audio");
+    const input = s.input();
+    const original = input.map((c) => c.slice());
+    const r = await processAudio(input, SR, { chain: s.chain(), intensity: s.intensity, social: s.social, denoise: s.denoise, preroll: 0, impulses: s.impulses });
+    let out = r.channels;
+    if (s.cut && s.cut !== "off") out = spliceAudio(out, SR, 0, speechSegments(original, SR, 0, s.cut, null));
+    if (s.music) out = safeCeiling(mixMusic(out, s.music.signal(), SR, s.music.level, 0, out[0].length), SR);
+    assert.equal(measure(out).sha256_f32, audioGolden(name).sha256_f32, `processAudio diferente do golden em ${name}`);
+  });
 }
 
 test("golden vídeo: tamanhos, recodificação, cor e cortes", () => {

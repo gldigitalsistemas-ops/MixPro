@@ -1,10 +1,8 @@
 /// <reference lib="webworker" />
-import { finalizeForSocial, runChain, type ChainDoc } from "./chain";
-import { denoise } from "./denoise";
-import { integratedLoudness, samplePeak } from "./loudness";
-import { setDrumSamples, type DrumSampleSet } from "./drums/studio";
-import { setImpulses } from "./amp";
+import type { ChainDoc } from "./chain";
+import type { DrumSampleSet } from "./drums/studio";
 import type { Signal } from "./types";
+import { processAudio } from "@/lib/export/process-audio";
 
 export type DspRequest = {
   id: number;
@@ -31,25 +29,12 @@ export type DspResponse =
 
 const post = (msg: DspResponse, transfer: Transferable[] = []) => self.postMessage(msg, transfer);
 
+// o processamento em si fica em lib/export/process-audio.ts (o mesmo código roda em Node)
 self.onmessage = async (e: MessageEvent<DspRequest>) => {
-  const { id, channels, sampleRate, chain, intensity, social, preroll } = e.data;
-  // com remoção de ruído, ela ocupa a primeira metade da barra de progresso
-  const split = e.data.denoise > 0 ? 0.5 : 0;
+  const { id, channels, sampleRate } = e.data;
   try {
-    setDrumSamples(e.data.drumSamples);
-    setImpulses(e.data.impulses);
-    const clean = await denoise(channels, sampleRate, e.data.denoise, (v) =>
-      post({ id, type: "progress", value: v * split }),
-    );
-    let out = runChain(clean, sampleRate, chain, intensity, (done, total) =>
-      post({ id, type: "progress", value: split + (1 - split) * (done / (total + (social ? 1 : 0))) }),
-    );
-    if (preroll > 0) out = out.map((ch) => ch.slice(preroll));
-    if (social) out = finalizeForSocial(out, sampleRate);
-    post(
-      { id, type: "done", channels: out, lufs: integratedLoudness(out, sampleRate), peak: samplePeak(out) },
-      out.map((c) => c.buffer),
-    );
+    const out = await processAudio(channels, sampleRate, e.data, (value) => post({ id, type: "progress", value }));
+    post({ id, type: "done", channels: out.channels, lufs: out.lufs, peak: out.peak }, out.channels.map((c) => c.buffer));
   } catch (err) {
     post({ id, type: "error", message: err instanceof Error ? err.message : String(err) });
   }
