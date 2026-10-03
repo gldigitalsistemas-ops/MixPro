@@ -115,6 +115,10 @@ self.onmessage = async (e: MessageEvent<AsrRequest>) => {
         // "translate" do Whisper: legenda em inglês, qualquer que seja o idioma falado
         task: translate ? "translate" : "transcribe",
         return_timestamps: "word",
+        // trecho sem fala (fim instrumental, silêncio) faz o Whisper repetir texto até o limite de 448
+        // itens, o que leva minutos no modelo maior: o limite acompanha a duração do bloco (fala real
+        // fica bem abaixo de 8 por segundo)
+        max_new_tokens: Math.min(440, Math.round((data.length / SR) * 8) + 24),
       });
       const block = (r.chunks ?? []).map((c) => ({ text: c.text.trim(), start: offset + c.timestamp[0], end: offset + (c.timestamp[1] ?? c.timestamp[0] + 0.3) }));
       words.push(...dropHallucinations(block));

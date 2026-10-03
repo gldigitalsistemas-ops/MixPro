@@ -961,7 +961,10 @@ export function Studio() {
                     <AudioLines className="size-7" />
                   </span>
                   <span className="font-display text-lg font-semibold">Música para criar VS</span>
-                  <span className="text-xs text-muted">Separa voz, bateria, baixo e instrumentos e cria o clique. Novo!</span>
+                  <span className="text-xs text-muted">Separa voz, bateria, baixo e instrumentos e cria o clique.</span>
+                  <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2.5 py-0.5 text-[11px] font-semibold text-amber-200">
+                    Em desenvolvimento
+                  </span>
                 </a>
               </>
             )}

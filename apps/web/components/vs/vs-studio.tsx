@@ -83,7 +83,7 @@ function doubleTime(b: Beats): Beats {
 
 export function VSStudio() {
   const toast = useToast();
-  const { spend, requireLogin, showNoCredits } = useAccountCtx();
+  const { spend, requireLogin, showNoCredits, isAdmin } = useAccountCtx();
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
@@ -322,6 +322,9 @@ export function VSStudio() {
 
   const accept = "audio/*,video/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.mp4,.mov";
 
+  // Em desenvolvimento: só o admin usa (para testar); os usuários veem o aviso "em breve"
+  if (!isAdmin) return <InDevelopment />;
+
   // -------------------------------------------------------------- telas
   if (phase.kind === "decoding" || phase.kind === "separating") {
     const p = phase.kind === "separating" ? phase.p : null;
@@ -366,6 +369,7 @@ export function VSStudio() {
             if (f) void open(f);
           }}
         />
+        <AdminDevBanner />
         <div className="text-center">
           <h1 className="font-display text-3xl font-bold tracking-tight md:text-4xl">
             Crie seu <span className="text-gradient">VS</span> com IA
@@ -453,6 +457,7 @@ export function VSStudio() {
   const anySolo = Object.values(mix).some((m) => m.solo);
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+      <AdminDevBanner />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h1 className="truncate font-display text-xl font-semibold">{name}</h1>
@@ -634,6 +639,37 @@ export function VSStudio() {
             : "1 crédito por música: depois baixe as pistas e quantas mixagens quiser. O mix estéreo sai com o volume, o pan, o mudo e o solo que você ajustou."}
         </p>
       </Card>
+    </div>
+  );
+}
+
+/** Aviso para o admin: a aba está liberada só para ele enquanto está em desenvolvimento. */
+function AdminDevBanner() {
+  return (
+    <p className="rounded-2xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-center text-xs text-amber-100">
+      <b>Em desenvolvimento.</b> Só você (admin) vê e usa o VS. Os usuários veem “em breve”.
+    </p>
+  );
+}
+
+/** O que os usuários veem enquanto o VS está em desenvolvimento. */
+function InDevelopment() {
+  return (
+    <div className="mx-auto flex w-full max-w-xl flex-col items-center gap-4 py-8 text-center">
+      <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200">
+        Em desenvolvimento
+      </span>
+      <h1 className="font-display text-3xl font-bold tracking-tight md:text-4xl">
+        Crie seu <span className="text-gradient">VS</span> com IA
+      </h1>
+      <p className="text-muted">
+        Em breve: envie uma música e a IA separa voz, bateria, baixo e instrumentos e cria o canal de clique no andamento certo. Você
+        mixa as pistas e baixa para tocar ao vivo.
+      </p>
+      <p className="text-sm text-subtle">Estamos testando para entregar com qualidade. Avisaremos quando estiver liberado.</p>
+      <a href="/estudio" className="bg-brand rounded-full px-5 py-2.5 text-sm font-semibold text-white">
+        Voltar ao estúdio
+      </a>
     </div>
   );
 }
