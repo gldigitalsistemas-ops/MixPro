@@ -16,6 +16,8 @@ import { exportAudio } from "@/lib/media/export";
 import { resample } from "@/lib/dsp/resample";
 import { track as trackEvent } from "@/lib/track";
 import { keepAwake } from "@/lib/wake-lock";
+import { downloadBlob } from "@/lib/download";
+import { fnv36 } from "@/lib/hash";
 import { SR, STEMS } from "@/lib/vs/demucs";
 import { mixdown, wavBlob, zipBlob, type TrackData, type TrackMix } from "@/lib/vs/export";
 import { VSPlayer } from "@/lib/vs/player";
@@ -49,24 +51,7 @@ type Phase =
   | { kind: "separating"; p: SeparateProgress; seconds: number; eta?: number }
   | { kind: "ready" };
 
-function fnv(text: string): string {
-  let h = 2166136261;
-  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
-  return (h >>> 0).toString(36);
-}
-
 const baseName = (name: string) => name.replace(/\.[^.]+$/, "").slice(0, 60) || "musica";
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
-}
 
 /** Andamento pela metade, em dobro e mudança do tempo 1 (quando a detecção erra o compasso). */
 function halfTime(b: Beats): Beats {
@@ -225,7 +210,7 @@ export function VSStudio() {
         }
       }
       const b = trackBeats(dm, SR);
-      const key = fnv(`${file.name}|${file.size}|${file.lastModified}`);
+      const key = fnv36(`${file.name}|${file.size}|${file.lastModified}`);
       setName(file.name);
       setFileKey(key);
       setStems(res.stems);

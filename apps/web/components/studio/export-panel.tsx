@@ -23,6 +23,7 @@ import { FILTERS, lookIsActive } from "@/lib/media/color";
 import { buildExportJob, composeChain, type ChainParts } from "@/lib/export/build-job";
 import { executeExportJob, FILE_GONE } from "@/lib/export/execute-job";
 import { audioRef, editRef, resultRef, settingsRef } from "@/lib/export/refs";
+import { downloadBlob } from "@/lib/download";
 import { BatchExport } from "./batch-export";
 import { keepAwake } from "@/lib/wake-lock";
 import { isPhone } from "@/lib/device";
@@ -74,25 +75,6 @@ type Props = {
 };
 
 const canShareFiles = (file: File) => typeof navigator !== "undefined" && !!navigator.canShare?.({ files: [file] });
-
-/**
- * Baixa a partir do arquivo em memória, com um link novo a cada clique (um link antigo pode ter
- * sido liberado pelo navegador depois de muita memória em uso, e aí o download sai vazio).
- */
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  triggerDownload(url, filename);
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
-}
-
-function triggerDownload(url: string, filename: string) {
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-}
 
 export function ExportPanel(props: Props) {
   const { media, preset, chainParts, intensity, denoise, social, onSocialChange, segments, cutting, look, audiogram, music } = props;
