@@ -24,8 +24,8 @@ import { captionFontFamily, ensureCaptionFont } from "@/lib/captions/font";
 import { CaptionsPanel, type CaptionState } from "./captions-panel";
 import { ExportPanel } from "./export-panel";
 import { StyleBar } from "./style-bar";
-import { MusicPicker, type MusicState } from "./music-picker";
-import { DrumPanel, drumDefaults, withDrumTweaks, type DrumTweaks } from "./drum-panel";
+import { MusicPicker } from "./music-picker";
+import { DrumPanel, drumDefaults, withDrumTweaks } from "./drum-panel";
 import { mixMusic, safeCeiling } from "@/lib/media/music";
 import { VideoTools, defaultVideoTools, type VideoToolsState } from "./video-tools";
 import { keptDuration, mapToOutput, speechSegments } from "@/lib/media/cuts";
@@ -57,8 +57,10 @@ import {
   type SoundTab,
 } from "@/lib/mix";
 import { ReverbPanel } from "./reverb-panel";
-import { reverbFromChain, withReverb, type ReverbTweak } from "@/lib/reverb-tweak";
+import { reverbFromChain, withReverb } from "@/lib/reverb-tweak";
 import type { ChainParts } from "@/lib/export/build-job";
+import { editSnapshot, mergeVideoTools, restorePatch } from "@/lib/edit-state";
+import { useEditState } from "./use-edit-state";
 import { AutoSetupCard } from "./auto-setup-card";
 import { analyzeAudio } from "@/lib/dsp/analyze";
 import { autoSetup, instrumentCategories, instrumentOfCategory, pickPreset, type AutoSetup } from "@/lib/auto-setup";
@@ -68,7 +70,6 @@ import { outputToSource } from "@/lib/media/before-after";
 import { composePost, coverTitle } from "@/lib/captions/post";
 import { PostComposer, storedNiche, storedPlatform } from "./post-composer";
 import { track } from "@/lib/track";
-import type { ChainDoc } from "@/lib/dsp/chain";
 import type { DrumSampleSet } from "@/lib/dsp/drums/studio";
 import {
   fetchDrumKits,
@@ -156,16 +157,31 @@ export function Studio() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [categoryId, setCategoryId] = useState<string | null>(null);
-  // Escolhas do usuário; null = usar o padrão (preset sugerido / intensidade do preset)
-  const [chosenPreset, setPreset] = useState<StudioPreset | null>(null);
-  const [chosenIntensity, setIntensity] = useState<Intensity | null>(null);
-  const [social, setSocial] = useState(true);
-  const [chosenNoise, setNoise] = useState<NoiseLevel | null>(null);
-  const [captionState, setCaptionState] = useState<CaptionState | null>(null);
-  const [videoTools, setVideoTools] = useState<VideoToolsState | null>(null);
-  const [music, setMusic] = useState<MusicState | null>(null);
-  const [drumTweaks, setDrumTweaks] = useState<DrumTweaks | null>(null);
-  const [reverbTweak, setReverbTweak] = useState<ReverbTweak | null>(null);
+  // estado da edição que define o arquivo final (som, legendas, vídeo, música)
+  const {
+    chosenPreset,
+    setPreset,
+    chosenIntensity,
+    setIntensity,
+    social,
+    setSocial,
+    chosenNoise,
+    setNoise,
+    captionState,
+    setCaptionState,
+    videoTools,
+    setVideoTools,
+    music,
+    setMusic,
+    drumTweaks,
+    setDrumTweaks,
+    reverbTweak,
+    setReverbTweak,
+    masterId,
+    setMasterId,
+    custom,
+    setCustom,
+  } = useEditState();
   const [drumLibrary, setDrumLibrary] = useState<DrumLibraryItem[] | null>(null);
   const [drumSet, setDrumSet] = useState<{ key: string; set: DrumSampleSet } | null>(null);
   const [drumKits, setDrumKits] = useState<DrumKit[]>([]);
@@ -180,8 +196,6 @@ export function Studio() {
   const [auto, setAuto] = useState<AutoSetup | null>(null);
   /** Decisão sobre o ajuste automático: aceitar ou fazer a própria mixagem. */
   const [autoDecision, setAutoDecision] = useState<"aceito" | "manual" | null>(null);
-  /** Masterização no fim da mixagem (id do preset de master; null = sem master). */
-  const [masterId, setMasterId] = useState<string | null>(null);
   /** Ordem das abas de "Escolha o som" (definida no admin). */
   const [soundTabs, setSoundTabs] = useState<SoundTab[]>(DEFAULT_TAB_ORDER);
   // descrição do post: nicho, plataforma, variação ("Outra sugestão") e o texto editado pela pessoa
@@ -189,8 +203,6 @@ export function Studio() {
   const [chosenPlatform, setPlatform] = useState<Platform | null>(null);
   const [postVariant, setPostVariant] = useState(0);
   const [postEdit, setPostEdit] = useState<string | null>(null);
-  // "Personalizar": cadeia editada pelo usuário (vale enquanto o mesmo preset estiver escolhido)
-  const [custom, setCustom] = useState<{ presetId: string; chain: ChainDoc } | null>(null);
   const [userPresetList, setUserPresets] = useState<StudioPreset[]>([]);
   // preferências de legenda vindas de "Meu estilo" (usadas quando as legendas forem geradas)
   const [captionPrefs, setCaptionPrefs] = useState<{ style: CaptionStyleId; position: CaptionPosition } | null>(null);
@@ -265,7 +277,8 @@ export function Studio() {
     setDrumTweaks(null);
     setReverbTweak(null);
     setCustom(null);
-  }, []);
+    // os setters do useEditState são os do useState (estáveis): listados só para o lint
+  }, [setPreset, setIntensity, setDrumTweaks, setReverbTweak, setCustom]);
 
   // presets personalizados da conta
   useEffect(() => {
@@ -415,26 +428,25 @@ export function Studio() {
 
   /** Volta as escolhas de uma edição salva no aparelho (depois que o arquivo é lido de novo). */
   function applyRestore(r: Record<string, unknown>) {
-    const get = <T,>(k: string) => (k in r ? (r[k] as T) : undefined);
-    if (get<StudioPreset | null>("preset") !== undefined) setPreset(get<StudioPreset | null>("preset")!);
-    if (get<string | null>("categoryId") !== undefined) setCategoryId(get<string | null>("categoryId")!);
-    if (get<Intensity | null>("intensity") !== undefined) setIntensity(get<Intensity | null>("intensity")!);
-    if (get<NoiseLevel | null>("noise") !== undefined) setNoise(get<NoiseLevel | null>("noise")!);
-    if (typeof r.social === "boolean") setSocial(r.social);
-    if (get<CaptionState | null>("captionState") !== undefined) setCaptionState(get<CaptionState | null>("captionState")!);
-    const vt = get<VideoToolsState | null>("videoTools");
-    if (vt) setVideoTools((cur) => (cur ? { ...cur, ...vt, color: { ...cur.color, ...vt.color } } : vt));
-    if (get<DrumTweaks | null>("drumTweaks") !== undefined) setDrumTweaks(get<DrumTweaks | null>("drumTweaks")!);
-    if (get<ReverbTweak | null>("reverbTweak") !== undefined) setReverbTweak(get<ReverbTweak | null>("reverbTweak")!);
-    if (get<{ presetId: string; chain: ChainDoc } | null>("custom") !== undefined) setCustom(get<{ presetId: string; chain: ChainDoc } | null>("custom")!);
-    if (get<string | null>("masterId") !== undefined) setMasterId(get<string | null>("masterId")!);
-    const decision = get<"aceito" | "manual" | null>("autoDecision");
-    if (decision !== undefined) setAutoDecision(decision);
-    if (get<NicheId | null>("niche") !== undefined) setNiche(get<NicheId | null>("niche")!);
-    if (get<Platform | null>("platform") !== undefined) setPlatform(get<Platform | null>("platform")!);
-    if (get<string | null>("postEdit") !== undefined) setPostEdit(get<string | null>("postEdit")!);
-    if (typeof r.postVariant === "number") setPostVariant(r.postVariant);
-    if (typeof r.tab === "string") setTab(r.tab as Tab);
+    const p = restorePatch(r);
+    if ("preset" in p) setPreset(p.preset!);
+    if ("categoryId" in p) setCategoryId(p.categoryId!);
+    if ("intensity" in p) setIntensity(p.intensity as Intensity | null);
+    if ("noise" in p) setNoise(p.noise as NoiseLevel | null);
+    if ("social" in p) setSocial(p.social!);
+    if ("captionState" in p) setCaptionState(p.captionState as CaptionState | null);
+    const vt = p.videoTools as VideoToolsState | undefined;
+    if (vt) setVideoTools((cur) => mergeVideoTools(cur, vt));
+    if ("drumTweaks" in p) setDrumTweaks(p.drumTweaks!);
+    if ("reverbTweak" in p) setReverbTweak(p.reverbTweak!);
+    if ("custom" in p) setCustom(p.custom!);
+    if ("masterId" in p) setMasterId(p.masterId!);
+    if ("autoDecision" in p) setAutoDecision(p.autoDecision!);
+    if ("niche" in p) setNiche(p.niche as NicheId | null);
+    if ("platform" in p) setPlatform(p.platform as Platform | null);
+    if ("postEdit" in p) setPostEdit(p.postEdit!);
+    if ("postVariant" in p) setPostVariant(p.postVariant!);
+    if ("tab" in p) setTab(p.tab as Tab);
     toast.success("Edição recuperada. Continue de onde parou.");
   }
 
@@ -528,14 +540,14 @@ export function Studio() {
   useEffect(() => {
     if (!media || loading !== null) return;
     const t = setTimeout(() => {
-      void saveSessionState({
+      void saveSessionState(editSnapshot({
         preset: chosenPreset,
         categoryId,
         intensity: chosenIntensity,
         noise: chosenNoise,
         social,
         captionState,
-        videoTools: videoTools ? { ...videoTools, audiogram: videoTools.audiogram ? { ...videoTools.audiogram, image: null } : null } : null,
+        videoTools,
         drumTweaks,
         reverbTweak,
         custom,
@@ -546,7 +558,7 @@ export function Studio() {
         postEdit,
         postVariant,
         tab,
-      });
+      }));
     }, 800);
     return () => clearTimeout(t);
   }, [media, loading, chosenPreset, categoryId, chosenIntensity, chosenNoise, social, captionState, videoTools, drumTweaks, reverbTweak, custom, masterId, autoDecision, chosenNiche, chosenPlatform, postEdit, postVariant, tab]);
@@ -804,7 +816,7 @@ export function Studio() {
         toast.error("Não foi possível apagar o preset.");
       }
     },
-    [chosenPreset, toast],
+    [chosenPreset, toast, setPreset],
   );
 
   /** Link público do preset: quem abre ouve no próprio vídeo (e conta como indicação). */
