@@ -1,0 +1,31 @@
+name: Testes
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # versão do pnpm vem de "packageManager" no package.json da raiz
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Instalar dependências
+        run: pnpm install --frozen-lockfile
+
+      - name: Testes do contracts
+        run: pnpm --filter @mixpro/contracts test
+
+      # inclui os golden da exportação (nível exato e de tolerância)
+      - name: Testes do app
+        working-directory: apps/web
+        run: ../../packages/contracts/node_modules/.bin/tsx --test $(find lib -name "*.test.ts")
