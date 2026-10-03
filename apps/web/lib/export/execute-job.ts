@@ -12,7 +12,8 @@ import type { DrumSampleSet } from "@/lib/dsp/drums/studio";
 import { runDsp, type DspResult } from "@/lib/dsp/runner";
 import type { Signal } from "@/lib/dsp/types";
 import { beforeAfterAudio } from "@/lib/media/before-after";
-import { needsRender, type AudiogramStyle, type Look } from "@/lib/media/compose";
+import type { AudiogramStyle } from "@/lib/media/compose";
+import { lookOf, rendersVideo } from "./look";
 import { spliceAudio, type Segment } from "@/lib/media/cuts";
 import { MediaError, exportAudio, exportVideo, type ExportResult } from "@/lib/media/export";
 import { readableFile } from "@/lib/media/file-access";
@@ -37,24 +38,8 @@ export type ExecuteContext = {
   onPhase: (label: string, progress: number) => void;
 };
 
-/** O Look da composição, a partir do job (mesmos campos que o estúdio monta). */
-export function lookOf(job: ExportJob): Look {
-  const l = job.look;
-  return {
-    format: l.format,
-    fit: l.fit,
-    watermark: l.watermark,
-    captions: job.captions ? { ...job.captions, fontFamily: l.font_family } : null,
-    fontFamily: l.font_family,
-    color: l.color,
-    cta: l.cta,
-  };
-}
-
-/** Recodifica quadro a quadro? (audiograma, antes → depois ou needsRender) */
-export function rendersVideo(job: ExportJob): boolean {
-  return job.source.media === "audio" || job.look.before_after || needsRender(lookOf(job), job.cuts.applied);
-}
+// visual do job e decisão de render ficam em ./look (puro, também usado pelo servidor)
+export { lookOf, rendersVideo } from "./look";
 
 async function processFull(job: ExportJob, ctx: ExecuteContext): Promise<DspResult> {
   const key = job.audio.audio_ref;

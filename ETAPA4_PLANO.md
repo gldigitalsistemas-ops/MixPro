@@ -325,7 +325,7 @@ criação, **e de novo** no serviço:
 | Assets | **ignorar `files`/`file` do job.** Para cada id, buscar `drum_samples`/`cab_irs` **ativos** no banco e usar os caminhos de lá. Só aceitar ids `synth` e `mp:` que existam em `CABS`. Downloads só de `<SUPABASE_URL>/storage/v1/object/public/drum-samples/` | Impede apontar o servidor para outro lugar (SSRF) e reaproveitar caminhos alheios. |
 | IR | depois de decodificar, ≤ 250 ms [CÓDIGO: `irFromChannels`]; arquivo ≤ 2 MB [ESTIMATIVA] | — |
 | Samples | ≤ 12 camadas por peça [CÓDIGO: check da tabela]; arquivo ≤ 2 MB cada [ESTIMATIVA] | — |
-| Cortes | `segments` ordenados, sem sobreposição, dentro de `[audio_start, audio_start + duração medida]`, ≤ 2.000 trechos [ESTIMATIVA] | `spliceAudio` com entradas absurdas. |
+| Cortes | `segments` ordenados, sem sobreposição, dentro de `[audio_start, audio_start + duração medida]`, ≤ 1.000 trechos (cabe nos 64 KB do JSON; ajustado na fatia 1) [ESTIMATIVA] | `spliceAudio` com entradas absurdas. |
 | `idempotency_ref` | regex do `spend_export_credit` [CÓDIGO] **e** igual ao recalculado com `audioRef`/`editRef` a partir do próprio job [CÓDIGO: `lib/export/refs.ts`]. Exceção: o `fileKey` usa nome e data, que o servidor não tem; ele é aceito como veio | Garante que o ref corresponde à cadeia e às opções enviadas. |
 | Tamanho do JSON | ≤ 64 KB [ESTIMATIVA] | Sem legendas, um job real tem poucos KB. |
 | `engine.dsp_version` | precisa ser igual ao do serviço; se não, `VERSION_MISMATCH` e o cliente usa o aparelho | Evita som diferente do que a prévia mostrou. |
