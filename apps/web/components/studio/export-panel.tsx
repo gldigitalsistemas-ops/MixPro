@@ -1,6 +1,6 @@
 "use client";
 
-import { isFileGone, readableFile } from "@/lib/media/file-access";
+import { isFileGone } from "@/lib/media/file-access";
 import { beginTask, reportError } from "@/lib/error-log";
 import { useEffect, useRef, useState } from "react";
 import { AudioLines, Copy, Download, Film, Music, Share2, Sparkles } from "lucide-react";
@@ -8,31 +8,25 @@ import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/misc";
 import { useToast } from "@/components/ui/toast";
 import { NeedLoginError, NoCreditsError, OfflineError } from "@/lib/account";
-import { ensureCaptionFont } from "@/lib/captions/font";
 import type { Word } from "@/lib/captions/model";
 import { track } from "@/lib/track";
-import { runDsp, type DspResult } from "@/lib/dsp/runner";
-import { needsRender, type AudiogramStyle, type Look } from "@/lib/media/compose";
-import { keptDuration, spliceAudio, type Segment } from "@/lib/media/cuts";
-import { MediaError, exportAudio, exportVideo, type AudioFormat } from "@/lib/media/export";
+import type { DspResult } from "@/lib/dsp/runner";
+import type { AudiogramStyle, Look } from "@/lib/media/compose";
+import { keptDuration, type CutLevel, type Segment } from "@/lib/media/cuts";
+import { MediaError, type AudioFormat } from "@/lib/media/export";
 import type { LoadedMedia } from "@/lib/media/load";
-import { renderVideo } from "@/lib/media/render";
-import { mixMusic, safeCeiling } from "@/lib/media/music";
 import type { MusicState } from "./music-picker";
-import type { Signal } from "@/lib/dsp/types";
 import type { StudioPreset } from "@/lib/presets";
-import type { ChainDoc } from "@/lib/dsp/chain";
 import type { DrumSampleSet } from "@/lib/dsp/drums/studio";
-import type { DrumKit } from "@/lib/drums/library";
-import { beforeAfterAudio } from "@/lib/media/before-after";
-import { FILTERS, lookIsActive, lookMatrix } from "@/lib/media/color";
+import type { CabIR, DrumKit, DrumLibraryItem } from "@/lib/drums/library";
+import { FILTERS, lookIsActive } from "@/lib/media/color";
+import { buildExportJob, composeChain, type ChainParts } from "@/lib/export/build-job";
+import { executeExportJob, FILE_GONE } from "@/lib/export/execute-job";
+import { audioRef, editRef, resultRef, settingsRef } from "@/lib/export/refs";
 import { BatchExport } from "./batch-export";
 import { keepAwake } from "@/lib/wake-lock";
 import { isPhone } from "@/lib/device";
 import { cn, formatDuration } from "@/lib/cn";
-
-const FILE_GONE =
-  "O celular liberou o vídeo que você escolheu e ele não pode mais ser lido. Toque em “Trocar” e escolha o mesmo vídeo de novo: suas escolhas continuam salvas.";
 
 export type Target = "video" | AudioFormat;
 type Phase = { label: string; progress: number } | null;
@@ -41,8 +35,12 @@ type Result = { url: string; blob: Blob; filename: string; target: Target; key: 
 type Props = {
   media: LoadedMedia;
   preset: StudioPreset | null;
-  /** Cadeia efetiva (preset + ajustes finos, ex.: bateria); null enquanto os samples carregam. */
-  chain: ChainDoc | null;
+  /** Partes da cadeia (preset ou personalizada, bateria, reverb, master); null enquanto os samples carregam. */
+  chainParts: ChainParts | null;
+  /** A cadeia base é a personalizada (valores já congelados). */
+  customizing: boolean;
+  /** Samples e IRs enviados (o job referencia os arquivos usados). */
+  library: { drums: DrumLibraryItem[]; irs: CabIR[] };
   drumSamples?: DrumSampleSet;
   impulses?: Record<string, Float32Array>;
   /** Kits premium usados que ainda precisam ser desbloqueados para baixar. */
@@ -55,6 +53,7 @@ type Props = {
   social: boolean;
   onSocialChange: (v: boolean) => void;
   /** Trechos mantidos (tempo do original) e se há cortes de pausas. */
+  cutLevel: CutLevel;
   segments: Segment[];
   cutting: boolean;
   look: Look;
@@ -74,16 +73,6 @@ type Props = {
   requireLogin: (reason: string) => Promise<boolean>;
 };
 
-function fnv(text: string): string {
-  let h = 0x811c9dc5;
-  for (const ch of text) {
-    h ^= ch.charCodeAt(0);
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0).toString(16).padStart(8, "0");
-}
-
-const fileKey = (f: File) => fnv(`${f.name}|${f.size}|${f.lastModified}`);
 const canShareFiles = (file: File) => typeof navigator !== "undefined" && !!navigator.canShare?.({ files: [file] });
 
 /**
@@ -106,7 +95,7 @@ function triggerDownload(url: string, filename: string) {
 }
 
 export function ExportPanel(props: Props) {
-  const { media, preset, chain, intensity, denoise, social, onSocialChange, segments, cutting, look, audiogram, music } = props;
+  const { media, preset, chainParts, intensity, denoise, social, onSocialChange, segments, cutting, look, audiogram, music } = props;
   const { balance, spend, onNeedCredits, signedIn, requireLogin, drumSamples, impulses, lockedKits, onUnlock } = props;
   const toast = useToast();
   const [phase, setPhase] = useState<Phase>(null);
@@ -119,48 +108,19 @@ export function ExportPanel(props: Props) {
   /** Arquivo já gerado cujo download não pôde ser registrado (sem internet): não gera de novo. */
   const unpaid = useRef<{ key: string; out: { blob: Blob; filename: string } } | null>(null);
 
+  // cadeia final: as mesmas funções da prévia do estúdio (lib/export/build-job)
+  const chain = chainParts ? composeChain(chainParts) : null;
   // o áudio tratado (cache) só depende do som; o arquivo final depende também de cortes, formato e legendas
-  const audioKey = preset && chain
-    ? `${fileKey(media.file)}_${preset.slug}_${intensity}_${social ? 1 : 0}_n${Math.round(denoise * 100)}_x${fnv(JSON.stringify(chain))}`
-    : null;
-  const editKey = fnv(
-    JSON.stringify([
-      cutting ? segments.map((s) => [s.start.toFixed(2), s.end.toFixed(2)]) : 0,
-      look.format,
-      look.fit,
-      look.watermark,
-      look.captions ? [look.captions.captions, look.captions.style, look.captions.position] : 0,
-      audiogram ? [audiogram.palette, audiogram.title, Boolean(audiogram.image)] : 0,
-      music ? [music.name, music.level] : 0,
-      comparing ? "antes-depois" : 0,
-      look.cta ? [look.cta.text, look.cta.handle] : 0,
-      lookIsActive(look.color) ? [lookMatrix(look.color!).map((v) => v.toFixed(3)), look.color!.sharpen, look.color!.vignette] : 0,
-    ]),
-  );
-  const settingsKey = audioKey && `${audioKey}_e${editKey}`;
+  const audioKey = preset && chain ? audioRef({ file: media.file, presetSlug: preset.slug, intensity, social, denoise, chain }) : null;
+  const editKey = editRef({ cutting, segments, look, audiogram, music, comparing });
+  const settingsKey = audioKey && settingsRef(audioKey, editKey);
 
   useEffect(() => () => {
     if (lastResult) URL.revokeObjectURL(lastResult.url);
   }, [lastResult]);
   const result = lastResult?.key === settingsKey ? lastResult : null;
 
-  async function processFull(): Promise<DspResult> {
-    if (cache.current?.key === audioKey) return cache.current.value;
-    const value = await runDsp(
-      { channels: media.channels, sampleRate: media.sampleRate, chain: chain!, intensity, social, denoise, drumSamples, impulses },
-      (p) =>
-        setPhase({
-          label: denoise > 0 && p < 0.5 ? "Removendo o ruído de fundo…" : "Aplicando o som no arquivo inteiro…",
-          progress: p * 100,
-        }),
-    );
-    cache.current = { key: audioKey!, value };
-    return value;
-  }
-
   const makesVideo = media.kind === "video" || audiogram !== null;
-  const withMusic = (a: Signal) =>
-    music ? safeCeiling(mixMusic(a, music.channels, media.sampleRate, music.level, 0, a[0].length), media.sampleRate) : a;
 
   async function run(target: Target) {
     // trava contra toque duplo (o estado "phase" só muda depois do login/desbloqueio)
@@ -186,44 +146,43 @@ export function ExportPanel(props: Props) {
   }
 
   async function generate(target: Target) {
-    if (!preset || !settingsKey) return;
+    if (!preset || !settingsKey || !chainParts) return;
     try {
-      const resultKey = `${settingsKey}_${target}`;
+      // o pedido de exportação como dado puro; o p_ref (idempotency_ref) é o mesmo de antes
+      const job = buildExportJob({
+        target,
+        media,
+        preset,
+        chainParts,
+        customizing: props.customizing,
+        intensity,
+        denoise,
+        social,
+        cutLevel: props.cutLevel,
+        segments,
+        cutting,
+        look,
+        // entra no p_ref para qualquer alvo (como antes); o render só usa no vídeo
+        comparing,
+        audiogram,
+        music,
+        library: props.library,
+        buildId: process.env.NEXT_PUBLIC_BUILD_ID ?? "",
+      });
+      const resultKey = job.idempotency_ref;
+      // trava: o p_ref do job tem de ser a mesma chave da tela (senão cobraria de novo quem já baixou)
+      if (resultKey !== resultRef(settingsKey, target)) throw new Error("p_ref do pedido de exportação diferente da chave da tela");
       let out: { blob: Blob; filename: string } | undefined = unpaid.current?.key === resultKey ? unpaid.current.out : undefined;
       if (!out) {
-        setPhase({ label: "Aplicando o som no arquivo inteiro…", progress: 0 });
-        const processed = await processFull();
-        // no iPhone o vídeo escolhido da Galeria pode ter sido apagado pelo sistema: usa a cópia salva no aparelho
-        const file = target === "video" ? await readableFile(media.file) : media.file;
-        if (!file) throw new MediaError(FILE_GONE);
-        const src = file === media.file ? media : { ...media, file };
-        if (target === "video") {
-          const compare = comparing && target === "video";
-          const render = media.kind === "audio" || compare || needsRender(look, cutting);
-          const label = media.kind === "audio" ? "Criando o audiograma…" : render ? "Montando o vídeo quadro a quadro…" : "Montando o vídeo com o som novo…";
-          setPhase({ label, progress: 0 });
-          const onProgress = (p: number) => setPhase({ label, progress: p * 100 });
-          if (render) {
-            await ensureCaptionFont();
-            let audio = processed.channels;
-            let finalLook = look;
-            if (compare) {
-              const ba = beforeAfterAudio(media.channels, processed.channels, media.sampleRate, media.audioStart, segments);
-              audio = ba.audio;
-              finalLook = { ...look, beforeAfter: { split: ba.split } };
-            }
-            out = await renderVideo({ media: src, audio, segments, look: finalLook, audiogram, postAudio: withMusic, onProgress });
-          } else {
-            out = await exportVideo(src, withMusic(processed.channels), onProgress);
-          }
-        } else {
-          const label = "Gerando o arquivo de áudio…";
-          setPhase({ label, progress: 0 });
-          const audio = withMusic(
-            cutting ? spliceAudio(processed.channels, media.sampleRate, media.audioStart, segments) : processed.channels,
-          );
-          out = await exportAudio(src, audio, target, (p) => setPhase({ label, progress: p * 100 }));
-        }
+        out = await executeExportJob(job, {
+          media,
+          drumSamples,
+          impulses,
+          music: music?.channels ?? null,
+          audiogramImage: audiogram?.image ?? null,
+          cache,
+          onPhase: (label, progress) => setPhase({ label, progress }),
+        });
       }
       setPhase({ label: "Registrando o download…", progress: 100 });
       try {

@@ -58,6 +58,7 @@ import {
 } from "@/lib/mix";
 import { ReverbPanel } from "./reverb-panel";
 import { reverbFromChain, withReverb, type ReverbTweak } from "@/lib/reverb-tweak";
+import type { ChainParts } from "@/lib/export/build-job";
 import { AutoSetupCard } from "./auto-setup-card";
 import { analyzeAudio } from "@/lib/dsp/analyze";
 import { autoSetup, instrumentCategories, instrumentOfCategory, pickPreset, type AutoSetup } from "@/lib/auto-setup";
@@ -324,6 +325,11 @@ export function Studio() {
   const masterAllowed = !isMasterCategory(catalog?.categories.find((c) => c.id === preset?.categoryId));
   const masterPreset = masterAllowed ? (masters.find((m) => m.id === masterId) ?? null) : null;
   const chain = useMemo(() => (mixChain ? withMaster(mixChain, masterPreset) : null), [mixChain, masterPreset]);
+  // as mesmas partes vão para a exportação (o ExportJob monta a cadeia com as mesmas funções)
+  const chainParts = useMemo<ChainParts | null>(
+    () => (baseChain ? { base: baseChain, drums: drumEff, reverb: reverbTweak, master: masterPreset } : null),
+    [baseChain, drumEff, reverbTweak, masterPreset],
+  );
 
   // baixa os samples escolhidos (uma vez por peça; ficam em memória)
   const drumKey = drumEff && drumLibrary && media ? `${JSON.stringify(drumEff.samples)}@${media.sampleRate}` : null;
@@ -1226,7 +1232,9 @@ export function Studio() {
                 <ExportPanel
                   media={media}
                   preset={preset}
-                  chain={assetsReady ? chain : null}
+                  chainParts={assetsReady ? chainParts : null}
+                  customizing={customizing}
+                  library={{ drums: drumLibrary ?? [], irs: irList ?? [] }}
                   drumSamples={drumSamples}
                   impulses={impulses}
                   lockedKits={lockedKits}
@@ -1234,6 +1242,7 @@ export function Studio() {
                   assetsAt={assetsAt}
                   intensity={dspIntensity}
                   denoise={denoiseAmount}
+                  cutLevel={videoTools?.cut ?? "off"}
                   segments={segments}
                   cutting={cutting}
                   look={look}
