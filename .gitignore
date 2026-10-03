@@ -12,3 +12,6 @@ worker-data/
 
 infra/e2e/.env
 apps/web/.env.local
+
+# cache de samples/IRs e saídas dos scripts de exportação em Node
+apps/web/.cache/

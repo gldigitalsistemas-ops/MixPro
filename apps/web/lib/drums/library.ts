@@ -8,6 +8,7 @@
 import type { DrumPiece } from "@mixpro/contracts";
 import type { DrumSampleSet, DrumSlot } from "@/lib/dsp/drums/studio";
 import { CABS, isBuiltinCab, synthCabIR } from "@/lib/dsp/cab-ir";
+import { buildLayers, irFromChannels, monoOf, sampleSetFrom, type Layers } from "./asset-process";
 import { publicEnv } from "@/lib/public-env";
 import { supabaseBrowser } from "@/lib/supabase/client";
 
@@ -125,17 +126,7 @@ export function loadIR(ir: CabIR, sampleRate: number): Promise<Float32Array> {
       const res = await fetch(sampleUrl(ir.file), { cache: "force-cache" });
       if (!res.ok) throw new Error(`IR ${ir.file}: ${res.status}`);
       const buf = await new OfflineAudioContext(1, 1, sampleRate).decodeAudioData(await res.arrayBuffer());
-      const len = Math.min(buf.length, Math.round(sampleRate * 0.25));
-      const out = new Float32Array(len);
-      for (let c = 0; c < buf.numberOfChannels; c++) {
-        const d = buf.getChannelData(c);
-        for (let i = 0; i < len; i++) out[i] += d[i] / buf.numberOfChannels;
-      }
-      let e = 0;
-      for (let i = 0; i < len; i++) e += out[i] * out[i];
-      const g = e > 0 ? 1 / Math.sqrt(e) : 1;
-      for (let i = 0; i < len; i++) out[i] *= g;
-      return out;
+      return irFromChannels(channelsOf(buf), sampleRate);
     })();
     p.catch(() => irCache.delete(key));
     irCache.set(key, p);
@@ -170,72 +161,22 @@ export function resolveSample(slot: DrumSlot, value: string, kit: string, librar
   return pool[0].id;
 }
 
-type Layers = { close: Float32Array[]; room: Float32Array[] };
 const cache = new Map<string, Promise<Layers>>();
 
-function toMono(buf: AudioBuffer): Float32Array {
-  const mono = new Float32Array(buf.length);
-  for (let c = 0; c < buf.numberOfChannels; c++) {
-    const d = buf.getChannelData(c);
-    for (let i = 0; i < buf.length; i++) mono[i] += d[i] / buf.numberOfChannels;
-  }
-  return mono;
-}
-
-const peakOf = (x: Float32Array) => x.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
-
-/** Onde o ataque começa (primeira amostra acima de 2% do pico, com 0,5 ms de folga). */
-function attackStart(x: Float32Array, sr: number): number {
-  const peak = peakOf(x);
-  let start = 0;
-  while (start < x.length && Math.abs(x[start]) < peak * 0.02) start++;
-  return Math.max(0, start - Math.round(sr * 0.0005));
-}
-
-/** Recorta a partir de `start` até o som morrer (-60 dB, máx. 3 s), com fade e pico em `norm`. */
-function cut(x: Float32Array, start: number, sr: number, norm: number): Float32Array {
-  const peak = peakOf(x);
-  if (peak < 1e-6) return new Float32Array(1);
-  let end = x.length - 1;
-  while (end > start && Math.abs(x[end]) < peak * 0.001) end--;
-  end = Math.min(end + 1, start + Math.round(sr * 3));
-  const out = x.slice(start, end);
-  const fade = Math.min(out.length, Math.round(sr * 0.02));
-  for (let i = 0; i < fade; i++) out[out.length - 1 - i] *= i / fade;
-  for (let i = 0; i < out.length; i++) out[i] /= norm;
-  return out;
-}
+const channelsOf = (buf: AudioBuffer) => Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c));
 
 async function decode(path: string, sampleRate: number): Promise<Float32Array> {
   const res = await fetch(sampleUrl(path), { cache: "force-cache" });
   if (!res.ok) throw new Error(`sample ${path}: ${res.status}`);
-  return toMono(await new OfflineAudioContext(1, 1, sampleRate).decodeAudioData(await res.arrayBuffer()));
+  return monoOf(channelsOf(await new OfflineAudioContext(1, 1, sampleRate).decodeAudioData(await res.arrayBuffer())));
 }
 
-/**
- * Camadas do tambor, da batida mais leve à mais forte. A sala de cada batida é cortada no mesmo
- * ponto que o microfone de perto (mantém o atraso natural da sala) e no mesmo ganho relativo.
- */
+/** Camadas do tambor (tratamento em lib/drums/asset-process.ts, o mesmo usado em Node). */
 export function loadLayers(item: DrumLibraryItem, sampleRate: number): Promise<Layers> {
   const key = `${item.id}@${sampleRate}`;
   let p = cache.get(key);
   if (!p) {
-    p = Promise.all(
-      item.files.map(async (path, i) => {
-        const close = await decode(path, sampleRate);
-        const roomPath = item.room_files?.[i];
-        const room = roomPath ? await decode(roomPath, sampleRate) : null;
-        const start = attackStart(close, sampleRate);
-        const peak = peakOf(close) || 1;
-        let loud = 0;
-        for (let k = start; k < Math.min(close.length, start + sampleRate * 0.05); k++) loud += close[k] * close[k];
-        return { loud, close: cut(close, start, sampleRate, peak), room: room ? cut(room, start, sampleRate, peak) : null };
-      }),
-    ).then((layers) => {
-      layers.sort((a, b) => a.loud - b.loud);
-      const withRoom = layers.every((l) => l.room);
-      return { close: layers.map((l) => l.close), room: withRoom ? layers.map((l) => l.room!) : [] };
-    });
+    p = buildLayers(item, sampleRate, (path) => decode(path, sampleRate));
     p.catch(() => cache.delete(key));
     cache.set(key, p);
   }
@@ -243,18 +184,8 @@ export function loadLayers(item: DrumLibraryItem, sampleRate: number): Promise<L
 }
 
 /** Carrega as peças escolhidas (ids por posição); "synth" e ids desconhecidos ficam de fora. */
-export async function loadSampleSet(choices: Partial<Record<DrumSlot, string>>, library: DrumLibraryItem[], sampleRate: number): Promise<DrumSampleSet> {
-  const set: DrumSampleSet = { rooms: {} };
-  await Promise.all(
-    (Object.entries(choices) as [DrumSlot, string][]).map(async ([slot, id]) => {
-      const item = library.find((s) => s.id === id);
-      if (!item) return;
-      const layers = await loadLayers(item, sampleRate);
-      set[slot] = layers.close;
-      if (layers.room.length) set.rooms![slot] = layers.room;
-    }),
-  );
-  return set;
+export function loadSampleSet(choices: Partial<Record<DrumSlot, string>>, library: DrumLibraryItem[], sampleRate: number): Promise<DrumSampleSet> {
+  return sampleSetFrom(choices, library, (item) => loadLayers(item, sampleRate));
 }
 
 /** Algum dos samples escolhidos tem microfones de sala? */
