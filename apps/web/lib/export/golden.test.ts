@@ -7,8 +7,10 @@
  *   UPDATE_GOLDEN=1 ../../packages/contracts/node_modules/.bin/tsx --test lib/export/golden.test.ts
  *
  * fixtures/chains.json = cadeias de presets copiadas das migrações do Supabase (última versão de cada um).
- * A comparação é exata (SHA-256 do PCM 16 bits + medidas). O RNNoise roda em Node com o mesmo
- * WebAssembly do navegador e é determinístico; não há Math.random/Date em lib/dsp.
+ * Dois níveis por cenário: [exato] = SHA-256 dos bytes float32 (verificação principal) e
+ * [tolerância] = amostras, LUFS, pico e RMS por janela (ver `close`), para outro sistema/versão do Node.
+ * O RNNoise roda em Node com o mesmo WebAssembly do navegador e é determinístico; não há
+ * Math.random/Date em lib/dsp.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -25,6 +27,7 @@ import type { Signal } from "@/lib/dsp/types";
 import { speechSegments, spliceAudio, type CutLevel } from "@/lib/media/cuts";
 import { needsRender, outputSize, type Look, type VideoFormat } from "@/lib/media/compose";
 import { DEFAULT_LOOK, FILTERS, lookIsActive, lookMatrix } from "@/lib/media/color";
+import { mixMusic, prepareMusic, safeCeiling, type MusicLevel } from "@/lib/media/music";
 import { withMaster } from "@/lib/mix";
 import type { StudioPreset } from "@/lib/presets";
 
@@ -108,6 +111,35 @@ function drums(seconds: number, seed = 7): Signal {
   return stereo(x, 0.85);
 }
 
+/** Estéreo de verdade: canais com conteúdo diferente (guitarra mais à esquerda, bateria mais à direita, eco de 7 ms). */
+function trueStereo(seconds: number): Signal {
+  const g = guitar(seconds)[0];
+  const d = drums(seconds)[0];
+  const delay = Math.round(SR * 0.007);
+  const l = new Float32Array(g.length);
+  const r = new Float32Array(g.length);
+  for (let i = 0; i < g.length; i++) {
+    l[i] = 0.9 * g[i] + 0.25 * d[i];
+    r[i] = 0.35 * (g[i - delay] ?? 0) + 0.8 * d[i];
+  }
+  return [l, r];
+}
+
+/** Música de fundo: arquivo estéreo a 44,1 kHz, mais curto que a voz (força o loop), preparado como no music-picker. */
+function backgroundMusic(): Signal {
+  const sr = 44100;
+  const n = sr * 6;
+  const l = new Float32Array(n);
+  const r = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    const beat = Math.exp(-((t * 2) % 1) * 6);
+    l[i] = 0.2 * (Math.sin(2 * Math.PI * 220 * t) + 0.5 * Math.sin(2 * Math.PI * 277 * t)) + 0.15 * beat * Math.sin(2 * Math.PI * 60 * t);
+    r[i] = 0.2 * (Math.sin(2 * Math.PI * 330 * t) + 0.5 * Math.sin(2 * Math.PI * 165 * t)) + 0.15 * beat * Math.sin(2 * Math.PI * 60 * t);
+  }
+  return prepareMusic({ name: "musica.wav", channels: [l, r], sampleRate: sr }, SR, 2);
+}
+
 // ------------------------------------------------------------------ pipeline (igual ao dsp.worker com preroll 0)
 
 type Scenario = {
@@ -119,6 +151,8 @@ type Scenario = {
   denoise: number;
   impulses?: Record<string, Float32Array>;
   cut?: CutLevel;
+  /** Música de fundo, como no export-panel (withMusic = mixMusic + safeCeiling, depois dos cortes). */
+  music?: { level: MusicLevel; signal: () => Signal };
 };
 
 async function runScenario(s: Scenario): Promise<Signal> {
@@ -138,31 +172,61 @@ async function runScenario(s: Scenario): Promise<Signal> {
     const segs = speechSegments(original, SR, 0, s.cut, null);
     out = spliceAudio(out, SR, 0, segs);
   }
+  if (s.music) out = safeCeiling(mixMusic(out, s.music.signal(), SR, s.music.level, 0, out[0].length), SR);
   return out;
 }
 
 const round = (v: number, d = 6) => (Number.isFinite(v) ? Number(v.toFixed(d)) : String(v));
 
-function measure(x: Signal) {
-  const pcm = new Int16Array(x[0].length * x.length);
-  for (let i = 0, k = 0; i < x[0].length; i++)
-    for (const ch of x) pcm[k++] = Math.round(Math.max(-1, Math.min(1, ch[i])) * 32767);
+type Metrics = { channels: number; samples: number; lufs: number; peak: number; rms_500ms: number[] };
+type Golden = { sha256_f32: string; metrics: Metrics };
+
+/**
+ * Nível 1 (principal): SHA-256 dos bytes float32 de todos os canais — qualquer diferença de 1 bit falha.
+ * Nível 2: medidas em precisão total, comparadas com tolerância (ver `close`).
+ */
+function measure(x: Signal): Golden {
+  const hash = createHash("sha256");
+  for (const ch of x) hash.update(Buffer.from(ch.buffer, ch.byteOffset, ch.byteLength));
   const hop = SR / 2;
-  const rms: (number | string)[] = [];
+  const rms: number[] = [];
   for (let a = 0; a < x[0].length; a += hop) {
     let s = 0;
     let c = 0;
     for (const ch of x) for (let i = a; i < Math.min(a + hop, ch.length); i++, c++) s += ch[i] * ch[i];
-    rms.push(round(Math.sqrt(s / Math.max(1, c))));
+    rms.push(Math.sqrt(s / Math.max(1, c)));
   }
   return {
-    channels: x.length,
-    samples: x[0].length,
-    lufs: round(integratedLoudness(x, SR), 4),
-    peak: round(samplePeak(x)),
-    rms_500ms: rms,
-    sha256: createHash("sha256").update(Buffer.from(pcm.buffer)).digest("hex"),
+    sha256_f32: hash.digest("hex"),
+    metrics: { channels: x.length, samples: x[0].length, lufs: integratedLoudness(x, SR), peak: samplePeak(x), rms_500ms: rms },
   };
+}
+
+/**
+ * Tolerâncias do nível 2 (para rodar em outro sistema/versão do Node, ex.: servidor Linux):
+ * - canais e amostras: exatos (o tamanho do arquivo não pode mudar);
+ * - pico e RMS por janela: 1e-6 relativo (+1e-9 absoluto para janelas quase em silêncio). O áudio é
+ *   float32 (épsilon 1,2e-7), então 1e-6 deixa folga para alguns arredondamentos diferentes de
+ *   Math.sin/exp/pow entre plataformas, mas pega qualquer mudança real (0,01 dB = 1,2e-3);
+ * - LUFS: 1e-5 dB absoluto. Está em escala logarítmica, onde "relativo" não faz sentido;
+ *   1e-5 dB ≈ 2,3e-6 relativo em energia, a mesma ordem dos 1e-6 da amplitude.
+ */
+const REL = 1e-6;
+const ABS_FLOOR = 1e-9;
+const LUFS_DB = 1e-5;
+
+function close(got: Metrics, want: Metrics): string[] {
+  const bad: string[] = [];
+  const amp = (k: string, a: number, b: number) => {
+    if (Math.abs(a - b) > REL * Math.max(Math.abs(a), Math.abs(b)) + ABS_FLOOR) bad.push(`${k}: ${a} ≠ ${b}`);
+  };
+  if (got.channels !== want.channels) bad.push(`canais: ${got.channels} ≠ ${want.channels}`);
+  if (got.samples !== want.samples) bad.push(`amostras: ${got.samples} ≠ ${want.samples}`);
+  if (!(Math.abs(got.lufs - want.lufs) <= LUFS_DB)) bad.push(`LUFS: ${got.lufs} ≠ ${want.lufs}`);
+  amp("pico", got.peak, want.peak);
+  if (got.rms_500ms.length !== want.rms_500ms.length) bad.push("número de janelas de RMS");
+  else got.rms_500ms.forEach((v, i) => amp(`RMS[${i}]`, v, want.rms_500ms[i]));
+  return bad;
 }
 
 const clone = (d: ChainDoc): ChainDoc => JSON.parse(JSON.stringify(d));
@@ -237,6 +301,50 @@ const SCENARIOS: Record<string, Scenario> = {
     denoise: 1,
     cut: "dinamico",
   },
+  // mesmo preset do cenário 2 em outra intensidade: trava a interpolação valor/neutro da cadeia
+  "7-intensidade-50-guitarra": {
+    input: () => guitar(4),
+    chain: () => {
+      const d = clone(CHAINS["guitarra-amp-rock"]);
+      d.chain[0].params = { ...d.chain[0].params, ir: greenback.id };
+      return d;
+    },
+    intensity: 50,
+    social: false,
+    denoise: 0,
+    impulses: { [greenback.id]: synthCabIR(greenback, SR) },
+  },
+  "8a-musica-media": {
+    input: () => voice(8, 0.003, 2),
+    chain: () => clone(CHAINS["criador-youtuber"]),
+    intensity: 75,
+    social: true,
+    denoise: 0,
+    music: { level: "media", signal: backgroundMusic },
+  },
+  "8b-musica-alta-com-cortes": {
+    input: () => voice(8, 0.002, 3),
+    chain: () => clone(CHAINS["criador-youtuber"]),
+    intensity: 75,
+    social: true,
+    denoise: 0,
+    cut: "suave",
+    music: { level: "alta", signal: backgroundMusic },
+  },
+  "9-estereo-real-master": {
+    input: () => trueStereo(4),
+    chain: () => clone(CHAINS["master-pop-moderno"]),
+    intensity: 75,
+    social: true,
+    denoise: 0,
+  },
+  "10-mono-1-canal": {
+    input: () => [voice(8, 0.01, 4)[0]],
+    chain: () => clone(CHAINS["criador-youtuber"]),
+    intensity: 75,
+    social: true,
+    denoise: 0.9,
+  },
 };
 
 // ------------------------------------------------------------------ vídeo (funções puras)
@@ -283,14 +391,21 @@ function videoGolden() {
 
 const golden: Record<string, unknown> = existsSync(GOLDEN_FILE) ? JSON.parse(readFileSync(GOLDEN_FILE, "utf8")) : {};
 const fresh: Record<string, unknown> = {};
+const audioGolden = (k: string) => golden[k] as Golden;
 
 for (const [name, s] of Object.entries(SCENARIOS)) {
-  test(`golden áudio: ${name}`, async () => {
-    const got = JSON.parse(JSON.stringify(measure(await runScenario(s))));
+  let got: Golden;
+  test(`golden áudio [exato]: ${name}`, async () => {
+    got = measure(await runScenario(s));
     fresh[name] = got;
     if (UPDATE) return;
     assert.ok(golden[name], `sem golden para ${name} (rode com UPDATE_GOLDEN=1)`);
-    assert.deepEqual(got, golden[name]);
+    assert.equal(got.sha256_f32, audioGolden(name).sha256_f32, `impressão digital exata diferente em ${name}`);
+  });
+  test(`golden áudio [tolerância]: ${name}`, () => {
+    if (UPDATE) return;
+    const bad = close(got.metrics, audioGolden(name).metrics);
+    assert.deepEqual(bad, [], `medidas fora da tolerância em ${name}:\n${bad.join("\n")}`);
   });
 }
 
@@ -306,14 +421,16 @@ test("golden: os cenários são de fato diferentes entre si", () => {
     writeFileSync(GOLDEN_FILE, JSON.stringify(fresh, null, 1) + "\n");
     return;
   }
-  const hashes = Object.keys(SCENARIOS).map((k) => (golden[k] as { sha256: string }).sha256);
+  const hashes = Object.keys(SCENARIOS).map((k) => audioGolden(k).sha256_f32);
   assert.equal(new Set(hashes).size, hashes.length);
-  const off = golden["5a-redes-desligado"] as { lufs: number };
-  const on = golden["5b-redes-ligado"] as { lufs: number; peak: number };
+  const m = (k: string) => audioGolden(k).metrics;
+  const on = m("5b-redes-ligado");
   assert.ok(Math.abs(on.lufs - -14) < 0.6, `redes ligado deve ficar perto de -14 LUFS (${on.lufs})`);
   assert.ok(on.peak <= 10 ** (-1 / 20) + 1e-3);
-  assert.notEqual(off.lufs, on.lufs);
-  const full = golden["5b-redes-ligado"] as { samples: number };
-  for (const k of ["6a-cortes-suave", "6b-cortes-dinamico"])
-    assert.ok((golden[k] as { samples: number }).samples < full.samples, `${k} deve encurtar o áudio`);
+  assert.notEqual(m("5a-redes-desligado").lufs, on.lufs);
+  for (const k of ["6a-cortes-suave", "6b-cortes-dinamico", "8b-musica-alta-com-cortes"])
+    assert.ok(m(k).samples < on.samples, `${k} deve encurtar o áudio`);
+  assert.equal(m("8a-musica-media").samples, on.samples, "a música não muda a duração");
+  assert.equal(m("10-mono-1-canal").channels, 1);
+  assert.equal(m("9-estereo-real-master").channels, 2);
 });
