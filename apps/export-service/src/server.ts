@@ -7,8 +7,10 @@
  * falha definitiva, sem retentativa), 404, 409 (o mesmo job já está rodando), 429 (instância
  * ocupada), 503 (falha passageira: o Cloud Tasks tenta de novo).
  *
- * Fatia 3: armazenamento em pasta local e jobs em arquivo JSON. Variáveis (nomes, sem valores):
- *   PORT, STORAGE_DIR, JOBS_FILE, FFMPEG_PATH, FFPROBE_PATH, EXPORT_SERVICE_TOKEN (opcional; no
+ * Jobs: no Supabase (RPCs da fatia 4) quando SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY existem; senão,
+ * arquivo JSON local (fatia 3). Armazenamento: pasta local (R2 na fatia 5). Variáveis (só nomes):
+ *   PORT, STORAGE_DIR, JOBS_FILE, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (secreta: Secret Manager),
+ *   FFMPEG_PATH, FFPROBE_PATH, EXPORT_SERVICE_TOKEN (opcional; no
  *   Cloud Run vira OIDC), NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY (públicas, para o
  *   catálogo e o bucket drum-samples, só leitura).
  */
@@ -16,6 +18,7 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import { DSP_VERSION } from "@/lib/dsp/version";
 import { RestCatalog, StaticCatalog } from "./adapters/catalog";
 import { LocalJobStore } from "./adapters/jobs";
+import { SupabaseJobStore } from "./adapters/supabase-jobs";
 import { LocalStorage } from "./adapters/storage";
 import { logService } from "./log";
 import { DEFAULT_LIMITS, runJob, type ServiceDeps } from "./pipeline";
@@ -69,7 +72,10 @@ function depsFromEnv(): ServiceDeps {
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
   return {
     storage: new LocalStorage(process.env.STORAGE_DIR ?? ".dados/armazenamento"),
-    jobs: new LocalJobStore(process.env.JOBS_FILE ?? ".dados/jobs.json"),
+    jobs:
+      process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+        ? new SupabaseJobStore(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+        : new LocalJobStore(process.env.JOBS_FILE ?? ".dados/jobs.json"),
     catalog: url && key ? new RestCatalog(url, key) : new StaticCatalog(),
     ffmpeg: process.env.FFMPEG_PATH ?? "ffmpeg",
     ffprobe: process.env.FFPROBE_PATH ?? "ffprobe",
