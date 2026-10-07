@@ -39,6 +39,8 @@ create table public.export_jobs (
   output_bytes         bigint,
   -- signalFingerprint do áudio decodificado no servidor (âncora do p_ref)
   content_fingerprint  text check (content_fingerprint ~ '^[0-9a-f]{8}$'),
+  -- SHA-256 dos float32 do áudio de ENTRADA decodificado no servidor (âncora forte do p_ref)
+  input_sha256_f32     text check (input_sha256_f32 ~ '^[0-9a-f]{64}$'),
   -- medidas do resultado
   duration_s           numeric(10, 3),
   samples              bigint,
@@ -82,6 +84,7 @@ create table public.export_ref_anchors (
   user_id              uuid not null references public.profiles (id) on delete cascade,
   idempotency_ref      text not null check (idempotency_ref ~ '^[a-zA-Z0-9:_-]{8,128}$'),
   content_fingerprint  text not null check (content_fingerprint ~ '^[0-9a-f]{8}$'),
+  input_sha256_f32     text not null check (input_sha256_f32 ~ '^[0-9a-f]{64}$'),
   created_at           timestamptz not null default now(),
   primary key (user_id, idempotency_ref)
 );
@@ -328,14 +331,17 @@ end $$;
  * Entrega: confere a âncora do p_ref, DEBITA (mesma chave do app) e marca done — tudo numa
  * transação só. Idempotente: num job já done não faz nada. Sem saldo (gastou em outro lugar
  * entre reservar e entregar) → failed + INSUFFICIENT_CREDITS. Outro conteúdo com o mesmo p_ref
- * → failed + REF_MISMATCH. Nos dois casos o serviço não entrega a saída.
+ * → failed + REF_MISMATCH (a âncora compara o fingerprint de 8 hex E o SHA-256 dos float32 da
+ * entrada decodificada). Job cancelado ou encerrado no meio → devolve failed com o código dele.
+ * Em todos esses casos o serviço não entrega a saída.
  */
 create or replace function public.commit_export_credit(p_job_id uuid, p_output_key text, p_measures jsonb, p_cost jsonb)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare
   v public.export_jobs;
   v_fp text := p_measures ->> 'content_fingerprint';
-  v_anchor text;
+  v_in_sha text := p_measures ->> 'input_sha256_f32';
+  v_anchor public.export_ref_anchors;
   v_tx public.credit_transactions;
   v_tx_id uuid;
   v_diffs jsonb;
@@ -347,6 +353,10 @@ begin
   if v.status = 'done' then
     return jsonb_build_object('status', 'done', 'idempotent', true);
   end if;
+  if v.status in ('failed', 'expired') then
+    -- cancelado pelo usuário (ou encerrado pela limpeza) enquanto processava
+    return jsonb_build_object('status', 'failed', 'error_code', coalesce(v.error_code, 'TIMEOUT'));
+  end if;
   if v.status <> 'running' then
     raise exception 'NOT_RUNNING' using errcode = 'P0001';
   end if;
@@ -356,18 +366,22 @@ begin
   if v_fp is null or v_fp !~ '^[0-9a-f]{8}$' then
     raise exception 'INVALID_JOB' using errcode = '22023';
   end if;
+  if v_in_sha is null or v_in_sha !~ '^[0-9a-f]{64}$' then
+    raise exception 'INVALID_JOB' using errcode = '22023';
+  end if;
 
   perform pg_advisory_xact_lock(hashtext('credits:' || v.user_id::text));
   v_diffs := public.export_job_diffs(v.job_text, p_measures);
 
   -- âncora: outro conteúdo com o mesmo p_ref não usa o crédito já pago
-  select content_fingerprint into v_anchor from public.export_ref_anchors
+  -- os dois campos têm de bater; um ref pago no aparelho ainda não tem âncora e é ancorado abaixo
+  select * into v_anchor from public.export_ref_anchors
    where user_id = v.user_id and idempotency_ref = v.idempotency_ref;
-  if found and v_anchor <> v_fp then
+  if found and (v_anchor.content_fingerprint <> v_fp or v_anchor.input_sha256_f32 <> v_in_sha) then
     update public.export_jobs set
       status = 'failed', error_code = 'REF_MISMATCH', job_text = null, finished_at = now(),
       credit_state = case when credit_state = 'reserved' then 'released'::public.export_credit_state else credit_state end,
-      content_fingerprint = v_fp,
+      content_fingerprint = v_fp, input_sha256_f32 = v_in_sha,
       cpu_ms = (p_cost ->> 'cpu_ms')::integer, peak_rss_mb = (p_cost ->> 'rss_mb')::integer, wall_ms = (p_cost ->> 'wall_ms')::integer,
       etapas_ms = p_cost -> 'etapas_ms',
       diff_samples = (v_diffs ->> 'diff_samples')::bigint, diff_duration_ms = (v_diffs ->> 'diff_duration_ms')::integer,
@@ -388,7 +402,7 @@ begin
       if sqlerrm = 'INSUFFICIENT_CREDITS' then
         update public.export_jobs set
           status = 'failed', error_code = 'INSUFFICIENT_CREDITS', credit_state = 'released', job_text = null, finished_at = now(),
-          content_fingerprint = v_fp,
+          content_fingerprint = v_fp, input_sha256_f32 = v_in_sha,
           cpu_ms = (p_cost ->> 'cpu_ms')::integer, peak_rss_mb = (p_cost ->> 'rss_mb')::integer, wall_ms = (p_cost ->> 'wall_ms')::integer,
           etapas_ms = p_cost -> 'etapas_ms'
          where id = p_job_id;
@@ -402,14 +416,14 @@ begin
     raise exception 'BAD_CREDIT_STATE' using errcode = 'P0001';
   end if;
 
-  insert into public.export_ref_anchors (user_id, idempotency_ref, content_fingerprint)
-  values (v.user_id, v.idempotency_ref, v_fp)
+  insert into public.export_ref_anchors (user_id, idempotency_ref, content_fingerprint, input_sha256_f32)
+  values (v.user_id, v.idempotency_ref, v_fp, v_in_sha)
   on conflict (user_id, idempotency_ref) do nothing;
 
   update public.export_jobs set
     status = 'done', progress = 100, credit_state = 'charged', credit_tx_id = coalesce(v_tx_id, credit_tx_id),
     output_key = p_output_key, output_bytes = (p_measures ->> 'output_bytes')::bigint,
-    content_fingerprint = v_fp,
+    content_fingerprint = v_fp, input_sha256_f32 = v_in_sha,
     duration_s = (p_measures ->> 'duration_s')::numeric, samples = (p_measures ->> 'samples')::bigint,
     channels = (p_measures ->> 'channels')::smallint, sample_rate = (p_measures ->> 'sample_rate')::integer,
     lufs = (p_measures ->> 'lufs')::numeric, peak = (p_measures ->> 'peak')::numeric, sha256_f32 = p_measures ->> 'sha256_f32',
@@ -463,6 +477,34 @@ returns void language sql security definer set search_path = public as $$
 $$;
 
 /**
+ * Cancelamento pelo usuário (a rota da Vercel confere a sessão e passa o uid): só queued/running do
+ * PRÓPRIO usuário → failed CANCELLED, reserva liberada, JSON apagado. Libera na hora o limite de
+ * 1 job ativo (ex.: upload abandonado). Job de outro usuário responde como inexistente. Num job já
+ * encerrado não muda nada. Se o serviço ainda estiver processando, o commit encontra o job failed,
+ * não cobra, e o serviço apaga a saída.
+ */
+create or replace function public.cancel_export_job(p_job_id uuid, p_user uuid)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v public.export_jobs;
+begin
+  select * into v from public.export_jobs where id = p_job_id for update;
+  if not found or v.user_id is distinct from p_user then
+    raise exception 'JOB_NOT_FOUND' using errcode = 'P0002';
+  end if;
+  if v.status not in ('queued', 'running') then
+    return jsonb_build_object('status', v.status, 'credit_state', v.credit_state, 'cancelled', false);
+  end if;
+  perform pg_advisory_xact_lock(hashtext('credits:' || v.user_id::text));
+  update public.export_jobs set
+    status = 'failed', error_code = 'CANCELLED', job_text = null, finished_at = now(),
+    credit_state = case when credit_state = 'reserved' then 'released'::public.export_credit_state else credit_state end
+   where id = p_job_id
+   returning * into v;
+  return jsonb_build_object('status', v.status, 'credit_state', v.credit_state, 'cancelled', true);
+end $$;
+
+/**
  * Estorno manual (só admin): devolve 1 crédito de um job cobrado cuja saída se perdeu.
  * Idempotente pela chave 'refund:' || job_id. p_admin é o usuário admin que pediu (a rota confere a
  * sessão; aqui confere o papel).
@@ -491,12 +533,14 @@ begin
 end $$;
 
 /**
- * Limpeza (agendada: cron da Vercel ou pg_cron, a cada 15 min):
- *  - running parado há mais que p_stale_seconds → failed TIMEOUT, reserva liberada;
- *  - queued há mais que p_stale_seconds × 2 → failed TIMEOUT, reserva liberada;
+ * Limpeza (agendada no pg_cron a cada 5 min, no fim desta migração):
+ *  - running parado há mais que p_stale_seconds (30 min) → failed TIMEOUT, reserva liberada;
+ *  - queued que NUNCA começou há mais que p_queued_seconds (15 min; ex.: upload abandonado)
+ *    → failed TIMEOUT, reserva liberada;
+ *  - queued devolvido à fila (requeue) e não retomado há mais que p_stale_seconds → idem;
  *  - expirado (expires_at) → expired, JSON apagado, reserva liberada; a saída some pela regra do R2.
  */
-create or replace function public.cleanup_export_jobs(p_stale_seconds integer default 1800)
+create or replace function public.cleanup_export_jobs(p_stale_seconds integer default 1800, p_queued_seconds integer default 900)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare
   v_stuck integer;
@@ -510,7 +554,9 @@ begin
 
   update public.export_jobs set status = 'failed', error_code = 'TIMEOUT', job_text = null, finished_at = now(),
          credit_state = case when credit_state = 'reserved' then 'released'::public.export_credit_state else credit_state end
-   where status = 'queued' and created_at < now() - make_interval(secs => p_stale_seconds * 2);
+   where status = 'queued'
+     and ((started_at is null and created_at < now() - make_interval(secs => p_queued_seconds))
+       or (started_at is not null and started_at < now() - make_interval(secs => p_stale_seconds)));
   get diagnostics v_queued = row_count;
 
   update public.export_jobs set status = 'expired', job_text = null,
@@ -553,8 +599,9 @@ begin
     'public.commit_export_credit(uuid, text, jsonb, jsonb)',
     'public.release_export_credit(uuid, text, jsonb, jsonb)',
     'public.requeue_export_job(uuid)',
+    'public.cancel_export_job(uuid, uuid)',
     'public.refund_export(uuid, uuid)',
-    'public.cleanup_export_jobs(integer)',
+    'public.cleanup_export_jobs(integer, integer)',
     'public.export_jobs_invariant_violations()',
     'public.export_job_diffs(text, jsonb)',
     'public.export_setting_bool(text)',
@@ -565,3 +612,11 @@ begin
     execute format('grant execute on function %s to service_role', f);
   end loop;
 end $$;
+
+-- -----------------------------------------------------------------------------
+-- Limpeza agendada a cada 5 min no pg_cron (o cron da Vercel no plano Hobby é só diário).
+-- Mesmo estilo das outras limpezas: desagenda o nome antes, para reaplicar sem duplicar.
+-- -----------------------------------------------------------------------------
+create extension if not exists pg_cron;
+select cron.unschedule(jobid) from cron.job where jobname = 'mixpro-limpeza-exportacao';
+select cron.schedule('mixpro-limpeza-exportacao', '*/5 * * * *', 'select public.cleanup_export_jobs()');
