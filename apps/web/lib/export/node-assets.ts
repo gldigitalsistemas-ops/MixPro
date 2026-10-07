@@ -25,8 +25,15 @@ export type AssetSource = {
   /** URL do projeto Supabase (a pública, a mesma do app). */
   storageUrl: string;
   /** Pasta do cache em disco (os arquivos do Storage nunca mudam: cada envio tem um UUID novo). */
-  cacheDir: string;
+  cacheDir?: string;
+  /** Cache em memória por caminho (o serviço mantém um por instância; o disco do Cloud Run é efêmero). */
+  memory?: Map<string, Uint8Array>;
+  /** Tamanho máximo de um arquivo de sample/IR (bytes). */
+  maxBytes?: number;
 };
+
+/** Caminho do bucket: só letras, números, / _ . - (sem "..", sem início com /). */
+export const ASSET_PATH = /^(?!.*\.\.)[A-Za-z0-9_-][A-Za-z0-9/_.-]{0,199}$/;
 
 export type LoadedAssets = {
   drumSamples?: DrumSampleSet;
@@ -39,24 +46,35 @@ export type LoadedAssets = {
 
 export async function loadJobAssets(job: ExportJob, sampleRate: number, src: AssetSource): Promise<LoadedAssets> {
   const stats = { approximate: false, downloads: 0, cacheHits: 0 };
-  await mkdir(src.cacheDir, { recursive: true });
+  if (src.cacheDir) await mkdir(src.cacheDir, { recursive: true });
 
   async function bytesOf(path: string): Promise<Uint8Array> {
-    const file = join(src.cacheDir, createHash("sha256").update(path).digest("hex").slice(0, 32) + ".wav");
-    try {
-      const cached = await readFile(file);
+    if (!ASSET_PATH.test(path)) throw new Error("caminho de asset inválido");
+    const inMemory = src.memory?.get(path);
+    if (inMemory) {
       stats.cacheHits++;
-      return cached;
-    } catch {
+      return inMemory;
+    }
+    const file = src.cacheDir ? join(src.cacheDir, createHash("sha256").update(path).digest("hex").slice(0, 32) + ".wav") : null;
+    let buf: Uint8Array | null = null;
+    if (file) {
+      try {
+        buf = await readFile(file);
+        stats.cacheHits++;
+      } catch {}
+    }
+    if (!buf) {
       const url = `${src.storageUrl.replace(/\/$/, "")}/storage/v1/object/public/${BUCKET}/${path.split("/").map(encodeURIComponent).join("/")}`;
       const res = await fetch(url);
       if (res.status === 401 || res.status === 403) throw new Error(`o bucket ${BUCKET} pediu autenticação (${res.status})`);
-      if (!res.ok) throw new Error(`asset ${path}: ${res.status}`);
-      const buf = new Uint8Array(await res.arrayBuffer());
-      await writeFile(file, buf);
+      if (!res.ok) throw new Error(`asset: HTTP ${res.status}`);
+      buf = new Uint8Array(await res.arrayBuffer());
+      if (src.maxBytes && buf.byteLength > src.maxBytes) throw new Error("asset grande demais");
+      if (file) await writeFile(file, buf);
       stats.downloads++;
-      return buf;
     }
+    src.memory?.set(path, buf);
+    return buf;
   }
 
   /** Canais na taxa do áudio (como o OfflineAudioContext do app entrega). */

@@ -11,13 +11,32 @@
  *  - no máximo 2 canais; estéreo com os dois canais idênticos vira mono;
  *  - áudio com menos de 0,5 s é recusado (no_audio);
  *  - duração acima do limite é recusada pelo CABEÇALHO, antes de decodificar.
- * Só em Node. Os códigos de erro são os do app (MediaLoadError), sem texto do arquivo.
+ *
+ * Entrada: um arquivo local OU um fluxo (o serviço lê do armazenamento direto para o stdin do
+ * FFmpeg, sem gravar em disco). Em fluxo, MP4 precisa do índice (moov) antes dos dados — é assim
+ * que o aparelho envia a trilha de áudio (mediabunny, fastStart).
+ *
+ * Segurança: só os protocolos pipe/file, -threads 1, timeout por processo, -loglevel error. O
+ * texto de erro do FFmpeg NUNCA sai daqui: vira um código fechado (DecodeErrorCode).
+ * Só em Node.
  */
 import { spawn } from "node:child_process";
-import { mediabunnyOffset, readMp4Edits } from "./mp4-edits";
+import type { Readable } from "node:stream";
 import type { Signal } from "@/lib/dsp/types";
+import { mediabunnyOffset, readMp4Edits, readMp4EditsFromStream, type Mp4Edits } from "./mp4-edits";
 
-export type DecodeErrorCode = "no_audio" | "unsupported" | "too_long" | "decode";
+export type DecodeErrorCode =
+  | "no_audio"
+  | "unsupported"
+  | "too_long"
+  | "decode"
+  /** Codec ou contêiner fora da lista permitida. */
+  | "codec"
+  /** MP4 com o índice depois dos dados, lido em fluxo. */
+  | "layout"
+  /** O arquivo termina antes do que o cabeçalho diz (cortado no envio). */
+  | "truncated"
+  | "timeout";
 
 export class DecodeError extends Error {
   constructor(public code: DecodeErrorCode) {
@@ -35,14 +54,21 @@ export type DecodedMedia = {
   /** Informativo (nunca vai para logs com o nome do arquivo). */
   codec: string;
   container: string;
+  /** Duração declarada no cabeçalho (s), quando existe. */
+  headerDuration: number | null;
 };
+
+/** Um arquivo local, ou uma fábrica de fluxos (cada chamada abre a leitura de novo, do início). */
+export type MediaInput = string | { open: () => Readable };
 
 export type DecodeOptions = {
   ffmpeg?: string;
   ffprobe?: string;
   maxDurationS: number;
-  /** Encerra o FFmpeg se passar disso (s). */
+  /** Encerra cada processo do FFmpeg se passar disso (s). */
   timeoutS?: number;
+  /** Se definido, só estes contêineres (format_name do FFmpeg) e codecs são aceitos. */
+  allow?: { containers: RegExp; codecs: RegExp };
 };
 
 type Probe = {
@@ -50,19 +76,33 @@ type Probe = {
   format?: { format_name?: string; duration?: string };
 };
 
-function run(cmd: string, args: string[], timeoutS: number): Promise<{ code: number | null; stdout: Buffer }> {
+type RunResult = { code: number | null; stdout: Buffer; timedOut: boolean };
+
+/** Roda um processo; a entrada vem do arquivo (no argumento) ou de um fluxo no stdin. */
+function run(cmd: string, args: string[], timeoutS: number, stdin?: Readable): Promise<RunResult> {
   return new Promise((resolve, reject) => {
-    const p = spawn(cmd, args, { stdio: ["ignore", "pipe", "ignore"] });
+    const p = spawn(cmd, args, { stdio: [stdin ? "pipe" : "ignore", "pipe", "ignore"] });
     const chunks: Buffer[] = [];
-    const timer = setTimeout(() => p.kill("SIGKILL"), timeoutS * 1000);
-    p.stdout.on("data", (c: Buffer) => chunks.push(c));
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      p.kill("SIGKILL");
+    }, timeoutS * 1000);
+    p.stdout?.on("data", (c: Buffer) => chunks.push(c));
+    if (stdin && p.stdin) {
+      // o FFmpeg pode parar de ler antes do fim (ex.: ffprobe): isso não é erro
+      p.stdin.on("error", () => {});
+      stdin.on("error", () => p.kill("SIGKILL"));
+      stdin.pipe(p.stdin);
+    }
     p.on("error", (e) => {
       clearTimeout(timer);
       reject(e);
     });
     p.on("close", (code) => {
       clearTimeout(timer);
-      resolve({ code, stdout: Buffer.concat(chunks) });
+      stdin?.destroy();
+      resolve({ code, stdout: Buffer.concat(chunks), timedOut });
     });
   });
 }
@@ -73,14 +113,21 @@ function sameSamples(a: Float32Array, b: Float32Array): boolean {
   return true;
 }
 
-export async function decodeMedia(path: string, o: DecodeOptions): Promise<DecodedMedia> {
+export async function decodeMedia(input: MediaInput, o: DecodeOptions): Promise<DecodedMedia> {
   const ffmpeg = o.ffmpeg ?? "ffmpeg";
   const ffprobe = o.ffprobe ?? "ffprobe";
   const timeoutS = o.timeoutS ?? 300;
-  // entrada sempre arquivo local; nada de protocolos de rede, listas ou concatenação
-  const safe = ["-protocol_whitelist", "file"];
+  const file = typeof input === "string" ? input : null;
+  // entrada: arquivo local ou stdin; nada de rede, listas ou concatenação
+  const src = file ?? "pipe:0";
+  const stream = () => (typeof input === "string" ? undefined : input.open());
+  const safe = ["-protocol_whitelist", file ? "file" : "pipe", "-threads", "1"];
+  const check = (r: RunResult) => {
+    if (r.timedOut) throw new DecodeError("timeout");
+  };
 
-  const probe = await run(ffprobe, ["-v", "error", ...safe, "-show_streams", "-show_format", "-of", "json", path], 60);
+  const probe = await run(ffprobe, ["-v", "error", ...safe, "-show_streams", "-show_format", "-of", "json", "-i", src], 60, stream());
+  check(probe);
   if (probe.code !== 0) throw new DecodeError("unsupported");
   let info: Probe;
   try {
@@ -91,23 +138,32 @@ export async function decodeMedia(path: string, o: DecodeOptions): Promise<Decod
   const streams = info.streams ?? [];
   const audio = streams.find((s) => s.codec_type === "audio");
   if (!audio) throw new DecodeError("no_audio");
+  const container = info.format?.format_name ?? "";
+  if (o.allow && (!o.allow.containers.test(container) || !o.allow.codecs.test(audio.codec_name ?? ""))) throw new DecodeError("codec");
   // capa de MP3/M4A (attached_pic) não é vídeo
   const kind = streams.some((s) => s.codec_type === "video" && !s.disposition?.attached_pic) ? "video" : "audio";
-  const headerDuration = Number(audio.duration ?? info.format?.duration ?? 0);
-  if (headerDuration > o.maxDurationS) throw new DecodeError("too_long");
+  const declared = Number(audio.duration ?? info.format?.duration ?? NaN);
+  const headerDuration = Number.isFinite(declared) && declared > 0 ? declared : null;
+  if (headerDuration !== null && headerDuration > o.maxDurationS) throw new DecodeError("too_long");
   const sampleRate = Number(audio.sample_rate);
   const nch = Math.min(2, audio.channels ?? 0);
   if (!sampleRate || !nch) throw new DecodeError("decode");
 
-  const container = info.format?.format_name ?? "";
   const isMp4 = /(^|,)(mov|mp4)(,|$)/.test(container);
   const isMp3 = audio.codec_name === "mp3";
+  const isWav = /(^|,)wav(,|$)/.test(container);
 
   // início como o mediabunny calcula (ver o cabeçalho deste arquivo)
   let skip = 0;
   let audioStart = Math.max(0, Number(audio.start_time ?? 0));
   if (isMp4) {
-    const edits = await readMp4Edits(path);
+    let edits: Mp4Edits | null;
+    if (file) edits = await readMp4Edits(file);
+    else {
+      const r = await readMp4EditsFromStream(stream()!);
+      if (r.mdatFirst) throw new DecodeError("layout");
+      edits = r.edits;
+    }
     const audioTracks = edits?.tracks.filter((t) => t.handler === "soun") ?? [];
     const order = streams.filter((s) => s.codec_type === "audio").indexOf(audio);
     const track = audioTracks[order];
@@ -115,9 +171,11 @@ export async function decodeMedia(path: string, o: DecodeOptions): Promise<Decod
     const { offset } = mediabunnyOffset(track, edits.movieTimescale);
     const first = await run(
       ffprobe,
-      ["-v", "error", ...safe, "-ignore_editlist", "1", "-select_streams", `${order === 0 ? "a:0" : `a:${order}`}`, "-show_entries", "packet=pts", "-read_intervals", "%+#1", "-of", "csv=p=0", path],
+      ["-v", "error", ...safe, "-ignore_editlist", "1", "-select_streams", `a:${order}`, "-show_entries", "packet=pts", "-read_intervals", "%+#1", "-of", "csv=p=0", "-i", src],
       60,
+      stream(),
     );
+    check(first);
     const firstPts = Number(first.stdout.toString("utf8").trim().split(/\s+/)[0] || 0);
     const firstS = (firstPts - offset) / track.timescale;
     skip = firstS < 0 ? Math.round(-firstS * sampleRate) : 0;
@@ -129,9 +187,11 @@ export async function decodeMedia(path: string, o: DecodeOptions): Promise<Decod
   const inputOpts = isMp4 ? ["-ignore_editlist", "1"] : isMp3 ? ["-flags2", "+skip_manual"] : [];
   const out = await run(
     ffmpeg,
-    ["-v", "error", "-nostdin", ...safe, ...inputOpts, "-i", path, "-map", `0:${audio.index}`, ...pan, "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1"],
+    ["-v", "error", "-nostdin", ...safe, ...inputOpts, "-i", src, "-map", `0:${audio.index}`, ...pan, "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1"],
     timeoutS,
+    stream(),
   );
+  check(out);
   if (out.code !== 0) throw new DecodeError("decode");
   const total = Math.floor(out.stdout.byteLength / 4 / nch);
   const all = new Float32Array(out.stdout.buffer, out.stdout.byteOffset, total * nch);
@@ -150,6 +210,9 @@ export async function decodeMedia(path: string, o: DecodeOptions): Promise<Decod
 
   if (frames < sampleRate * 0.5) throw new DecodeError("no_audio");
   if (frames / sampleRate > o.maxDurationS) throw new DecodeError("too_long");
+  // cortado no envio: menos áudio do que o cabeçalho garante (MP4 e WAV têm duração exata no cabeçalho;
+  // no MP4 o fim não é cortado, então o decodificado nunca fica abaixo dela num arquivo inteiro)
+  if ((isMp4 || isWav) && headerDuration !== null && frames / sampleRate < headerDuration - 0.1) throw new DecodeError("truncated");
   return {
     kind,
     sampleRate,
@@ -158,5 +221,6 @@ export async function decodeMedia(path: string, o: DecodeOptions): Promise<Decod
     duration: frames / sampleRate,
     codec: audio.codec_name ?? "?",
     container: container || "?",
+    headerDuration,
   };
 }

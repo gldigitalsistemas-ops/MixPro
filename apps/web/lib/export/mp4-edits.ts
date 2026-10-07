@@ -36,6 +36,51 @@ async function boxes(read: (pos: number, len: number) => Promise<Buffer>, start:
   return out;
 }
 
+/** Lê as edit lists de uma caixa moov inteira (com o cabeçalho). */
+export async function parseMoov(m: Buffer): Promise<Mp4Edits | null> {
+  const headerOf = (b: Buffer) => (b.readUInt32BE(0) === 1 ? 16 : 8);
+  const sub = (s: number, e: number) => boxes(async (p, l) => m.subarray(p, p + l), s, e);
+  const child = async (b: Box, type: string) => (await sub(b.start + b.header, b.start + b.size)).find((x) => x.type === type);
+  const at = (b: Box) => b.start + b.header;
+
+  const top = await sub(headerOf(m), m.length);
+  const mvhd = top.find((b) => b.type === "mvhd");
+  if (!mvhd) return null;
+  const mv = at(mvhd);
+  const movieTimescale = m.readUInt32BE(mv + (m[mv] === 1 ? 20 : 12));
+
+  const tracks: TrackEdits[] = [];
+  for (const trak of top.filter((b) => b.type === "trak")) {
+    const mdia = await child(trak, "mdia");
+    const mdhd = mdia && (await child(mdia, "mdhd"));
+    const hdlr = mdia && (await child(mdia, "hdlr"));
+    if (!mdhd || !hdlr) continue;
+    const md = at(mdhd);
+    const timescale = m.readUInt32BE(md + (m[md] === 1 ? 20 : 12));
+    const handler = m.toString("latin1", at(hdlr) + 8, at(hdlr) + 12);
+    const edits: EditEntry[] = [];
+    const edts = await child(trak, "edts");
+    const elst = edts && (await child(edts, "elst"));
+    if (elst) {
+      const e = at(elst);
+      const v1 = m[e] === 1;
+      const count = m.readUInt32BE(e + 4);
+      let p = e + 8;
+      for (let i = 0; i < count; i++) {
+        const segmentDuration = v1 ? Number(m.readBigUInt64BE(p)) : m.readUInt32BE(p);
+        p += v1 ? 8 : 4;
+        const mediaTime = v1 ? Number(m.readBigInt64BE(p)) : m.readInt32BE(p);
+        p += v1 ? 8 : 4;
+        const rate = m.readInt32BE(p) / 65536;
+        p += 4;
+        edits.push({ segmentDuration, mediaTime, rate });
+      }
+    }
+    tracks.push({ handler, timescale, edits });
+  }
+  return { movieTimescale, tracks };
+}
+
 export async function readMp4Edits(path: string): Promise<Mp4Edits | null> {
   const f = await open(path, "r");
   try {
@@ -46,52 +91,59 @@ export async function readMp4Edits(path: string): Promise<Mp4Edits | null> {
       return b;
     };
     const moov = (await boxes(read, 0, fileSize)).find((b) => b.type === "moov");
-    if (!moov) return null;
     // moov tem só cabeçalhos (poucos KB a alguns MB): lê inteiro
-    const m = await read(moov.start, moov.size);
-    const sub = (s: number, e: number) => boxes(async (p, l) => m.subarray(p, p + l), s, e);
-    const child = async (b: Box, type: string) => (await sub(b.start - moov.start + b.header, b.start - moov.start + b.size)).map((x) => ({ ...x, start: x.start + moov.start })).find((x) => x.type === type);
-    const at = (b: Box) => b.start - moov.start + b.header;
-
-    const top = (await sub(moov.header, moov.size)).map((x) => ({ ...x, start: x.start + moov.start }));
-    const mvhd = top.find((b) => b.type === "mvhd");
-    if (!mvhd) return null;
-    const mv = at(mvhd);
-    const movieTimescale = m.readUInt32BE(mv + (m[mv] === 1 ? 20 : 12));
-
-    const tracks: TrackEdits[] = [];
-    for (const trak of top.filter((b) => b.type === "trak")) {
-      const mdia = await child(trak, "mdia");
-      const mdhd = mdia && (await child(mdia, "mdhd"));
-      const hdlr = mdia && (await child(mdia, "hdlr"));
-      if (!mdhd || !hdlr) continue;
-      const md = at(mdhd);
-      const timescale = m.readUInt32BE(md + (m[md] === 1 ? 20 : 12));
-      const handler = m.toString("latin1", at(hdlr) + 8, at(hdlr) + 12);
-      const edits: EditEntry[] = [];
-      const edts = await child(trak, "edts");
-      const elst = edts && (await child(edts, "elst"));
-      if (elst) {
-        const e = at(elst);
-        const v1 = m[e] === 1;
-        const count = m.readUInt32BE(e + 4);
-        let p = e + 8;
-        for (let i = 0; i < count; i++) {
-          const segmentDuration = v1 ? Number(m.readBigUInt64BE(p)) : m.readUInt32BE(p);
-          p += v1 ? 8 : 4;
-          const mediaTime = v1 ? Number(m.readBigInt64BE(p)) : m.readInt32BE(p);
-          p += v1 ? 8 : 4;
-          const rate = m.readInt32BE(p) / 65536;
-          p += 4;
-          edits.push({ segmentDuration, mediaTime, rate });
-        }
-      }
-      tracks.push({ handler, timescale, edits });
-    }
-    return { movieTimescale, tracks };
+    return moov ? parseMoov(await read(moov.start, moov.size)) : null;
   } finally {
     await f.close();
   }
+}
+
+/** moov maior que isso não é de uma trilha de áudio razoável (proteção de memória). */
+const MAX_MOOV = 64 * 1024 * 1024;
+
+/**
+ * Lê as edit lists de um MP4 que chega EM FLUXO (sem voltar no arquivo). `mdatFirst` indica que
+ * o índice (moov) vem depois dos dados: nesse caso o FFmpeg não consegue ler o arquivo por pipe.
+ */
+export async function readMp4EditsFromStream(stream: AsyncIterable<Buffer | Uint8Array>): Promise<{ edits: Mp4Edits | null; mdatFirst: boolean }> {
+  let buf = Buffer.alloc(0);
+  let skip = 0;
+  let mdatFirst = false;
+  let collecting = 0;
+  for await (const chunk of stream) {
+    let c = Buffer.from(chunk);
+    if (skip) {
+      const n = Math.min(skip, c.length);
+      skip -= n;
+      c = c.subarray(n);
+      if (!c.length) continue;
+    }
+    buf = buf.length ? Buffer.concat([buf, c]) : c;
+    for (;;) {
+      if (collecting) {
+        if (buf.length < collecting) break;
+        return { edits: await parseMoov(buf.subarray(0, collecting)), mdatFirst };
+      }
+      if (buf.length < 16) break;
+      let size = buf.readUInt32BE(0);
+      const type = buf.toString("latin1", 4, 8);
+      if (size === 1) size = Number(buf.readBigUInt64BE(8));
+      if (size < 8) return { edits: null, mdatFirst };
+      if (type === "moov") {
+        if (size > MAX_MOOV) return { edits: null, mdatFirst };
+        collecting = size;
+        continue;
+      }
+      if (type === "mdat") mdatFirst = true;
+      if (buf.length >= size) buf = buf.subarray(size);
+      else {
+        skip = size - buf.length;
+        buf = Buffer.alloc(0);
+        break;
+      }
+    }
+  }
+  return { edits: null, mdatFirst };
 }
 
 /**
