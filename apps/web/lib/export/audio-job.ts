@@ -18,7 +18,14 @@ export type JobAudioInputs = {
   music?: Signal | null;
 };
 
-export async function processJobAudio(job: ExportJob, channels: Signal, sampleRate: number, inputs: JobAudioInputs = {}): Promise<Signal> {
+export async function processJobAudio(
+  job: ExportJob,
+  channels: Signal,
+  sampleRate: number,
+  inputs: JobAudioInputs = {},
+  /** Andamento do DSP, 0–1 (o serviço publica como progresso do job). */
+  onProgress?: (v: number) => void,
+): Promise<Signal> {
   const processed = await processAudio(channels, sampleRate, {
     chain: job.audio.chain,
     intensity: job.audio.intensity,
@@ -27,7 +34,7 @@ export async function processJobAudio(job: ExportJob, channels: Signal, sampleRa
     preroll: 0,
     drumSamples: inputs.drumSamples,
     impulses: inputs.impulses,
-  });
+  }, onProgress);
   const out = job.cuts.applied ? spliceAudio(processed.channels, sampleRate, job.source.audio_start_s, job.cuts.segments) : processed.channels;
   if (!job.audio.music) return out;
   if (!inputs.music) throw new Error("o job tem música de fundo e ela não foi fornecida");

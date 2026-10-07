@@ -107,6 +107,29 @@ function run(cmd: string, args: string[], timeoutS: number, stdin?: Readable): P
   });
 }
 
+/**
+ * Duração declarada no cabeçalho de um WAV (tamanho do chunk "data" / bytes por segundo). Lendo por
+ * pipe o ffprobe não a informa; aqui ela vem dos primeiros bytes do fluxo.
+ */
+async function wavDeclaredDuration(stream: AsyncIterable<Buffer | Uint8Array> & { destroy?: () => void }): Promise<number | null> {
+  let buf = Buffer.alloc(0);
+  for await (const c of stream) {
+    buf = Buffer.concat([buf, Buffer.from(c)]);
+    if (buf.length >= 64 * 1024) break;
+  }
+  stream.destroy?.();
+  if (buf.length < 12 || buf.toString("latin1", 0, 4) !== "RIFF" || buf.toString("latin1", 8, 12) !== "WAVE") return null;
+  let byteRate = 0;
+  for (let o = 12; o + 8 <= buf.length; ) {
+    const id = buf.toString("latin1", o, o + 4);
+    const size = buf.readUInt32LE(o + 4);
+    if (id === "fmt " && o + 16 <= buf.length) byteRate = buf.readUInt32LE(o + 16);
+    if (id === "data") return byteRate > 0 && size > 0 && size < 0xffffffff ? size / byteRate : null;
+    o += 8 + size + (size & 1);
+  }
+  return null;
+}
+
 /** Mesmo teste do app: o segundo canal só existe se for diferente do primeiro. */
 function sameSamples(a: Float32Array, b: Float32Array): boolean {
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
@@ -143,7 +166,8 @@ export async function decodeMedia(input: MediaInput, o: DecodeOptions): Promise<
   // capa de MP3/M4A (attached_pic) não é vídeo
   const kind = streams.some((s) => s.codec_type === "video" && !s.disposition?.attached_pic) ? "video" : "audio";
   const declared = Number(audio.duration ?? info.format?.duration ?? NaN);
-  const headerDuration = Number.isFinite(declared) && declared > 0 ? declared : null;
+  let headerDuration = Number.isFinite(declared) && declared > 0 ? declared : null;
+  if (headerDuration === null && !file && /(^|,)wav(,|$)/.test(container)) headerDuration = await wavDeclaredDuration(stream()!);
   if (headerDuration !== null && headerDuration > o.maxDurationS) throw new DecodeError("too_long");
   const sampleRate = Number(audio.sample_rate);
   const nch = Math.min(2, audio.channels ?? 0);

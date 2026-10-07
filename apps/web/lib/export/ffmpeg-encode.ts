@@ -5,8 +5,9 @@
  *
  * Dither: o app grava o WAV com dither aleatório (lib/media/export.ts). MP3/AAC codificam a partir
  * do float, então aqui não há dither nem quantização para 16 bits (o mesmo vale no navegador).
- * M4A vai para um arquivo temporário: o contêiner MP4 grava o índice no fim e precisa voltar ao
- * início do arquivo ("faststart"), o que um pipe não permite. MP3 sai pelo pipe.
+ * MP3 e M4A vão para um arquivo temporário: o MP4 grava o índice no fim e precisa voltar ao início
+ * ("faststart"), e o MP3 só ganha o cabeçalho LAME/Xing completo (atraso do codificador, para os
+ * players tocarem sem os 23 ms extras) voltando ao início — um pipe não permite nenhum dos dois.
  *
  * Segurança: entrada só pelo pipe, -threads 1, timeout. O texto de erro do FFmpeg não sai daqui.
  */
@@ -30,8 +31,8 @@ export async function encodeWithFfmpeg(
   format: "mp3" | "m4a",
   timeoutS = 300,
 ): Promise<Uint8Array> {
-  const dir = format === "m4a" ? await mkdtemp(join(tmpdir(), "mixpro-enc-")) : null;
-  const target = dir ? join(dir, "saida.m4a") : "pipe:1";
+  const dir = await mkdtemp(join(tmpdir(), "mixpro-enc-"));
+  const target = join(dir, `saida.${format}`);
   const codec = format === "mp3" ? ["-c:a", "libmp3lame", "-b:a", "320k", "-f", "mp3"] : ["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-f", "ipod"];
   const args = [
     "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
@@ -39,14 +40,12 @@ export async function encodeWithFfmpeg(
     "-f", "f32le", "-ar", String(sampleRate), "-ac", String(channels.length), "-i", "pipe:0",
     ...codec, "-map_metadata", "-1", target,
   ];
-  const proc = spawn(ffmpeg, args, { stdio: ["pipe", "pipe", "ignore"] });
-  const chunks: Buffer[] = [];
+  const proc = spawn(ffmpeg, args, { stdio: ["pipe", "ignore", "ignore"] });
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
     proc.kill("SIGKILL");
   }, timeoutS * 1000);
-  proc.stdout.on("data", (c: Buffer) => chunks.push(c));
   const done = new Promise<void>((resolve, reject) => {
     proc.on("error", reject);
     proc.on("close", (code) => (code === 0 ? resolve() : reject(new EncodeError(timedOut ? "timeout" : "encode"))));
@@ -65,9 +64,9 @@ export async function encodeWithFfmpeg(
     }
     proc.stdin.end();
     await done;
-    return dir ? new Uint8Array(await readFile(target)) : new Uint8Array(Buffer.concat(chunks));
+    return new Uint8Array(await readFile(target));
   } finally {
     clearTimeout(timer);
-    if (dir) await rm(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true });
   }
 }
