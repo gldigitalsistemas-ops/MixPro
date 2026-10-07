@@ -37,6 +37,7 @@ export const ERROR_CODES = [
   "INSUFFICIENT_CREDITS",
   "RATE_LIMITED",
   "CAPACITY",
+  "CANCELLED",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

@@ -22,6 +22,8 @@ export type JobMeasures = {
   sha256_f32: string;
   /** signalFingerprint do áudio decodificado no servidor (âncora do p_ref, fatia 4). */
   content_fingerprint: string;
+  /** SHA-256 dos float32 da ENTRADA decodificada no servidor (âncora forte do p_ref, com o fingerprint). */
+  input_sha256_f32: string;
   output_bytes: number;
 } & JobObserved;
 

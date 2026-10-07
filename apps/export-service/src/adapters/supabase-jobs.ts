@@ -26,6 +26,7 @@ export function toRecord(r: Row): JobRecord {
         peak: num(r.peak) ?? 0,
         sha256_f32: String(r.sha256_f32 ?? ""),
         content_fingerprint: String(r.content_fingerprint ?? ""),
+        input_sha256_f32: String(r.input_sha256_f32 ?? ""),
         output_bytes: num(r.output_bytes) ?? 0,
       }
     : null;
@@ -142,7 +143,12 @@ export class SupabaseJobStore implements JobStore {
     await this.rpc("requeue_export_job", { p_job_id: id });
   }
 
-  cleanup(staleSeconds = 1800) {
-    return this.rpc<{ parados: number; fila_antiga: number; expirados: number }>("cleanup_export_jobs", { p_stale_seconds: staleSeconds });
+  /** Cancelamento pelo usuário (a rota confere a sessão e passa o uid; job de outro usuário = JOB_NOT_FOUND). */
+  cancel(id: string, userId: string) {
+    return this.rpc<{ status: string; credit_state: string; cancelled: boolean }>("cancel_export_job", { p_job_id: id, p_user: userId });
+  }
+
+  cleanup(staleSeconds = 1800, queuedSeconds = 900) {
+    return this.rpc<{ parados: number; fila_antiga: number; expirados: number }>("cleanup_export_jobs", { p_stale_seconds: staleSeconds, p_queued_seconds: queuedSeconds });
   }
 }

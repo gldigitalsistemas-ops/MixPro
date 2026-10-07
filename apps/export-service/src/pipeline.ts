@@ -186,6 +186,7 @@ export async function runJob(jobId: string, deps: ServiceDeps): Promise<RunResul
       };
       checkSource(job, decoded);
       const fingerprint = signalFingerprint(decoded.channels);
+      const inputSha = sha32(decoded.channels);
       const sr = decoded.sampleRate;
       mark("decodificar");
       await deps.jobs.reportProgress(rec.id, 10);
@@ -220,6 +221,7 @@ export async function runJob(jobId: string, deps: ServiceDeps): Promise<RunResul
         peak: samplePeak(out),
         sha256_f32: sha32(out),
         content_fingerprint: fingerprint,
+        input_sha256_f32: inputSha,
         output_bytes: 0,
         ...observed,
       };
@@ -253,8 +255,8 @@ export async function runJob(jobId: string, deps: ServiceDeps): Promise<RunResul
     } catch (e) {
       const code: ErrorCode = e instanceof JobError ? e.code : "INTERNAL";
       const c = cost();
-      // o commit recusou a entrega (outro áudio com o mesmo p_ref, ou o saldo acabou): a saída não fica
-      if (outputKey && (code === "REF_MISMATCH" || code === "INSUFFICIENT_CREDITS")) await deps.storage.delete(outputKey).catch(() => {});
+      // o commit recusou a entrega (outro áudio com o mesmo p_ref, saldo acabou, job cancelado): a saída não fica
+      if (outputKey && (code === "REF_MISMATCH" || code === "INSUFFICIENT_CREDITS" || code === "CANCELLED")) await deps.storage.delete(outputKey).catch(() => {});
       if (RETRYABLE.has(code) && rec.attempts < deps.limits.maxAttempts) {
         await deps.jobs.requeue(rec.id);
         logJob({ job_id: rec.id, status: "retry", error_code: code, ...base, ...c, dsp_version: DSP_VERSION });
