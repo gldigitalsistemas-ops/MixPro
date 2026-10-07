@@ -18,3 +18,7 @@ apps/web/.cache/
 
 # mídia pessoal para os testes de paridade (NUNCA versionar nem enviar)
 apps/web/fixtures-local/
+
+# dados locais do serviço de exportação (armazenamento, jobs, e2e)
+apps/export-service/.dados/
+apps/export-service/dist/

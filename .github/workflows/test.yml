@@ -37,3 +37,37 @@ jobs:
         env:
           REQUIRE_FFMPEG: "1"
         run: ../../packages/contracts/node_modules/.bin/tsx --test $(find lib -name "*.test.ts")
+
+      # serviço de exportação (fatia 3): tipos e testes de ponta a ponta locais (pasta + JSON, sem rede)
+      - name: Tipos do serviço de exportação
+        run: apps/web/node_modules/.bin/tsc -p apps/export-service
+
+      - name: Testes do serviço de exportação
+        working-directory: apps/export-service
+        env:
+          REQUIRE_FFMPEG: "1"
+        run: ../../packages/contracts/node_modules/.bin/tsx --test test/*.test.ts
+
+  # imagem do serviço: construída e testada só aqui (nunca na máquina de desenvolvimento)
+  imagem-servico:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Construir a imagem
+        run: docker build -f apps/export-service/Dockerfile -t mixpro-export .
+
+      - name: Versão do FFmpeg na imagem
+        run: docker run --rm mixpro-export sh -c "ffmpeg -version | head -1; dpkg-query -W ffmpeg"
+
+      # job de ponta a ponta (3 formatos) e decodificação × referência do app, dentro da imagem
+      - name: Autoteste dentro da imagem
+        run: docker run --rm mixpro-export node selftest.mjs
+
+      - name: Serviço responde (healthz) e roda como usuário sem privilégios
+        run: |
+          docker run -d --name svc -p 8080:8080 mixpro-export
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8080/healthz && break; sleep 1; done
+          test "$(docker exec svc id -u)" != "0"
+          docker rm -f svc

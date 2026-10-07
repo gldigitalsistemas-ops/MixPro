@@ -1,0 +1,23 @@
+# Nada de segredos, mídia pessoal ou artefatos locais no contexto do Docker
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+**/.next
+**/.cache
+**/.dados
+**/dist
+apps/web/fixtures-local
+apps/worker
+infra/e2e/.env
+.git
+*.mp4
+*.MP4
+*.mov
+*.MOV
+*.mp3
+*.m4a
+*.wav
+# exceções: fixtures sintéticos e do projeto que o autoteste e os testes usam
+!apps/web/lib/export/fixtures/**
+!apps/web/lib/dsp/fixtures/**
