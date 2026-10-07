@@ -100,8 +100,11 @@ async function row(jobId: string) {
 
 const ref = () => `t${randomUUID().replace(/-/g, "")}`;
 const jobText = JSON.stringify({ version: 1, source: { duration_s: 10, sample_rate: 48000, channels: 1, audio_start_s: 0 }, target: "wav" });
-const measures = (fp: string): JobMeasures => ({
-  duration_s: 10, samples: 480000, channels: 1, sample_rate: 48000, lufs: -14, peak: -1, sha256_f32: "0".repeat(64), content_fingerprint: fp, output_bytes: 1000,
+const SHA_A = "a".repeat(64);
+const SHA_B = "b".repeat(64);
+const measures = (fp: string, inSha = SHA_A): JobMeasures => ({
+  duration_s: 10, samples: 480000, channels: 1, sample_rate: 48000, lufs: -14, peak: -1, sha256_f32: "0".repeat(64),
+  content_fingerprint: fp, input_sha256_f32: inSha, output_bytes: 1000,
   input_duration_s: 10.02, input_samples: 481000, input_audio_start_s: 0, input_sample_rate: 48000,
 });
 const cost: JobCost = { cpu_ms: 1200, rss_mb: 300, wall_ms: 1500, etapas_ms: { decode: 100 } };
@@ -111,12 +114,17 @@ async function create(u: User, r: string) {
   return store.create({ user_id: u.id, idempotency_ref: r, target: "wav", job_json: jobText, input_key: `in/${randomUUID()}`, platform: "desktop/chrome" });
 }
 /** create → start → commit (o caminho feliz do pipeline). */
-async function runToCommit(u: User, r: string, fp = "abcdef01") {
+async function runToCommit(u: User, r: string, fp = "abcdef01", inSha = SHA_A) {
   const c = await create(u, r);
   const s = await store.start(c.job_id, 900_000);
   assert.equal(s.outcome, "started");
-  return { c, rec: await store.commit(c.job_id, { output_key: outKey(), measures: measures(fp), cost }) };
+  return { c, rec: await store.commit(c.job_id, { output_key: outKey(), measures: measures(fp, inSha), cost }) };
 }
+/** Expira os jobs done do usuário (força um novo processamento do mesmo p_ref). */
+async function expireDone(u: User) {
+  await call(`/rest/v1/export_jobs?user_id=eq.${u.id}&status=eq.done`, { method: "PATCH", body: JSON.stringify({ expires_at: new Date(Date.now() - 1000).toISOString() }) });
+}
+const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 
 // ---------------------------------------------------------------- ciclo
 
@@ -232,30 +240,43 @@ test("(f) saldo some entre reservar e debitar → failed + INSUFFICIENT_CREDITS"
   assert.equal(await balance(u.id), 0, "exatamente um débito no total");
 });
 
-test("(g) mesmo p_ref com outro áudio → REF_MISMATCH, sem cobrar", { skip }, async () => {
+test("(g) mesmo p_ref com outro áudio → REF_MISMATCH pelos dois campos da âncora, sem cobrar", { skip }, async () => {
   const u = await newUser(2);
   const r = ref();
-  await runToCommit(u, r, "aaaaaaaa");
-  assert.equal(await balance(u.id), 1);
-  // done reaproveitável impede um novo job; expira o anterior para forçar um novo processamento
-  const first = await call(`/rest/v1/export_jobs?user_id=eq.${u.id}&select=id`);
-  await call(`/rest/v1/export_jobs?id=eq.${first.body[0].id}`, { method: "PATCH", body: JSON.stringify({ expires_at: new Date(Date.now() - 1000).toISOString() }) });
-  const c = await create(u, r);
-  assert.equal(c.outcome, "created");
-  assert.equal(c.credit_state, "charged", "o p_ref já foi pago");
-  await store.start(c.job_id, 900_000);
-  await assert.rejects(store.commit(c.job_id, { output_key: outKey(), measures: measures("bbbbbbbb"), cost }), (e: JobError) => e.code === "REF_MISMATCH");
-  const full = await row(c.job_id);
-  assert.equal(full.status, "failed");
-  assert.equal(full.error_code, "REF_MISMATCH");
+  await runToCommit(u, r, "aaaaaaaa", SHA_A);
   assert.equal(await balance(u.id), 1);
 
-  // ref pago no aparelho (sem âncora): ancora no primeiro uso no servidor
+  // o done reaproveitável impediria um novo job: expira o anterior para forçar novo processamento
+  const tryAgain = async (fp: string, inSha: string) => {
+    await expireDone(u);
+    const c = await create(u, r);
+    assert.equal(c.outcome, "created");
+    assert.equal(c.credit_state, "charged", "o p_ref já foi pago");
+    await store.start(c.job_id, 900_000);
+    return { c, commit: store.commit(c.job_id, { output_key: outKey(), measures: measures(fp, inSha), cost }) };
+  };
+  // fingerprint diferente, sha igual
+  let t = await tryAgain("bbbbbbbb", SHA_A);
+  await assert.rejects(t.commit, (e: JobError) => e.code === "REF_MISMATCH");
+  assert.equal((await row(t.c.job_id)).error_code, "REF_MISMATCH");
+  // fingerprint igual, sha diferente (a colisão de 8 hex não basta)
+  t = await tryAgain("aaaaaaaa", SHA_B);
+  await assert.rejects(t.commit, (e: JobError) => e.code === "REF_MISMATCH");
+  const full = await row(t.c.job_id);
+  assert.equal(full.status, "failed");
+  assert.equal(full.input_sha256_f32, SHA_B);
+  // os dois iguais: entrega sem cobrar de novo
+  t = await tryAgain("aaaaaaaa", SHA_A);
+  assert.equal((await t.commit).status, "done");
+  assert.equal(await balance(u.id), 1);
+  assert.equal((await ledger(u.id, r)).length, 1);
+
+  // ref pago no aparelho (sem âncora): ancora os dois campos no primeiro uso no servidor
   const r2 = ref();
   await rpc("spend_export_credit", { p_ref: r2, p_kind: "audio" }, { key: ANON, token: u.token });
-  await runToCommit(u, r2, "cccccccc");
-  const anchor = await call(`/rest/v1/export_ref_anchors?user_id=eq.${u.id}&idempotency_ref=eq.${r2}&select=content_fingerprint`);
-  assert.equal(anchor.body[0].content_fingerprint, "cccccccc");
+  await runToCommit(u, r2, "cccccccc", SHA_B);
+  const anchor = await call(`/rest/v1/export_ref_anchors?user_id=eq.${u.id}&idempotency_ref=eq.${r2}&select=content_fingerprint,input_sha256_f32`);
+  assert.deepEqual(anchor.body[0], { content_fingerprint: "cccccccc", input_sha256_f32: SHA_B });
 });
 
 test("(h) limites por usuário, teto global e interruptor → RATE_LIMITED / CAPACITY", { skip }, async () => {
@@ -302,6 +323,52 @@ test("(i) job preso é liberado pela limpeza; start retoma um running parado", {
   assert.equal(await balance(u.id), 2);
 });
 
+test("(i2) queued sem start: 10 min fica; 16 min é liberado (prazo de 15 min)", { skip }, async () => {
+  const u = await newUser(2);
+  const c = await create(u, ref());
+  await call(`/rest/v1/export_jobs?id=eq.${c.job_id}`, { method: "PATCH", body: JSON.stringify({ created_at: ago(10 * 60_000) }) });
+  await store.cleanup();
+  assert.equal((await row(c.job_id)).status, "queued", "10 min ainda espera o upload");
+  await call(`/rest/v1/export_jobs?id=eq.${c.job_id}`, { method: "PATCH", body: JSON.stringify({ created_at: ago(16 * 60_000) }) });
+  await store.cleanup();
+  const full = await row(c.job_id);
+  assert.equal(full.status, "failed");
+  assert.equal(full.error_code, "TIMEOUT");
+  assert.equal(full.credit_state, "released");
+  assert.equal(full.job_text, null);
+  // o limite de 1 ativo foi liberado
+  assert.equal((await create(u, ref())).outcome, "created");
+});
+
+test("(l) cancel_export_job: só o dono, só queued/running; libera reserva e limite; commit depois não cobra", { skip }, async () => {
+  const u = await newUser(2);
+  const other = await newUser(0);
+  // queued abandonado (upload não veio)
+  const c = await create(u, ref());
+  await assert.rejects(store.cancel(c.job_id, other.id), (e: RpcError) => e.code === "JOB_NOT_FOUND", "outro usuário");
+  assert.equal((await row(c.job_id)).status, "queued");
+  const x = await store.cancel(c.job_id, u.id);
+  assert.deepEqual([x.status, x.credit_state, x.cancelled], ["failed", "released", true]);
+  const full = await row(c.job_id);
+  assert.equal(full.error_code, "CANCELLED");
+  assert.equal(full.job_text, null);
+  assert.deepEqual((await store.cancel(c.job_id, u.id)).cancelled, false, "repetir não muda nada");
+
+  // o limite de 1 ativo foi liberado na hora; cancelar um running: o commit seguinte não cobra
+  const r = ref();
+  const d = await create(u, r);
+  await store.start(d.job_id, 900_000);
+  assert.equal((await store.cancel(d.job_id, u.id)).cancelled, true);
+  await assert.rejects(store.commit(d.job_id, { output_key: outKey(), measures: measures("dddddddd"), cost }), (e: JobError) => e.code === "CANCELLED");
+  assert.equal(await balance(u.id), 2);
+  assert.equal((await ledger(u.id, r)).length, 0);
+
+  // job encerrado (done) não é cancelado
+  const { c: e } = await runToCommit(u, ref());
+  assert.equal((await store.cancel(e.job_id, u.id)).cancelled, false);
+  assert.equal((await row(e.job_id)).status, "done");
+});
+
 test("(j) invariante: charged ⇔ transação no ledger; nenhuma reserva presa", { skip }, async () => {
   const r = await rpc("export_jobs_invariant_violations", {});
   assert.ok(r.ok);
@@ -315,7 +382,7 @@ test("(k) cliente não escreve nem chama as RPCs; o dono não vê job/input_key/
   const asAnon = { key: ANON };
 
   for (const auth of [asUser, asAnon]) {
-    for (const fn of ["create_export_job", "start_export_job", "commit_export_credit", "release_export_credit", "requeue_export_job", "refund_export", "cleanup_export_jobs", "get_export_job", "report_export_progress"]) {
+    for (const fn of ["create_export_job", "start_export_job", "commit_export_credit", "release_export_credit", "requeue_export_job", "cancel_export_job", "refund_export", "cleanup_export_jobs", "get_export_job", "report_export_progress"]) {
       const res = await rpc(fn, { p_job_id: c.job_id }, auth);
       assert.ok(!res.ok, `${fn} chamada pelo cliente`);
     }
