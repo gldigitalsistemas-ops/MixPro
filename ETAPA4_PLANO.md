@@ -171,6 +171,8 @@ limpeza futura, com decisão sua.
 
 ### 2.2 Rascunho (NÃO aplicar)
 
+> **Superado pela fatia 4.** O SQL final está em `supabase/migrations/20261007000001_export_jobs.sql`, e as diferenças estão na seção 2.4.
+
 ```sql
 create type public.export_status as enum ('queued', 'running', 'done', 'failed', 'expired');
 create type public.export_credit_state as enum ('none', 'reserved', 'charged', 'released');
@@ -254,6 +256,33 @@ Para avaliar com teste antes de aplicar:
   genérico, e o `file_ref` do job já é um hash [CÓDIGO].
 
 ---
+
+### 2.4 O que mudou na fatia 4 (2026-10-07)
+
+A migração final é `supabase/migrations/20261007000001_export_jobs.sql`. Ela ainda **não foi
+aplicada** em nenhum projeto. Diferenças em relação ao rascunho das seções 2.2 e 3.2:
+
+| Rascunho | Fatia 4 | Por quê |
+|---|---|---|
+| `job jsonb` | `job_text text` (≤ 64 KB) | O `jsonb` reordena as chaves, e o `p_ref` é recalculado sobre o JSON **cru** (fatia 1). |
+| `content_sha256` (configuração + bytes do arquivo) | `content_fingerprint` = `signalFingerprint` do **áudio decodificado** no servidor, numa tabela própria `export_ref_anchors (user_id, idempotency_ref)` | Pedido seu: os bytes mudam ao remuxar ou reenviar o mesmo áudio. A âncora é por ref, não por job, e sobrevive à expiração do job. |
+| Âncora gravada na criação | Conferida e gravada **dentro do `commit_export_credit`**, na mesma transação do débito | O fingerprint só existe depois de decodificar. O pipeline não ganhou etapa nova. Um ref pago no aparelho é ancorado no primeiro commit no servidor. |
+| `kind in ('audio', 'video_remux')` | `kind in ('audio', 'video')`, derivado do `target` | Igual ao `p_kind` do `spend_export_credit`. |
+| `revoke select (job, …)` por coluna + política do dono na tabela | Nenhum acesso do cliente à tabela. O dono lê pela view `my_export_jobs` (sem `job_text`, `input_key`, `output_key` nem `user_id`) | `select *` não quebra, e não há como pedir as colunas sensíveis. |
+| Publicação Realtime com lista de colunas | Tabela-espelho `export_job_status` (status, progresso, crédito, código de erro), atualizada por gatilho, com RLS do dono, publicada no `supabase_realtime` | A lista de colunas exige supabase-js ≥ 2.109 **e** `SELECT` do cliente nas colunas da tabela-base, e uma view não pode ser assinada. O espelho não expõe nada sensível. |
+| Telemetria da seção 5.5 | Colunas `diff_samples`, `diff_duration_ms`, `diff_audio_start_ms` (medido − declarado), `client_platform` (aparelho/navegador, valores fechados: ios, android, desktop, outro / safari, chrome, firefox, outro), gravadas no commit e também no release | O `release` recebe o que o servidor mediu na entrada (`JobObserved`), então divergências que reprovam o job também ficam registradas. |
+| `requeue` e limpeza só descritos | RPCs `requeue_export_job` e `cleanup_export_jobs(p_stale_seconds)` | `running` parado → `TIMEOUT`; `queued` antigo (2× o prazo) → `TIMEOUT`; `expires_at` vencido → `expired`. Todas liberam a reserva e apagam o JSON. |
+| Limites em `system_settings` (nomes livres) | `export_server_enabled` (**desligado** por padrão), `export_user_active` 1, `export_user_per_hour` 10, `export_user_per_day` 40, `export_server_daily_cpu_s` 6000, `export_server_daily_jobs` 300 | O dia é contado no horário de Brasília. |
+| Ordem do `create_export_job`: já pago → ativo → saldo → limites | ativo → `done` reaproveitável → interruptor → limites do usuário → tetos globais → já pago (`charged`) ou saldo disponível (`reserved`) | Um clique repetido ou um pedido já pronto não esbarra em limite nem em interruptor. |
+| Reversão como migração | `supabase/rollback/20261007000001_export_jobs_down.sql`, **fora** de `migrations/` | Se estivesse em `migrations/`, um `db push` aplicaria a reversão logo depois da migração. |
+
+Do lado do serviço:
+- `SupabaseJobStore` (`apps/export-service/src/adapters/supabase-jobs.ts`) implementa a mesma
+  interface `JobStore` da fatia 3, falando só com as RPCs com a chave `service_role`.
+- O serviço usa o `SupabaseJobStore` quando `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` existem;
+  sem elas, continua com o JSON local.
+- Quando o commit é recusado (`REF_MISMATCH`, `INSUFFICIENT_CREDITS`), o pipeline apaga a saída e
+  não a entrega.
 
 ## 3. Crédito
 
