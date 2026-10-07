@@ -14,19 +14,24 @@
  * Nada sai desta máquina: o Chrome abre só http://127.0.0.1 e os arquivos são lidos do disco.
  */
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { basename, extname, join, resolve } from "node:path";
+import { basename, extname, join, resolve, sep } from "node:path";
 import { integratedLoudness, samplePeak } from "@/lib/dsp/loudness";
 import type { Signal } from "@/lib/dsp/types";
 import { decodeMedia, DecodeError } from "@/lib/export/ffmpeg-decode";
+import { SYNTH_WAVS, synthWav } from "@/lib/export/synth-wav";
 
 const WEB = resolve(".");
 const OUT = join(WEB, ".cache/decode-parity");
 const SYNTH = join(OUT, "synth");
 const LOCAL = join(WEB, "fixtures-local");
+/** AAC/MP3 sintéticos versionados (ruído e tons, nada pessoal): picos acima de 1 e atraso do LAME. */
+const REPO_SYNTH = join(WEB, "lib/export/fixtures/decode");
+const REFERENCE = join(WEB, "lib/export/fixtures/decode-reference.json");
 const FFMPEG = process.env.FFMPEG_PATH ?? "ffmpeg";
 const FFPROBE = process.env.FFPROBE_PATH ?? "ffprobe";
 const CHROME =
@@ -37,69 +42,6 @@ const MAX_S = 15 * 60;
 const MEDIA = /\.(mov|mp4|m4a|m4v|mp3|wav|flac|ogg|opus|oga|webm|aac|caf|aif|aiff)$/i;
 
 // ------------------------------------------------------------------ WAVs sintéticos
-
-type WavSpec = { name: string; sr: number; ch: number; bits: 16 | 24 | 32; float?: boolean; extensible?: boolean; seconds: number; identical?: boolean };
-const SPECS: WavSpec[] = [
-  { name: "sint-16bit-44k1-estereo.wav", sr: 44100, ch: 2, bits: 16, seconds: 6 },
-  { name: "sint-16bit-48k-mono.wav", sr: 48000, ch: 1, bits: 16, seconds: 6 },
-  { name: "sint-24bit-48k-estereo.wav", sr: 48000, ch: 2, bits: 24, seconds: 6 },
-  { name: "sint-24bit-44k1-mono-extensible.wav", sr: 44100, ch: 1, bits: 24, extensible: true, seconds: 6 },
-  { name: "sint-float32-48k-estereo.wav", sr: 48000, ch: 2, bits: 32, float: true, seconds: 6 },
-  { name: "sint-16bit-48k-estereo-identico.wav", sr: 48000, ch: 2, bits: 16, seconds: 6, identical: true },
-  { name: "sint-16bit-48k-curto-0s3.wav", sr: 48000, ch: 2, bits: 16, seconds: 0.3 },
-];
-
-function writeWav(path: string, s: WavSpec) {
-  const n = Math.round(s.sr * s.seconds);
-  const bytes = s.bits / 8;
-  const fmtSize = s.extensible ? 40 : 16;
-  const data = n * s.ch * bytes;
-  const buf = Buffer.alloc(12 + 8 + fmtSize + 8 + data);
-  let o = 0;
-  const str = (t: string) => {
-    buf.write(t, o, "latin1");
-    o += 4;
-  };
-  str("RIFF");
-  buf.writeUInt32LE(4 + 8 + fmtSize + 8 + data, o);
-  o += 4;
-  str("WAVE");
-  str("fmt ");
-  buf.writeUInt32LE(fmtSize, o);
-  const format = s.float ? 3 : 1;
-  buf.writeUInt16LE(s.extensible ? 0xfffe : format, o + 4);
-  buf.writeUInt16LE(s.ch, o + 6);
-  buf.writeUInt32LE(s.sr, o + 8);
-  buf.writeUInt32LE(s.sr * s.ch * bytes, o + 12);
-  buf.writeUInt16LE(s.ch * bytes, o + 16);
-  buf.writeUInt16LE(s.bits, o + 18);
-  if (s.extensible) {
-    buf.writeUInt16LE(22, o + 20);
-    buf.writeUInt16LE(s.bits, o + 22);
-    buf.writeUInt32LE(s.ch === 1 ? 4 : 3, o + 24);
-    // GUID do subformato: os 2 primeiros bytes são o formato (1 = PCM, 3 = float)
-    Buffer.from([format, 0, 0, 0, 0, 0, 0x10, 0, 0x80, 0, 0, 0xaa, 0, 0x38, 0x9b, 0x71]).copy(buf, o + 28);
-  }
-  o += fmtSize + 4;
-  str("data");
-  buf.writeUInt32LE(data, o);
-  o += 4;
-  let seed = 9;
-  const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff) * 2 - 1;
-  for (let i = 0; i < n; i++) {
-    const t = i / s.sr;
-    // música simples + ruído + um transiente por segundo (dá onde a correlação se apoiar)
-    const base = 0.3 * Math.sin(2 * Math.PI * 220 * t) + 0.15 * Math.sin(2 * Math.PI * 331 * t) + 0.05 * rnd() + (t % 1 < 0.01 ? 0.4 * rnd() : 0);
-    for (let c = 0; c < s.ch; c++) {
-      const v = Math.max(-1, Math.min(1, s.identical || c === 0 ? base : 0.8 * base + 0.1 * Math.sin(2 * Math.PI * 97 * t)));
-      if (s.float) buf.writeFloatLE(v, o);
-      else if (s.bits === 16) buf.writeInt16LE(Math.round(v * 32767), o);
-      else if (s.bits === 24) buf.writeIntLE(Math.round(v * 8388607), o, 3);
-      o += bytes;
-    }
-  }
-  writeFileSync(path, buf);
-}
 
 // ------------------------------------------------------------------ classificação (cobertura)
 
@@ -136,9 +78,25 @@ const CATEGORIES = [
   "MP3 VBR",
   "OGG/Opus (WhatsApp)",
   "FLAC",
+  "WAV float com valores acima de 1",
+  "AAC com picos acima de 1 (sintético)",
+  "AAC sem picos (sintético)",
+  "MP3 com picos acima de 1 (sintético)",
+  "MP3 com atraso do LAME (sintético)",
 ] as const;
 
 function categorize(path: string): string[] {
+  const name0 = basename(path);
+  // sintéticos com perda do repositório: categorias próprias (não contam como formato real)
+  if (path.startsWith(REPO_SYNTH)) {
+    const out: string[] = [];
+    if (name0.startsWith("quente-aac")) out.push("AAC com picos acima de 1 (sintético)");
+    if (name0.startsWith("normal-aac")) out.push("AAC sem picos (sintético)");
+    if (name0.startsWith("quente-mp3")) out.push("MP3 com picos acima de 1 (sintético)");
+    if (name0.includes("lame")) out.push("MP3 com atraso do LAME (sintético)");
+    return out;
+  }
+  if (name0.includes("acima-de-1")) return ["WAV float com valores acima de 1"];
   const p = probe(path);
   const a = p.streams?.find((s) => s.codec_type === "audio");
   const video = p.streams?.some((s) => s.codec_type === "video" && !s.disposition?.attached_pic);
@@ -261,6 +219,12 @@ async function decodeInChrome(files: string[]): Promise<BrowserResult[]> {
 
 // ------------------------------------------------------------------ comparação
 
+const sha32 = (x: Signal) => {
+  const h = createHash("sha256");
+  for (const c of x) h.update(Buffer.from(c.buffer, c.byteOffset, c.byteLength));
+  return h.digest("hex");
+};
+
 /** Atraso (amostras) do servidor em relação ao navegador, por correlação numa janela de 0,5 s. */
 function lagOf(ref: Float32Array, other: Float32Array, sr: number): number {
   const maxLag = 4096;
@@ -297,6 +261,7 @@ type Row = {
   origem: "real" | "sintético" | "projeto" | "diagnóstico";
   categorias: string[];
   status: "IDÊNTICO" | "DENTRO" | "DIVERGE" | "AMBOS RECUSAM" | "RECUSA DIFERENTE";
+  sha_app?: string;
   detalhe: string;
   navegador?: Record<string, unknown>;
   servidor?: Record<string, unknown>;
@@ -305,16 +270,17 @@ type Row = {
 
 async function main() {
   mkdirSync(SYNTH, { recursive: true });
-  for (const s of SPECS) writeWav(join(SYNTH, s.name), s);
+  for (const s of SYNTH_WAVS) writeFileSync(join(SYNTH, s.name), synthWav(s));
   const local = existsSync(LOCAL) ? readdirSync(LOCAL).filter((f) => MEDIA.test(f)).map((f) => join(LOCAL, f)) : [];
   const project = readdirSync(join(WEB, "lib/dsp/fixtures")).filter((f) => f.endsWith(".wav")).map((f) => join(WEB, "lib/dsp/fixtures", f));
-  const synth = SPECS.map((s) => join(SYNTH, s.name));
+  const synth = SYNTH_WAVS.map((s) => join(SYNTH, s.name));
   // PARITY_EXTRA=<pasta>: arquivos extras de diagnóstico (ex.: gerados para testar uma hipótese)
   const extraDir = process.env.PARITY_EXTRA;
   const extra = extraDir && existsSync(extraDir) ? readdirSync(extraDir).filter((f) => MEDIA.test(f)).map((f) => join(extraDir, f)) : [];
-  const files = [...local, ...project, ...synth, ...extra];
+  const repoSynth = readdirSync(REPO_SYNTH).filter((f) => MEDIA.test(f)).map((f) => join(REPO_SYNTH, f));
+  const files = [...local, ...project, ...synth, ...repoSynth, ...extra];
   const origin = (f: string): Row["origem"] =>
-    f.startsWith(LOCAL) ? "real" : f.startsWith(SYNTH) ? "sintético" : extra.includes(f) ? "diagnóstico" : "projeto";
+    f.startsWith(LOCAL) ? "real" : f.startsWith(SYNTH) || f.startsWith(REPO_SYNTH) ? "sintético" : extra.includes(f) ? "diagnóstico" : "projeto";
 
   console.log(`arquivos: ${local.length} em fixtures-local, ${project.length} do projeto, ${synth.length} sintéticos`);
   const t0 = Date.now();
@@ -375,6 +341,19 @@ async function main() {
         n++;
       }
     const compared = n;
+    // picos acima de 1 e o resíduo se o servidor limitasse a ±1 (para decidir o limite por formato)
+    const over = (x: Signal) => x.reduce((t, ch) => t + ch.reduce((k, v) => k + (Math.abs(v) > 1 ? 1 : 0), 0), 0);
+    let errC = 0;
+    let maxC = 0;
+    for (let c = 0; c < nch; c++)
+      for (let k = 0; k < bc[c].length; k++) {
+        const j = k + lag;
+        if (j < 0 || j >= sc[c].length) continue;
+        const d = bc[c][k] - Math.max(-1, Math.min(1, sc[c][j]));
+        maxC = Math.max(maxC, Math.abs(d));
+        errC += d * d;
+      }
+    const snrC = errC === 0 ? Infinity : 10 * Math.log10(ref / errC);
     const snr = err === 0 ? Infinity : 10 * Math.log10(ref / err);
     const lb = integratedLoudness(bc, b.sampleRate!);
     const ls = integratedLoudness(sc, sr);
@@ -391,6 +370,9 @@ async function main() {
       max_dif: maxDiff,
       snr_db: Number.isFinite(snr) ? Number(snr.toFixed(1)) : "∞",
       lufs_dif: Number((ls - lb).toFixed(4)),
+      acima_de_1: `${over(bc)}/${over(sc)}`,
+      snr_db_se_limitar: Number.isFinite(snrC) ? Number(snrC.toFixed(1)) : "∞",
+      max_dif_se_limitar: maxC,
       pico_dif: Number((samplePeak(sc) - samplePeak(bc)).toFixed(6)),
     };
     row.comparacao = comp;
@@ -400,7 +382,8 @@ async function main() {
     if (sameShape && lag === 0 && lenDiff === 0 && maxDiff === 0) row.status = "IDÊNTICO";
     else if (sameShape && lag === 0 && Math.abs(lenDiff) <= 2048 && snr >= 90 && Math.abs(ls - lb) <= 0.01) row.status = "DENTRO";
     else row.status = "DIVERGE";
-    row.detalhe = `atraso ${lag} · Δamostras ${lenDiff} · SNR ${comp.snr_db} dB · ΔLUFS ${comp.lufs_dif} · ${comp.canais} canais · ${comp.taxa} Hz · início ${comp.audio_start}`;
+    row.detalhe = `início app/servidor ${comp.audio_start} s · amostras ${comp.amostras_navegador}/${comp.amostras_servidor} · atraso ${lag} · SNR ${comp.snr_db} dB (máx ${maxDiff.toExponential(1)}) · ΔLUFS ${comp.lufs_dif} · picos>1 app/servidor ${comp.acima_de_1} · se limitar: SNR ${comp.snr_db_se_limitar} dB (máx ${maxC.toExponential(1)}) · ${comp.canais} canais · ${comp.taxa} Hz`;
+    row.sha_app = sha32(bc);
     rows.push(row);
   }
 
@@ -414,6 +397,22 @@ async function main() {
     return { formato: c, situacao: hits.length ? "COBERTO" : "PENDENTE", arquivos: hits.map((r) => `${r.arquivo} (${r.origem}, ${r.status})`), so_sintetico: hits.length > 0 && real.length === 0 };
   });
   for (const c of coverage) console.log(`${c.formato} | ${c.situacao}${c.so_sintetico ? " (só sintético)" : ""} | ${c.arquivos.join("; ") || "falta arquivo"}`);
+  // --gravar-referencia: o que o APP (Chrome) obteve, para o CI comparar o servidor sem rodar o Chrome.
+  // Só arquivos sintéticos e do repositório (nunca mídia pessoal de fixtures-local).
+  if (process.argv.includes("--gravar-referencia")) {
+    const ref: Record<string, unknown> = {};
+    for (let i = 0; i < files.length; i++) {
+      const o = origin(files[i]);
+      if (o === "real" || o === "diagnóstico") continue;
+      const b = browser[i];
+      const key = files[i].startsWith(SYNTH) ? `synth:${basename(files[i])}` : files[i].slice(WEB.length + 1).split(sep).join("/");
+      ref[key] = b.error
+        ? { erro: b.error }
+        : { tipo: b.kind, taxa: b.sampleRate, canais: b.channels!.length, amostras: b.channels![0].length, audio_start: b.audioStart, sha256_f32: sha32(b.channels!), lufs: integratedLoudness(b.channels!, b.sampleRate!), pico: samplePeak(b.channels!) };
+    }
+    writeFileSync(REFERENCE, JSON.stringify({ origem: "Chrome headless + lib/media/load.ts (app), scripts/parity-decode.ts --gravar-referencia", arquivos: ref }, null, 1) + String.fromCharCode(10));
+    console.log(`referência gravada: ${Object.keys(ref).length} arquivos`);
+  }
   writeFileSync(join(OUT, "resultado.json"), JSON.stringify({ quando: new Date().toISOString(), ffmpeg: spawnSync(FFMPEG, ["-version"], { encoding: "utf8" }).stdout.split("\n")[0], rows, coverage }, null, 1));
   const bad = rows.filter((r) => r.status === "DIVERGE" || r.status === "RECUSA DIFERENTE");
   if (bad.length) console.log(`\nATENÇÃO: ${bad.length} arquivo(s) divergem: ${bad.map((r) => r.arquivo).join(", ")}`);

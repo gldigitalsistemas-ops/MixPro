@@ -1,0 +1,138 @@
+{
+ "origem": "Chrome headless + lib/media/load.ts (app), scripts/parity-decode.ts --gravar-referencia",
+ "arquivos": {
+  "lib/dsp/fixtures/bateria-celular-real.wav": {
+   "tipo": "audio",
+   "taxa": 22050,
+   "canais": 1,
+   "amostras": 88200,
+   "audio_start": 0,
+   "sha256_f32": "de41bb2acdb9d84d5f2cba939ccfba0b1dac57305a4d82301163f051051efe45",
+   "lufs": -18.902167856492728,
+   "pico": 0.9444580078125
+  },
+  "lib/dsp/fixtures/bateria-com-clique-real.wav": {
+   "tipo": "audio",
+   "taxa": 24000,
+   "canais": 1,
+   "amostras": 336000,
+   "audio_start": 0,
+   "sha256_f32": "0368262926347266b951f551d3b5bea5e2d91e74053ae6607ef3b8f6565a803d",
+   "lufs": -24.118406800298715,
+   "pico": 0.976806640625
+  },
+  "synth:sint-16bit-44k1-estereo.wav": {
+   "tipo": "audio",
+   "taxa": 44100,
+   "canais": 2,
+   "amostras": 264600,
+   "audio_start": 0,
+   "sha256_f32": "038b79b46963246935aaa2403bca60c38436c4fa4fae1056e9c22af92a70be60",
+   "lufs": -10.869626663066803,
+   "pico": 0.83758544921875
+  },
+  "synth:sint-16bit-48k-mono.wav": {
+   "tipo": "audio",
+   "taxa": 48000,
+   "canais": 1,
+   "amostras": 288000,
+   "audio_start": 0,
+   "sha256_f32": "4b999af441c7f0161397bff1decf76f8f4505e77971ab3c5566efc4fa7931da6",
+   "lufs": -13.19028134597713,
+   "pico": 0.842437744140625
+  },
+  "synth:sint-24bit-48k-estereo.wav": {
+   "tipo": "audio",
+   "taxa": 48000,
+   "canais": 2,
+   "amostras": 288000,
+   "audio_start": 0,
+   "sha256_f32": "285d5b68b5efba3f1d1e4cc3f31c501cb1a78739d7aad3b20bb1f9e0af966fed",
+   "lufs": -10.868249353477873,
+   "pico": 0.8424533605575562
+  },
+  "synth:sint-24bit-44k1-mono-extensible.wav": {
+   "tipo": "audio",
+   "taxa": 44100,
+   "canais": 1,
+   "amostras": 264600,
+   "audio_start": 0,
+   "sha256_f32": "3847328e2d18535e31f607c06a4477dc4b39aeb0df8deba4be1e2041391cd9d5",
+   "lufs": -13.191181031047346,
+   "pico": 0.8376069068908691
+  },
+  "synth:sint-float32-48k-estereo.wav": {
+   "tipo": "audio",
+   "taxa": 48000,
+   "canais": 2,
+   "amostras": 288000,
+   "audio_start": 0,
+   "sha256_f32": "0fd986581fe6a3fd220d7536b43b09fb86e15e29a34344da7d51d90e2ddacd3f",
+   "lufs": -10.86824831898174,
+   "pico": 0.8424534201622009
+  },
+  "synth:sint-16bit-48k-estereo-identico.wav": {
+   "tipo": "audio",
+   "taxa": 48000,
+   "canais": 1,
+   "amostras": 288000,
+   "audio_start": 0,
+   "sha256_f32": "4b999af441c7f0161397bff1decf76f8f4505e77971ab3c5566efc4fa7931da6",
+   "lufs": -13.19028134597713,
+   "pico": 0.842437744140625
+  },
+  "synth:sint-16bit-48k-curto-0s3.wav": {
+   "erro": "no_audio"
+  },
+  "synth:sint-float32-48k-estereo-acima-de-1.wav": {
+   "tipo": "audio",
+   "taxa": 48000,
+   "canais": 2,
+   "amostras": 288000,
+   "audio_start": 0,
+   "sha256_f32": "6355d9f4447b1d02de56572bae58dca7a81fb2bf2787495bc52c65bfd4f76ab3",
+   "lufs": -4.019794702526879,
+   "pico": 1.8533974885940552
+  },
+  "lib/export/fixtures/decode/normal-aac-128k.m4a": {
+   "tipo": "audio",
+   "taxa": 48000,
+   "canais": 2,
+   "amostras": 384000,
+   "audio_start": 0,
+   "sha256_f32": "be218975c722a2bfacdc9e798fbc831e92665360be6c61f68d8e49bda179c991",
+   "lufs": -21.949830600979897,
+   "pico": 0.25588130950927734
+  },
+  "lib/export/fixtures/decode/normal-mp3-128k-lame.mp3": {
+   "tipo": "audio",
+   "taxa": 44100,
+   "canais": 2,
+   "amostras": 354816,
+   "audio_start": 0,
+   "sha256_f32": "9409f083015b81d65279fa01e49d2c28b1fd6a5db2eba3b76a544391c13708aa",
+   "lufs": -22.342262863304978,
+   "pico": 0.26295915246009827
+  },
+  "lib/export/fixtures/decode/quente-aac-64k.m4a": {
+   "tipo": "audio",
+   "taxa": 48000,
+   "canais": 2,
+   "amostras": 384000,
+   "audio_start": 0,
+   "sha256_f32": "7b607fad5bfbd06aede0eac1b4e6377a2f202359afcea54e968f28cc90bcef5d",
+   "lufs": -2.037689770110896,
+   "pico": 1.7369885444641113
+  },
+  "lib/export/fixtures/decode/quente-mp3-64k-lame.mp3": {
+   "tipo": "audio",
+   "taxa": 44100,
+   "canais": 2,
+   "amostras": 354816,
+   "audio_start": 0,
+   "sha256_f32": "76c886abfbfdb673fa7817d1b81910a6b4081ccf5a53b4687a5fa452870f4e26",
+   "lufs": -1.9426424627158156,
+   "pico": 1
+  }
+ }
+}

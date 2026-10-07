@@ -25,7 +25,15 @@ jobs:
       - name: Testes do contracts
         run: pnpm --filter @mixpro/contracts test
 
-      # inclui os golden da exportação (nível exato e de tolerância)
+      # FFmpeg para a decodificação do servidor (lib/export/ffmpeg-decode.test.ts compara com a
+      # referência do app). A versão fixa do serviço fica no Dockerfile (fatia 3).
+      - name: Instalar FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg && ffmpeg -version | head -1
+
+      # inclui os golden da exportação (nível exato e de tolerância) e a paridade de decodificação
+      # (sem Chrome; a mídia pessoal de fixtures-local não existe no CI: esses formatos ficam PENDENTES)
       - name: Testes do app
         working-directory: apps/web
+        env:
+          REQUIRE_FFMPEG: "1"
         run: ../../packages/contracts/node_modules/.bin/tsx --test $(find lib -name "*.test.ts")

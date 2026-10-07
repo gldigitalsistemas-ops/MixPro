@@ -422,6 +422,46 @@ Os WAV 5 e 6 eu também posso gerar sinteticamente, mas arquivos reais pegam det
 
 ---
 
+### 5.4 Resultado da fatia 2 (2026-10-07)
+
+Regras do servidor, cada uma confirmada contra o app (Chrome + `load.ts`) [MEDIDO]:
+
+| Formato | Regra no servidor (`lib/export/ffmpeg-decode.ts`) | Resultado |
+|---|---|---|
+| WAV (PCM 16/24 bits, float, `EXTENSIBLE`) | Taxa original, sem conversões extras | **Idêntico** bit a bit, inclusive float acima de 1 (o app **não** limita) |
+| MP4/MOV com AAC | `-ignore_editlist` + **regra de edit list do mediabunny** (`lib/export/mp4-edits.ts`): descarta só o trecho antes de t=0 (pré-enchimento), **não corta o fim**, `audio_start = max(0, primeiro instante)` | **Idêntico**, inclusive amostras e `audio_start`, e AAC com 50.819 picos acima de 1 (o app **não** limita) |
+| MP3 | `-flags2 +skip_manual` (mantém o atraso e o enchimento do LAME, como o app); `audio_start = 0`; **limite a ±1** (o decodificador de MP3 do Chrome limita) | **Dentro**: mesmas amostras, início 0, SNR 121–123 dB, diferença máx. 2,7e-6 a 4,3e-6 (não é bit a bit) |
+
+- **Edit lists dos arquivos reais:** todas com `media_time = 2112` e **nenhuma edição vazia**, ou
+  seja, nenhum atraso de áudio [MEDIDO]. O teste avisa quando aparecer `audio_start > 0`.
+- **CI:** compara o servidor com `lib/export/fixtures/decode-reference.json`, a referência do app
+  com 14 arquivos (sintéticos e do repositório), sem rodar o Chrome. Os arquivos de
+  `fixtures-local` não existem no CI e ficam PENDENTES. Para regravar a referência:
+  `scripts/parity-decode.ts --gravar-referencia`.
+
+### 5.5 Para a fatia 4: medir a divergência por aparelho (anotado, NÃO implementado)
+
+- **O risco:** a maioria dos usuários está no celular. No iPhone o app decodifica com os
+  decodificadores da Apple e pode cair nos caminhos alternativos do `load.ts` (cópia da trilha +
+  `decodeAudioData`, ou `decodeAudioData` a 48 kHz). Nesses casos o servidor (paridade com o
+  Chrome) pode divergir do que a pessoa ouviu na prévia.
+- **Na fatia 4, o servidor grava em `export_jobs`, sem conteúdo, a diferença entre o que mediu e o
+  que o job declarou:**
+  - `diff_samples`: amostras medidas − amostras declaradas (`duration_s × sample_rate`);
+  - `diff_duration_ms`;
+  - `diff_audio_start_ms`;
+  - `diff_channels` e `diff_sample_rate` (0 quando iguais);
+  - `client_platform`: só a categoria (`ios` / `android` / `desktop`) e a família do navegador
+    (`safari` / `chrome` / `firefox` / `outro`), derivadas do user-agent na rota da Vercel. **O
+    user-agent completo não é gravado.**
+  - **Proposta (decidir na fatia 4):** o cliente informar no job qual caminho do `load.ts` usou
+    (`webcodecs` / `copia+webaudio` / `webaudio`). Isso exige um campo novo no schema, por exemplo
+    `source.decode_path`, e é o dado que mais explicaria as divergências do iPhone.
+- **Para que serve:** um painel do admin agrupa por plataforma e caminho, e mostra onde e quanto o
+  servidor diverge do celular.
+- **Política inicial proposta:** só medir. Divergência acima de um limite (ex.: > 1 quadro de
+  codec ou `audio_start` diferente) gera alerta para revisão, não recusa.
+
 ## 6. Serviço
 
 ### 6.1 Container
