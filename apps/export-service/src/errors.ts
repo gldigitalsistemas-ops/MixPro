@@ -32,6 +32,11 @@ export const ERROR_CODES = [
   "STORAGE_FAILED",
   "TIMEOUT",
   "INTERNAL",
+  // banco e crédito (fatia 4)
+  "REF_MISMATCH",
+  "INSUFFICIENT_CREDITS",
+  "RATE_LIMITED",
+  "CAPACITY",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

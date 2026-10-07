@@ -23,6 +23,14 @@ export type JobMeasures = {
   /** signalFingerprint do áudio decodificado no servidor (âncora do p_ref, fatia 4). */
   content_fingerprint: string;
   output_bytes: number;
+} & JobObserved;
+
+/** O que o servidor mediu na ENTRADA (telemetria de divergência: medido − declarado, fatia 4). */
+export type JobObserved = {
+  input_duration_s?: number;
+  input_samples?: number;
+  input_audio_start_s?: number;
+  input_sample_rate?: number;
 };
 
 export type JobCost = { cpu_ms: number; rss_mb: number; wall_ms: number; etapas_ms: Record<string, number> };
@@ -62,7 +70,7 @@ export interface JobStore {
   /** running → done com medidas e custo; idempotente (um segundo commit não muda nada). */
   commit(id: string, r: { output_key: string; measures: JobMeasures; cost: JobCost }): Promise<JobRecord>;
   /** queued/running → failed; nunca mexe num done. Apaga o JSON do job. */
-  release(id: string, code: ErrorCode, cost?: JobCost): Promise<JobRecord | null>;
+  release(id: string, code: ErrorCode, cost?: JobCost, observed?: JobObserved): Promise<JobRecord | null>;
   /** running → queued para uma nova tentativa (falha passageira). */
   requeue(id: string): Promise<void>;
 }
@@ -154,7 +162,7 @@ export class LocalJobStore implements JobStore {
     }, true);
   }
 
-  release(id: string, code: ErrorCode, cost?: JobCost) {
+  release(id: string, code: ErrorCode, cost?: JobCost, _observed?: JobObserved) {
     return this.exclusive((jobs) => {
       const r = jobs[id];
       if (!r || r.status === "done") return r ? { ...r } : null;

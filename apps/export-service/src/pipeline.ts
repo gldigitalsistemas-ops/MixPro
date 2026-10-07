@@ -23,7 +23,7 @@ import { signalFingerprint } from "@/lib/hash";
 import { exportAudio } from "@/lib/media/export";
 import type { LoadedMedia } from "@/lib/media/load";
 import type { AssetCatalog } from "./adapters/catalog";
-import type { JobCost, JobStore } from "./adapters/jobs";
+import type { JobCost, JobObserved, JobStore } from "./adapters/jobs";
 import type { Storage } from "./adapters/storage";
 import { fromDecode, JobError, RETRYABLE, type ErrorCode } from "./errors";
 import { logJob } from "./log";
@@ -141,6 +141,9 @@ export async function runJob(jobId: string, deps: ServiceDeps): Promise<RunResul
     etapas_ms: etapas,
   });
   const base = { duracao_s: null as number | null, canais: null as number | null, taxa: null as number | null, alvo: null as string | null };
+  // medido na entrada (vai para a telemetria de divergência, inclusive quando o job é recusado)
+  let observed: JobObserved | undefined;
+  let outputKey: string | null = null;
 
   try {
     const st = await deps.jobs.start(jobId, deps.limits.staleMs);
@@ -175,6 +178,12 @@ export async function runJob(jobId: string, deps: ServiceDeps): Promise<RunResul
         throw e instanceof DecodeError ? new JobError(fromDecode(e.code)) : new JobError("INTERNAL");
       });
       Object.assign(base, { duracao_s: Number(decoded.duration.toFixed(3)), canais: decoded.channels.length, taxa: decoded.sampleRate });
+      observed = {
+        input_duration_s: decoded.duration,
+        input_samples: decoded.channels[0].length,
+        input_audio_start_s: decoded.audioStart,
+        input_sample_rate: decoded.sampleRate,
+      };
       checkSource(job, decoded);
       const fingerprint = signalFingerprint(decoded.channels);
       const sr = decoded.sampleRate;
@@ -212,6 +221,7 @@ export async function runJob(jobId: string, deps: ServiceDeps): Promise<RunResul
         sha256_f32: sha32(out),
         content_fingerprint: fingerprint,
         output_bytes: 0,
+        ...observed,
       };
 
       // 6. gravação: WAV pelo código do app; MP3/M4A pelo FFmpeg; vídeo → só o áudio em AAC (o aparelho junta)
@@ -230,7 +240,7 @@ export async function runJob(jobId: string, deps: ServiceDeps): Promise<RunResul
       mark("gravar");
 
       // 7. saída com chave fixa por job: repetir o job sobrescreve, não duplica
-      const outputKey = `out/${rec.id}.${ext}`;
+      outputKey = `out/${rec.id}.${ext}`;
       await deps.storage.put(outputKey, bytes).catch(() => {
         throw new JobError("STORAGE_FAILED");
       });
@@ -243,12 +253,14 @@ export async function runJob(jobId: string, deps: ServiceDeps): Promise<RunResul
     } catch (e) {
       const code: ErrorCode = e instanceof JobError ? e.code : "INTERNAL";
       const c = cost();
+      // o commit recusou a entrega (outro áudio com o mesmo p_ref, ou o saldo acabou): a saída não fica
+      if (outputKey && (code === "REF_MISMATCH" || code === "INSUFFICIENT_CREDITS")) await deps.storage.delete(outputKey).catch(() => {});
       if (RETRYABLE.has(code) && rec.attempts < deps.limits.maxAttempts) {
         await deps.jobs.requeue(rec.id);
         logJob({ job_id: rec.id, status: "retry", error_code: code, ...base, ...c, dsp_version: DSP_VERSION });
         return { http: 503, status: "retry", error_code: code };
       }
-      await deps.jobs.release(rec.id, code, c);
+      await deps.jobs.release(rec.id, code, c, observed);
       logJob({ job_id: rec.id, status: "failed", error_code: code, ...base, ...c, dsp_version: DSP_VERSION });
       return { http: 200, status: "failed", error_code: code };
     }
