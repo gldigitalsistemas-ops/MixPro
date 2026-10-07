@@ -3,7 +3,8 @@
 Data: 2026-10-07. Branch `feat/export-server`.
 
 **Nada foi aplicado** em nenhum projeto Supabase, nem no de teste nem no de produção. Nenhuma chave
-de produção foi usada ou lida.
+de produção foi usada ou lida. A fatia foi aprovada para aplicar **somente no projeto de teste**,
+depois dos 3 ajustes da seção 1.1, que já estão neste relatório.
 
 ## 1. Resumo
 
@@ -12,7 +13,8 @@ de produção foi usada ou lida.
   - as tabelas `export_jobs`, `export_ref_anchors` (âncora do p_ref) e `export_job_status`
     (espelho para o Realtime);
   - a view `my_export_jobs`;
-  - 9 RPCs que só a service role chama.
+  - 10 RPCs que só a service role chama;
+  - o agendamento da limpeza no pg_cron a cada 5 min.
 - **Nada existente foi alterado:** nem `spend_export_credit`, nem `grant_credits`, nem as tabelas
   existentes, nem o app web.
 - **Reversão:** `supabase/rollback/20261007000001_export_jobs_down.sql`. Fica fora de `migrations/`
@@ -20,16 +22,37 @@ de produção foi usada ou lida.
 
 **Serviço.**
 - O `SupabaseJobStore` (`apps/export-service/src/adapters/supabase-jobs.ts`) implementa a mesma
-  interface `JobStore` da fatia 3.
-- O pipeline só ganhou três coisas:
-  - a telemetria da entrada no `release`;
-  - a remoção da saída quando o commit é recusado;
-  - os 4 códigos novos: `REF_MISMATCH`, `INSUFFICIENT_CREDITS`, `RATE_LIMITED` e `CAPACITY`.
+  interface `JobStore` da fatia 3, e ganhou `cancel` e `cleanup`.
+- O pipeline mudou em quatro pontos:
+  - envia a telemetria da entrada no `release`;
+  - envia o SHA-256 da entrada decodificada no commit;
+  - apaga a saída quando o commit é recusado;
+  - tem os 5 códigos novos: `REF_MISMATCH`, `INSUFFICIENT_CREDITS`, `RATE_LIMITED`, `CAPACITY` e
+    `CANCELLED`.
 
 **Testes.**
-- A lógica SQL foi validada num Postgres local em memória (PGlite): **15/15** [MEDIDO].
-- Os testes REST contra o projeto de teste estão escritos (11 casos, de (a) a (k)), mas **ainda não
-  rodaram**: o projeto de teste e o `.env.export-test` não existem.
+- A lógica SQL foi validada num Postgres local em memória (PGlite): **18/18** [MEDIDO]. Cinco
+  mutações propositais foram todas pegas.
+- Os testes REST contra o projeto de teste estão escritos (13 casos), mas **ainda não rodaram**: o
+  projeto de teste e o `.env.export-test` não existem.
+
+### 1.1 Ajustes depois da aprovação (2026-10-07)
+
+| # | Pedido | O que mudou | Teste |
+|---|---|---|---|
+| 1 | Limpeza agendada sem depender do cron da Vercel | Agendada no **pg_cron a cada 5 min** (`mixpro-limpeza-exportacao`, `*/5 * * * *`), no estilo das limpezas existentes: desagenda o nome antes, para reaplicar sem duplicar. A reversão desagenda antes de apagar a função e não remove o pg_cron, que as outras limpezas usam. | PGlite: agendamento único e com o comando certo; depois da reversão, 0 agendamentos de exportação e os 2 de outras limpezas intactos; reversão aplicada 2× sem erro. |
+| 2a | Cancelamento | `cancel_export_job(p_job_id, p_user)`, só service role. Vale só para `queued`/`running` do **próprio** usuário. Resultado: `failed` + `CANCELLED`, reserva liberada, `job_text` apagado. Job de outro usuário responde `JOB_NOT_FOUND`; job encerrado não muda. Se o serviço ainda estiver processando, o commit devolve `failed`/`CANCELLED` sem cobrar, e o serviço apaga a saída. | (l), no PGlite e no REST |
+| 2b | `queued` sem start: 15 min | `cleanup_export_jobs(p_stale_seconds = 1800, p_queued_seconds = 900)`. `queued` que **nunca** começou: 15 min. `running`: continua 30 min. `queued` devolvido à fila (requeue) e não retomado: 30 min a partir do `started_at`. | (i2): 10 min fica, 16 min é liberado e o limite de 1 ativo volta na hora; running de 20 min não muda; requeue de 20 min fica e de 31 min é liberado |
+| 3 | Âncora mais forte | `input_sha256_f32` (SHA-256 dos float32 do áudio de **entrada** decodificado no servidor) em `export_jobs` e em `export_ref_anchors` (`not null`). O commit exige os dois campos (`INVALID_JOB` sem eles) e recusa com `REF_MISMATCH` se **qualquer um** for diferente da âncora. Um ref pago no aparelho ancora os dois campos no primeiro uso. | (g): fingerprint diferente → `REF_MISMATCH`; fingerprint igual e sha diferente → `REF_MISMATCH`; os dois iguais → entrega sem cobrar; sem sha → `INVALID_JOB`; ref do aparelho ancora os dois |
+
+**Risco novo do ajuste 3 [ESTIMATIVA].** Em codecs com perda (AAC, MP3), o SHA-256 da entrada
+decodificada pode mudar se a versão do FFmpeg mudar. Um usuário honesto que reexportar o mesmo ref
+depois de uma troca de versão receberia `REF_MISMATCH`.
+- O `Dockerfile` já trava a série 5.1, mas aceita correções do Debian.
+- Mitigação para a fatia 7: travar a versão exata (o `--build-arg FFMPEG_VERSION=…` já existe) e
+  tratar a troca de versão como mudança que exige revisão.
+- Se acontecer mesmo assim: o admin pode apagar a âncora daquele ref. Não existe RPC para isso;
+  é um `delete` manual.
 
 ## 2. Avaliação: Realtime com lista de colunas
 
@@ -57,16 +80,18 @@ fatia 6.
 1. **`job_text` é TEXT, não `jsonb`.** O `jsonb` reordena as chaves, e o p_ref é recalculado sobre o
    JSON cru.
 2. **Âncora do p_ref.**
-   - É o `content_fingerprint`: 8 hex do `signalFingerprint` do **áudio decodificado** no servidor.
+   - Tem dois campos, ambos do **áudio de entrada decodificado** no servidor:
+     - `content_fingerprint`: 8 hex do `signalFingerprint`;
+     - `input_sha256_f32`: SHA-256 dos float32.
    - Fica em `export_ref_anchors`, com chave `(user_id, idempotency_ref)`.
    - É conferida e gravada **dentro do `commit_export_credit`**, na mesma transação do débito.
-   - Se a âncora for diferente: `failed` + `REF_MISMATCH`, a reserva é liberada, ninguém é cobrado e
-     o serviço apaga a saída.
+   - Se qualquer campo for diferente: `failed` + `REF_MISMATCH`, a reserva é liberada, ninguém é
+     cobrado e o serviço apaga a saída.
    - Um ref pago no aparelho, sem âncora, é ancorado no primeiro commit no servidor.
 3. **Débito com a chave exata do app.**
    - Chamada: `grant_credits(..., 'export:' || uid || ':' || p_ref)`.
    - Lock: o mesmo `pg_advisory_xact_lock(hashtext('credits:' || uid))`, em todas as RPCs que mexem
-     com crédito.
+     com crédito, incluindo o cancelamento.
 4. **Reserva.**
    - É um job em `queued`/`running` com `credit_state = 'reserved'`.
    - Disponível = `credit_balance` − reservas ativas.
@@ -80,10 +105,16 @@ fatia 6.
    6. Já pago → `charged`; saldo disponível ≥ 1 → `reserved`; senão, `INSUFFICIENT_CREDITS`.
 6. **Os tetos globais são aproximados.** Usuários diferentes não compartilham o lock, então dois
    jobs no limite podem passar juntos (no máximo a concorrência do Cloud Tasks, 2).
-7. **Erros.**
+7. **Cancelamento e limpeza.**
+   - `cancel_export_job` é chamado pela rota da Vercel, que confere a sessão e passa o uid.
+   - A limpeza roda no pg_cron a cada 5 min. Prazos: `queued` sem start, 15 min; `running`, 30 min;
+     `queued` devolvido à fila, 30 min.
+8. **Erros.**
    - Saem como exceção com o código fechado na mensagem.
    - O `SupabaseJobStore` aceita só os códigos da lista; qualquer outra coisa vira `INTERNAL`.
-8. **Permissões.** Todas as funções novas têm `revoke execute` de `public`, `anon` e `authenticated`
+   - Um commit num job que já foi cancelado ou encerrado não é erro: devolve `failed` com o código
+     do job.
+9. **Permissões.** Todas as funções novas têm `revoke execute` de `public`, `anon` e `authenticated`
    e `grant` só para `service_role`.
 
 ## 4. Tabela de estados verificada
@@ -99,23 +130,34 @@ Os testes da última coluna existem em dois lugares:
 | p_ref já pago no aparelho | `queued` / `charged`; o commit não debita | (b) |
 | p_ref pago no servidor, saída válida | `outcome = done`, o mesmo job, sem processar nem cobrar | (b) |
 | p_ref pago no servidor, saída expirada | job novo `charged` | (g) |
-| `queued` → start | `running`, `attempts + 1` | (a)–(k) |
+| `queued` → start | `running`, `attempts + 1` | (a)–(l) |
 | `running` recente → start | `busy` | (i) |
 | `running` parado → start | retomado (`attempts = 2`) | (i) |
 | Falha antes do débito (`release`) | `failed` / `released`; JSON apagado; telemetria gravada | (c) |
-| Commit OK | `done` / `charged`; 1 transação no ledger; JSON apagado; medidas, custo e diffs gravados | (d) |
+| Commit OK | `done` / `charged`; 1 transação no ledger; JSON apagado; medidas, custo, diffs e sha da entrada gravados | (d) |
 | Commit repetido (no REST, também em paralelo) | continua `done`; **1** transação | (d) |
 | Sem saldo ao criar | `INSUFFICIENT_CREDITS`; nenhum job | (e) |
 | Saldo gasto no aparelho entre reservar e debitar | `failed` / `released` + `INSUFFICIENT_CREDITS`; a saída não é entregue | (f) |
-| Mesmo p_ref com outro áudio | `failed` + `REF_MISMATCH`; sem cobrança | (g) |
-| Ref pago no aparelho, 1º uso no servidor | âncora gravada com o fingerprint do servidor | (g) |
+| Mesmo p_ref, fingerprint diferente | `failed` + `REF_MISMATCH`; sem cobrança | (g) |
+| Mesmo p_ref, fingerprint igual e sha diferente | `failed` + `REF_MISMATCH`; sem cobrança | (g) |
+| Mesmo p_ref, os dois iguais (saída expirada) | `done`, sem nova cobrança | (g) |
+| Commit sem `input_sha256_f32` | `INVALID_JOB` | (g), só no PGlite |
+| Ref pago no aparelho, 1º uso no servidor | âncora gravada com o fingerprint e o sha do servidor | (g) |
 | 2º job ativo; 10 por hora; 40 por dia | `RATE_LIMITED` | (h) |
 | Teto diário de CPU ou de jobs; interruptor desligado | `CAPACITY` | (h), interruptor |
-| `running` parado na limpeza | `failed` / `released` + `TIMEOUT` | (i) |
-| `queued` antigo na limpeza | `failed` / `released` + `TIMEOUT` | (i), só no PGlite |
+| `running` parado há mais de 30 min, na limpeza | `failed` / `released` + `TIMEOUT` | (i) |
+| `queued` sem start há 10 min | continua `queued` | (i2) |
+| `queued` sem start há 16 min | `failed` / `released` + `TIMEOUT`; o limite de 1 ativo volta | (i2) |
+| `running` há 20 min | continua `running` | (i2), só no PGlite |
+| `queued` devolvido à fila há 20 min / 31 min | continua `queued` / `failed` + `TIMEOUT` | (i2), só no PGlite |
+| Cancelar `queued` do próprio usuário | `failed` / `released` + `CANCELLED`; JSON apagado; o limite volta | (l) |
+| Cancelar job de outro usuário | `JOB_NOT_FOUND`; nada muda | (l) |
+| Cancelar `running` e depois o commit chegar | `failed` + `CANCELLED`; nenhuma transação; a saída é apagada pelo serviço | (l) |
+| Cancelar job encerrado (`done`, ou cancelar de novo) | nada muda (`cancelled: false`) | (l) |
 | `expires_at` vencido | `expired`; reserva liberada; JSON apagado | (i), só no PGlite |
+| Limpeza agendada | 1 agendamento, `*/5 * * * *`, `select public.cleanup_export_jobs()` | só no PGlite (shim do cron) |
 | Invariante: `charged` ⇔ transação no ledger; nenhum `done` sem `charged`; nenhuma reserva em job encerrado | 0 / 0 / 0 | (j) |
-| Cliente anon/authenticated | não chama as RPCs, não escreve, não lê `export_jobs` nem `export_ref_anchors`. O dono vê só a view (sem `job_text`, `input_key`, `output_key` e `user_id`) e o espelho; outro usuário não vê nada | (k) |
+| Cliente anon/authenticated | não chama as RPCs (inclusive `cancel_export_job`), não escreve, não lê `export_jobs` nem `export_ref_anchors`. O dono vê só a view (sem `job_text`, `input_key`, `output_key` e `user_id`) e o espelho; outro usuário não vê nada | (k) |
 | `refund_export` | só admin, uma vez (chave `refund:<job_id>`) | PGlite; no REST, só a recusa de quem não é admin |
 
 ## 5. Resultados dos testes
@@ -125,15 +167,25 @@ Os testes da última coluna existem em dois lugares:
 **Ambiente.** Nenhum projeto na nuvem: nem o de teste, nem o de produção.
 - Shim do Supabase: `supabase/tests/00_supabase_shim.sql`, mais os esquemas `storage` e `cron`
   mínimos e a publicação `supabase_realtime`.
-- O PGlite não tem `pg_cron`, então a linha que o cria é removida só ali.
+- O PGlite não tem `pg_cron`: a linha que o cria é removida só ali, e o shim de `cron.schedule` e
+  `cron.unschedule` só registra os agendamentos numa tabela. A execução real a cada 5 min só pode
+  ser vista no projeto de teste (`select * from cron.job_run_details`).
 
 **Resultados.**
-- As 27 migrações aplicaram em ≈ 2,3 s: 42 tabelas e views públicas. A reversão volta a 38, o número
-  de antes da migração.
-- Lógica: **15/15 ok** (interruptor; (a)–(k); telemetria e espelho; refund só para admin).
-- Testes dos testes, com mutações propositais:
-  - `MUTATE=grant`, que dá execute ao `authenticated`: o caso (k) falhou, como devia.
-  - `MUTATE=chave`, que troca a chave do débito: o caso (b) falhou, como devia.
+- As 27 migrações aplicaram em ≈ 2,3 s: 42 tabelas e views públicas. A reversão volta a 38, desagenda
+  a limpeza, mantém os 2 agendamentos de outras limpezas e não deixa nenhuma função nova. Aplicada
+  2× seguidas, não dá erro.
+- Lógica: **18/18 ok**:
+  - interruptor; (a)–(l) com (i2); telemetria e espelho; refund só para admin; agendamento.
+- Testes dos testes, com mutações propositais (cada uma tem de reprovar):
+
+  | Mutação | O que faz | Caso que reprovou |
+  |---|---|---|
+  | `MUTATE=grant` | dá execute ao `authenticated` | (k) |
+  | `MUTATE=chave` | troca a chave do débito | (b) |
+  | `MUTATE=ancora` | âncora compara só o fingerprint | (g), "sha diferente" |
+  | `MUTATE=fila` | `queued` volta ao prazo de 1 h | (i2) |
+  | `MUTATE=dono` | cancelamento não confere o dono | (l), "outro usuário" |
 
 **Limite.** O PGlite tem **uma conexão só**. As corridas com duas conexões ((a), (d) e (f) em
 paralelo) só são exercitadas no teste REST, em que cada chamada HTTP usa uma conexão do pool do
@@ -143,15 +195,15 @@ PostgREST.
 
 | Conjunto | Resultado |
 |---|---|
-| `apps/web` (`lib/**/*.test.ts`) | 161: 160 ok, 1 pulado (mídia pessoal), 0 falhas |
+| `apps/web` (`lib/**/*.test.ts`, com FFmpeg) | 161/161, 0 falhas |
 | `packages/contracts` | 9/9 |
-| `apps/export-service` | 18: 7 ok (serviço, com FFmpeg), **11 pulados** (Supabase, sem `.env.export-test`), 0 falhas |
+| `apps/export-service` | 20: 7 ok (serviço, com FFmpeg, já calculando o sha da entrada), **13 pulados** (Supabase, sem `.env.export-test`), 0 falhas |
 | Typecheck de `apps/web` e `apps/export-service` | sem erros |
 
 ### 5.3 Testes contra o projeto de TESTE
 
 **Ainda não rodaram**: o projeto e o `.env.export-test` não existem. No CI eles são pulados, sem
-falhar.
+falhar. São 13 casos: (a)–(l) e (i2).
 
 **O que fazem.**
 - Criam usuários descartáveis (`export-test-<uuid>@example.test`) e ajustam o saldo de cada um com
@@ -164,44 +216,58 @@ falhar.
 **Trava contra produção.** Se `EXPORT_TEST_PROD_REF` estiver no arquivo e a URL o contiver, os
 testes param na hora.
 
+**Atenção.** A limpeza agendada (a cada 5 min) roda no projeto de teste enquanto os testes rodam.
+Ela não interfere, porque os prazos são de 15 e 30 min. Os testes que envelhecem jobs chamam a
+limpeza eles mesmos.
+
 ## 6. O que depende de você, nesta ordem
 
 1. **Criar um projeto Supabase gratuito só de teste**, se possível na mesma região do de produção.
 2. **Aplicar as migrações no projeto de teste pelo editor SQL** (não precisa de Docker).
    - O projeto começa vazio, então cole **todos** os arquivos de `supabase/migrations/`, um por vez,
      em ordem de nome. O último é `20261007000001_export_jobs.sql`.
-   - Se alguma migração antiga der erro de `pg_cron`, ative a extensão em
-     Database → Extensions e cole de novo.
-3. **Criar `.env.export-test` na raiz do repositório.** O `.gitignore` já ignora `.env.*`.
+   - A migração faz `create extension if not exists pg_cron`. Se der erro de permissão, ative o
+     pg_cron em Database → Extensions e cole de novo.
+3. **Conferir no editor SQL** que a limpeza está agendada:
+   ```sql
+   select jobname, schedule, command from cron.job where jobname = 'mixpro-limpeza-exportacao';
+   ```
+4. **Criar `.env.export-test` na raiz do repositório.** O `.gitignore` já ignora `.env.*`.
    ```
    EXPORT_TEST_SUPABASE_URL=https://<ref-do-projeto-de-teste>.supabase.co
    EXPORT_TEST_SUPABASE_ANON_KEY=<anon do projeto de teste>
    EXPORT_TEST_SUPABASE_SERVICE_ROLE_KEY=<service_role do projeto de teste>
    EXPORT_TEST_PROD_REF=<ref do projeto de PRODUÇÃO, só o identificador, como trava>
    ```
-4. **Rodar os testes.** Eles ligam o `export_server_enabled` no projeto de teste e o restauram no
+5. **Rodar os testes.** Eles ligam o `export_server_enabled` no projeto de teste e o restauram no
    fim.
    ```
    cd apps/export-service
    ../../packages/contracts/node_modules/.bin/tsx --test test/supabase.test.ts
    ```
    Depois, me mande o resultado ou peça para eu rodar.
-5. **Produção: nada agora.** A migração só vai para produção depois das fatias 5 (R2) e 6 (fila) e
+6. **Produção: nada agora.** A migração só vai para produção depois das fatias 5 (R2) e 6 (fila) e
    da sua aprovação, com `export_server_enabled = false` (o padrão da migração).
 
 ## 7. Plano de reversão
 
 **No projeto de teste (ou, no futuro, em produção):** colar
 `supabase/rollback/20261007000001_export_jobs_down.sql` no editor SQL. O script:
+- desagenda `mixpro-limpeza-exportacao`, sem remover o pg_cron, que as outras limpezas usam;
 - tira `export_job_status` da publicação;
-- apaga as 9 RPCs e as 4 funções auxiliares, o gatilho, a view, as 3 tabelas e os 2 tipos;
+- apaga as 10 RPCs e as 4 funções auxiliares, o gatilho, a view, as 3 tabelas e os 2 tipos;
 - remove as 6 chaves `export_*` de `system_settings`.
+
+O script pode ser aplicado mais de uma vez sem erro.
 
 **O que a reversão não toca:** `credit_transactions`, `grant_credits`, `spend_export_credit` e o
 app. Os débitos já feitos pelo servidor continuam no ledger como débitos normais do app, com a mesma
 chave.
 
-**Validação:** no PGlite, a reversão volta de 42 para 38 tabelas e views públicas [MEDIDO].
+**Validação no PGlite [MEDIDO]:**
+- tabelas e views públicas voltam de 42 para 38;
+- 0 agendamentos de exportação, e os outros 2 intactos;
+- nenhuma função nova restante.
 
 **Sem reverter nada:** desligar o `export_server_enabled` faz a criação recusar na hora
 (`CAPACITY`), e o app continua processando no aparelho.
@@ -216,7 +282,12 @@ chave.
 - `81a23ae` feat(export-service): SupabaseJobStore sobre as RPCs
 - `c35dd49` test(export-service): casos (a)–(k) contra o projeto de teste
 - `1ce06c9` docs: plano, seção 2.4
-- este relatório
+- `dd834d3` docs: resultado da fatia 4
+- `46f1af8` feat(db): pg_cron a cada 5 min, cancel_export_job, fila de 15 min, âncora com sha256
+- `451438c` feat(export-service): sha256 da entrada no commit, CANCELLED e cancel
+- `bb595a7` test(export-service): REF_MISMATCH pelos dois campos, cancelamento, fila de 15 min
+- `35c99ba` docs: ajustes no plano
+- esta atualização do relatório
 
 ## Anexo A: SQL final (`supabase/migrations/20261007000001_export_jobs.sql`)
 
@@ -262,6 +333,8 @@ create table public.export_jobs (
   output_bytes         bigint,
   -- signalFingerprint do áudio decodificado no servidor (âncora do p_ref)
   content_fingerprint  text check (content_fingerprint ~ '^[0-9a-f]{8}$'),
+  -- SHA-256 dos float32 do áudio de ENTRADA decodificado no servidor (âncora forte do p_ref)
+  input_sha256_f32     text check (input_sha256_f32 ~ '^[0-9a-f]{64}$'),
   -- medidas do resultado
   duration_s           numeric(10, 3),
   samples              bigint,
@@ -305,6 +378,7 @@ create table public.export_ref_anchors (
   user_id              uuid not null references public.profiles (id) on delete cascade,
   idempotency_ref      text not null check (idempotency_ref ~ '^[a-zA-Z0-9:_-]{8,128}$'),
   content_fingerprint  text not null check (content_fingerprint ~ '^[0-9a-f]{8}$'),
+  input_sha256_f32     text not null check (input_sha256_f32 ~ '^[0-9a-f]{64}$'),
   created_at           timestamptz not null default now(),
   primary key (user_id, idempotency_ref)
 );
@@ -551,14 +625,17 @@ end $$;
  * Entrega: confere a âncora do p_ref, DEBITA (mesma chave do app) e marca done — tudo numa
  * transação só. Idempotente: num job já done não faz nada. Sem saldo (gastou em outro lugar
  * entre reservar e entregar) → failed + INSUFFICIENT_CREDITS. Outro conteúdo com o mesmo p_ref
- * → failed + REF_MISMATCH. Nos dois casos o serviço não entrega a saída.
+ * → failed + REF_MISMATCH (a âncora compara o fingerprint de 8 hex E o SHA-256 dos float32 da
+ * entrada decodificada). Job cancelado ou encerrado no meio → devolve failed com o código dele.
+ * Em todos esses casos o serviço não entrega a saída.
  */
 create or replace function public.commit_export_credit(p_job_id uuid, p_output_key text, p_measures jsonb, p_cost jsonb)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare
   v public.export_jobs;
   v_fp text := p_measures ->> 'content_fingerprint';
-  v_anchor text;
+  v_in_sha text := p_measures ->> 'input_sha256_f32';
+  v_anchor public.export_ref_anchors;
   v_tx public.credit_transactions;
   v_tx_id uuid;
   v_diffs jsonb;
@@ -570,6 +647,10 @@ begin
   if v.status = 'done' then
     return jsonb_build_object('status', 'done', 'idempotent', true);
   end if;
+  if v.status in ('failed', 'expired') then
+    -- cancelado pelo usuário (ou encerrado pela limpeza) enquanto processava
+    return jsonb_build_object('status', 'failed', 'error_code', coalesce(v.error_code, 'TIMEOUT'));
+  end if;
   if v.status <> 'running' then
     raise exception 'NOT_RUNNING' using errcode = 'P0001';
   end if;
@@ -579,18 +660,22 @@ begin
   if v_fp is null or v_fp !~ '^[0-9a-f]{8}$' then
     raise exception 'INVALID_JOB' using errcode = '22023';
   end if;
+  if v_in_sha is null or v_in_sha !~ '^[0-9a-f]{64}$' then
+    raise exception 'INVALID_JOB' using errcode = '22023';
+  end if;
 
   perform pg_advisory_xact_lock(hashtext('credits:' || v.user_id::text));
   v_diffs := public.export_job_diffs(v.job_text, p_measures);
 
   -- âncora: outro conteúdo com o mesmo p_ref não usa o crédito já pago
-  select content_fingerprint into v_anchor from public.export_ref_anchors
+  -- os dois campos têm de bater; um ref pago no aparelho ainda não tem âncora e é ancorado abaixo
+  select * into v_anchor from public.export_ref_anchors
    where user_id = v.user_id and idempotency_ref = v.idempotency_ref;
-  if found and v_anchor <> v_fp then
+  if found and (v_anchor.content_fingerprint <> v_fp or v_anchor.input_sha256_f32 <> v_in_sha) then
     update public.export_jobs set
       status = 'failed', error_code = 'REF_MISMATCH', job_text = null, finished_at = now(),
       credit_state = case when credit_state = 'reserved' then 'released'::public.export_credit_state else credit_state end,
-      content_fingerprint = v_fp,
+      content_fingerprint = v_fp, input_sha256_f32 = v_in_sha,
       cpu_ms = (p_cost ->> 'cpu_ms')::integer, peak_rss_mb = (p_cost ->> 'rss_mb')::integer, wall_ms = (p_cost ->> 'wall_ms')::integer,
       etapas_ms = p_cost -> 'etapas_ms',
       diff_samples = (v_diffs ->> 'diff_samples')::bigint, diff_duration_ms = (v_diffs ->> 'diff_duration_ms')::integer,
@@ -611,7 +696,7 @@ begin
       if sqlerrm = 'INSUFFICIENT_CREDITS' then
         update public.export_jobs set
           status = 'failed', error_code = 'INSUFFICIENT_CREDITS', credit_state = 'released', job_text = null, finished_at = now(),
-          content_fingerprint = v_fp,
+          content_fingerprint = v_fp, input_sha256_f32 = v_in_sha,
           cpu_ms = (p_cost ->> 'cpu_ms')::integer, peak_rss_mb = (p_cost ->> 'rss_mb')::integer, wall_ms = (p_cost ->> 'wall_ms')::integer,
           etapas_ms = p_cost -> 'etapas_ms'
          where id = p_job_id;
@@ -625,14 +710,14 @@ begin
     raise exception 'BAD_CREDIT_STATE' using errcode = 'P0001';
   end if;
 
-  insert into public.export_ref_anchors (user_id, idempotency_ref, content_fingerprint)
-  values (v.user_id, v.idempotency_ref, v_fp)
+  insert into public.export_ref_anchors (user_id, idempotency_ref, content_fingerprint, input_sha256_f32)
+  values (v.user_id, v.idempotency_ref, v_fp, v_in_sha)
   on conflict (user_id, idempotency_ref) do nothing;
 
   update public.export_jobs set
     status = 'done', progress = 100, credit_state = 'charged', credit_tx_id = coalesce(v_tx_id, credit_tx_id),
     output_key = p_output_key, output_bytes = (p_measures ->> 'output_bytes')::bigint,
-    content_fingerprint = v_fp,
+    content_fingerprint = v_fp, input_sha256_f32 = v_in_sha,
     duration_s = (p_measures ->> 'duration_s')::numeric, samples = (p_measures ->> 'samples')::bigint,
     channels = (p_measures ->> 'channels')::smallint, sample_rate = (p_measures ->> 'sample_rate')::integer,
     lufs = (p_measures ->> 'lufs')::numeric, peak = (p_measures ->> 'peak')::numeric, sha256_f32 = p_measures ->> 'sha256_f32',
@@ -686,6 +771,34 @@ returns void language sql security definer set search_path = public as $$
 $$;
 
 /**
+ * Cancelamento pelo usuário (a rota da Vercel confere a sessão e passa o uid): só queued/running do
+ * PRÓPRIO usuário → failed CANCELLED, reserva liberada, JSON apagado. Libera na hora o limite de
+ * 1 job ativo (ex.: upload abandonado). Job de outro usuário responde como inexistente. Num job já
+ * encerrado não muda nada. Se o serviço ainda estiver processando, o commit encontra o job failed,
+ * não cobra, e o serviço apaga a saída.
+ */
+create or replace function public.cancel_export_job(p_job_id uuid, p_user uuid)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v public.export_jobs;
+begin
+  select * into v from public.export_jobs where id = p_job_id for update;
+  if not found or v.user_id is distinct from p_user then
+    raise exception 'JOB_NOT_FOUND' using errcode = 'P0002';
+  end if;
+  if v.status not in ('queued', 'running') then
+    return jsonb_build_object('status', v.status, 'credit_state', v.credit_state, 'cancelled', false);
+  end if;
+  perform pg_advisory_xact_lock(hashtext('credits:' || v.user_id::text));
+  update public.export_jobs set
+    status = 'failed', error_code = 'CANCELLED', job_text = null, finished_at = now(),
+    credit_state = case when credit_state = 'reserved' then 'released'::public.export_credit_state else credit_state end
+   where id = p_job_id
+   returning * into v;
+  return jsonb_build_object('status', v.status, 'credit_state', v.credit_state, 'cancelled', true);
+end $$;
+
+/**
  * Estorno manual (só admin): devolve 1 crédito de um job cobrado cuja saída se perdeu.
  * Idempotente pela chave 'refund:' || job_id. p_admin é o usuário admin que pediu (a rota confere a
  * sessão; aqui confere o papel).
@@ -714,12 +827,14 @@ begin
 end $$;
 
 /**
- * Limpeza (agendada: cron da Vercel ou pg_cron, a cada 15 min):
- *  - running parado há mais que p_stale_seconds → failed TIMEOUT, reserva liberada;
- *  - queued há mais que p_stale_seconds × 2 → failed TIMEOUT, reserva liberada;
+ * Limpeza (agendada no pg_cron a cada 5 min, no fim desta migração):
+ *  - running parado há mais que p_stale_seconds (30 min) → failed TIMEOUT, reserva liberada;
+ *  - queued que NUNCA começou há mais que p_queued_seconds (15 min; ex.: upload abandonado)
+ *    → failed TIMEOUT, reserva liberada;
+ *  - queued devolvido à fila (requeue) e não retomado há mais que p_stale_seconds → idem;
  *  - expirado (expires_at) → expired, JSON apagado, reserva liberada; a saída some pela regra do R2.
  */
-create or replace function public.cleanup_export_jobs(p_stale_seconds integer default 1800)
+create or replace function public.cleanup_export_jobs(p_stale_seconds integer default 1800, p_queued_seconds integer default 900)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare
   v_stuck integer;
@@ -733,7 +848,9 @@ begin
 
   update public.export_jobs set status = 'failed', error_code = 'TIMEOUT', job_text = null, finished_at = now(),
          credit_state = case when credit_state = 'reserved' then 'released'::public.export_credit_state else credit_state end
-   where status = 'queued' and created_at < now() - make_interval(secs => p_stale_seconds * 2);
+   where status = 'queued'
+     and ((started_at is null and created_at < now() - make_interval(secs => p_queued_seconds))
+       or (started_at is not null and started_at < now() - make_interval(secs => p_stale_seconds)));
   get diagnostics v_queued = row_count;
 
   update public.export_jobs set status = 'expired', job_text = null,
@@ -776,8 +893,9 @@ begin
     'public.commit_export_credit(uuid, text, jsonb, jsonb)',
     'public.release_export_credit(uuid, text, jsonb, jsonb)',
     'public.requeue_export_job(uuid)',
+    'public.cancel_export_job(uuid, uuid)',
     'public.refund_export(uuid, uuid)',
-    'public.cleanup_export_jobs(integer)',
+    'public.cleanup_export_jobs(integer, integer)',
     'public.export_jobs_invariant_violations()',
     'public.export_job_diffs(text, jsonb)',
     'public.export_setting_bool(text)',
@@ -788,6 +906,14 @@ begin
     execute format('grant execute on function %s to service_role', f);
   end loop;
 end $$;
+
+-- -----------------------------------------------------------------------------
+-- Limpeza agendada a cada 5 min no pg_cron (o cron da Vercel no plano Hobby é só diário).
+-- Mesmo estilo das outras limpezas: desagenda o nome antes, para reaplicar sem duplicar.
+-- -----------------------------------------------------------------------------
+create extension if not exists pg_cron;
+select cron.unschedule(jobid) from cron.job where jobname = 'mixpro-limpeza-exportacao';
+select cron.schedule('mixpro-limpeza-exportacao', '*/5 * * * *', 'select public.cleanup_export_jobs()');
 ```
 
 ## Anexo B: reversão (`supabase/rollback/20261007000001_export_jobs_down.sql`)
@@ -802,6 +928,14 @@ end $$;
 -- Remove APENAS o que a migração criou. Não toca em credit_transactions: débitos feitos pelo
 -- servidor ficam no ledger (com a mesma chave do app), como qualquer download pago.
 -- =============================================================================
+
+-- desagenda a limpeza antes de apagar a função que ela chama (o pg_cron fica: outras limpezas usam)
+do $$
+begin
+  if exists (select 1 from pg_namespace where nspname = 'cron') then
+    perform cron.unschedule(jobid) from cron.job where jobname = 'mixpro-limpeza-exportacao';
+  end if;
+end $$;
 
 do $$
 begin
@@ -818,7 +952,8 @@ drop function if exists public.commit_export_credit(uuid, text, jsonb, jsonb);
 drop function if exists public.release_export_credit(uuid, text, jsonb, jsonb);
 drop function if exists public.requeue_export_job(uuid);
 drop function if exists public.refund_export(uuid, uuid);
-drop function if exists public.cleanup_export_jobs(integer);
+drop function if exists public.cancel_export_job(uuid, uuid);
+drop function if exists public.cleanup_export_jobs(integer, integer);
 drop function if exists public.export_jobs_invariant_violations();
 drop function if exists public.export_job_diffs(text, jsonb);
 drop function if exists public.export_setting_bool(text);
