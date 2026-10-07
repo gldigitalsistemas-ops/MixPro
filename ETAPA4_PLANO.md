@@ -265,13 +265,14 @@ aplicada** em nenhum projeto. Diferenças em relação ao rascunho das seções 
 | Rascunho | Fatia 4 | Por quê |
 |---|---|---|
 | `job jsonb` | `job_text text` (≤ 64 KB) | O `jsonb` reordena as chaves, e o `p_ref` é recalculado sobre o JSON **cru** (fatia 1). |
-| `content_sha256` (configuração + bytes do arquivo) | `content_fingerprint` = `signalFingerprint` do **áudio decodificado** no servidor, numa tabela própria `export_ref_anchors (user_id, idempotency_ref)` | Pedido seu: os bytes mudam ao remuxar ou reenviar o mesmo áudio. A âncora é por ref, não por job, e sobrevive à expiração do job. |
+| `content_sha256` (configuração + bytes do arquivo) | Âncora com **dois campos** do **áudio de entrada decodificado** no servidor: `content_fingerprint` (`signalFingerprint`, 8 hex) e `input_sha256_f32` (SHA-256 dos float32), numa tabela própria `export_ref_anchors (user_id, idempotency_ref)`. Os dois têm de bater (ajuste 3, 2026-10-07). | Pedido seu: os bytes do arquivo mudam ao remuxar ou reenviar o mesmo áudio. Só 8 hex permitiriam forjar uma colisão; o SHA-256 fecha isso. A âncora é por ref, não por job, e sobrevive à expiração do job. |
 | Âncora gravada na criação | Conferida e gravada **dentro do `commit_export_credit`**, na mesma transação do débito | O fingerprint só existe depois de decodificar. O pipeline não ganhou etapa nova. Um ref pago no aparelho é ancorado no primeiro commit no servidor. |
 | `kind in ('audio', 'video_remux')` | `kind in ('audio', 'video')`, derivado do `target` | Igual ao `p_kind` do `spend_export_credit`. |
 | `revoke select (job, …)` por coluna + política do dono na tabela | Nenhum acesso do cliente à tabela. O dono lê pela view `my_export_jobs` (sem `job_text`, `input_key`, `output_key` nem `user_id`) | `select *` não quebra, e não há como pedir as colunas sensíveis. |
 | Publicação Realtime com lista de colunas | Tabela-espelho `export_job_status` (status, progresso, crédito, código de erro), atualizada por gatilho, com RLS do dono, publicada no `supabase_realtime` | A lista de colunas exige supabase-js ≥ 2.109 **e** `SELECT` do cliente nas colunas da tabela-base, e uma view não pode ser assinada. O espelho não expõe nada sensível. |
 | Telemetria da seção 5.5 | Colunas `diff_samples`, `diff_duration_ms`, `diff_audio_start_ms` (medido − declarado), `client_platform` (aparelho/navegador, valores fechados: ios, android, desktop, outro / safari, chrome, firefox, outro), gravadas no commit e também no release | O `release` recebe o que o servidor mediu na entrada (`JobObserved`), então divergências que reprovam o job também ficam registradas. |
-| `requeue` e limpeza só descritos | RPCs `requeue_export_job` e `cleanup_export_jobs(p_stale_seconds)` | `running` parado → `TIMEOUT`; `queued` antigo (2× o prazo) → `TIMEOUT`; `expires_at` vencido → `expired`. Todas liberam a reserva e apagam o JSON. |
+| `requeue` e limpeza só descritos | RPCs `requeue_export_job` e `cleanup_export_jobs(p_stale_seconds = 1800, p_queued_seconds = 900)`, **agendada no pg_cron a cada 5 min** (`mixpro-limpeza-exportacao`) | `running` parado há 30 min → `TIMEOUT`; `queued` que nunca começou há **15 min** (upload abandonado) → `TIMEOUT`; `queued` devolvido à fila e não retomado há 30 min → `TIMEOUT`; `expires_at` vencido → `expired`. Todas liberam a reserva e apagam o JSON. Não depende do cron da Vercel, que no plano Hobby é só diário (ajustes 1 e 2). |
+| Sem cancelamento | `cancel_export_job(p_job_id, p_user)`, só service role: só `queued`/`running` do próprio usuário → `failed` + `CANCELLED`, reserva liberada, JSON apagado. Job de outro usuário responde `JOB_NOT_FOUND`. | Um upload abandonado não prende a reserva nem o limite de 1 ativo. Se o serviço ainda estiver processando, o commit devolve `CANCELLED`, não cobra, e o serviço apaga a saída (ajuste 2). |
 | Limites em `system_settings` (nomes livres) | `export_server_enabled` (**desligado** por padrão), `export_user_active` 1, `export_user_per_hour` 10, `export_user_per_day` 40, `export_server_daily_cpu_s` 6000, `export_server_daily_jobs` 300 | O dia é contado no horário de Brasília. |
 | Ordem do `create_export_job`: já pago → ativo → saldo → limites | ativo → `done` reaproveitável → interruptor → limites do usuário → tetos globais → já pago (`charged`) ou saldo disponível (`reserved`) | Um clique repetido ou um pedido já pronto não esbarra em limite nem em interruptor. |
 | Reversão como migração | `supabase/rollback/20261007000001_export_jobs_down.sql`, **fora** de `migrations/` | Se estivesse em `migrations/`, um `db push` aplicaria a reversão logo depois da migração. |
@@ -281,8 +282,16 @@ Do lado do serviço:
   interface `JobStore` da fatia 3, falando só com as RPCs com a chave `service_role`.
 - O serviço usa o `SupabaseJobStore` quando `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` existem;
   sem elas, continua com o JSON local.
-- Quando o commit é recusado (`REF_MISMATCH`, `INSUFFICIENT_CREDITS`), o pipeline apaga a saída e
-  não a entrega.
+- Quando o commit é recusado (`REF_MISMATCH`, `INSUFFICIENT_CREDITS`, `CANCELLED`), o pipeline
+  apaga a saída e não a entrega.
+- O pipeline calcula o SHA-256 dos float32 da entrada decodificada e o envia no commit, ao lado do
+  fingerprint.
+- **Risco anotado [ESTIMATIVA]:** para codecs com perda (AAC, MP3), o SHA-256 da entrada
+  decodificada pode mudar se a versão do FFmpeg mudar. Um usuário honesto que reexportar depois de
+  uma troca de versão receberia `REF_MISMATCH`. A imagem já trava a série 5.1 [CÓDIGO: `Dockerfile`],
+  mas aceita correções do Debian. Mitigação para o deploy (fatia 7): travar a versão exata (o
+  `--build-arg FFMPEG_VERSION=…` já existe) e tratar a troca de versão como mudança que exige
+  revisão.
 
 ## 3. Crédito
 
