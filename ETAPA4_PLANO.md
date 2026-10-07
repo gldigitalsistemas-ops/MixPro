@@ -49,6 +49,57 @@ Legenda das marcações:
 
 ---
 
+## 0.1 Mudança de escopo do produto (2026-10-07)
+
+O app passa a focar **só em tratamento de áudio**.
+
+| Fica | Sai do produto |
+|---|---|
+| Enviar **áudio** e baixar tratado | Formato vertical e outros formatos de vídeo; desfoque |
+| Enviar **vídeo** só para não precisar extrair o áudio: o sistema trata o áudio e a pessoa baixa o **mesmo vídeo** com o áudio tratado, sem recodificar (remux **no aparelho**) | Cor e filtros; CTA e selo; antes → depois em vídeo |
+| **VS** (separar stems) | Legendas e transcrição; audiograma; efeitos; capa e thumbnail; "post pronto"; exportação em lote de vídeo |
+| — | **Pendente de decisão:** corte de silêncio |
+
+**Regras desta mudança:**
+1. **Nada do app é removido ou alterado nesta branch.** A remoção será feita numa branch própria,
+   **depois** de `feat/export-job` ser fundida na `main`, para evitar conflito.
+2. **Nada de render de vídeo, legendas, thumbnails ou efeitos no servidor.** As fatias e riscos
+   correspondentes saíram deste plano. O que existia (o servidor "devolve só o áudio" e o vídeo
+   nunca sai do aparelho) já estava alinhado.
+3. **O `serverExportJobSchema` não muda agora.** Os campos de vídeo (render, legendas, audiograma,
+   antes → depois, e CTA em alvo de vídeo) continuam recusados pelo servidor, e isso basta. O CTA
+   em alvo de áudio segue aceito como inerte (seção 4), até a remoção no app.
+4. **Inventário da remoção:** só quando você pedir. Arquivos, componentes, rotas, dependências,
+   banco, textos do site e metatags, admin e golden de vídeo; cada item com risco e dependências.
+
+**O que saiu do roteiro deste plano:**
+- render de vídeo no servidor, a "Etapa 5" e o JSON do job com legendas guardado por 24 h;
+- remux no servidor e o limite de 600 MB para envio de vídeo (o vídeo nunca é enviado);
+- o aparelho como "único caminho para render de vídeo".
+- A seção 8 de `EXPORTJOB_ETAPA3.md` ("o que falta para jobs de VÍDEO") ficou **obsoleta**: o
+  render saiu do produto.
+
+**Riscos da auditoria (`ANALISE_MIXPRO.md`) que deixam de existir ou mudam:**
+
+| Risco na auditoria | Situação com o novo escopo |
+|---|---|
+| §9.1 nº 3 e §2.6 nºs 2 e 3: memória de legendas Whisper (~700–750 MB [MEDIDO]) e do vídeo renderizado (~650–690 MB [MEDIDO]) no celular, perto do limite do iOS | **Deixa de existir** quando legendas e render saírem do app |
+| §2.1 itens 6, 7, 8, 9 e 11: Whisper, realinhamento DTW, render quadro a quadro (thread principal, WebGL), leitura de quadros com `<video>` (HEVC/HDR do iPhone) e quadros para capa/cor | **Deixam de existir** (código a remover) |
+| §9.1 nº 6: `onnxruntime-web` em versão de desenvolvimento por causa do transformers.js | **Muda:** sem legendas, o transformers.js sai. Resta saber se o VS ainda precisa da mesma versão (vai para o inventário) |
+| §8.1: download do modelo Whisper do Hugging Face (IP e user agent) a citar na Política | **Deixa de existir** para legendas; continua para o VS (modelo do Demucs e motor ONNX) |
+| §5 e §9.2: orquestração com legendas, cor e CTA no `export-panel`; "post pronto" e "lote" | **Simplifica:** o pedido de exportação fica só com áudio e corte (se o corte continuar) |
+| §9.1 nº 5: componente gigante (`studio.tsx`) | **Diminui** com a remoção das abas Legendas e Vídeo (o agrupamento do estado já foi feito na Etapa 2) |
+
+**Continuam valendo** (não dependem de vídeo):
+- nº 1: cobrança contornável (o servidor desta etapa resolve);
+- nº 2: plano da Vercel;
+- nº 4: VS com 2,6 GB;
+- nº 7: HMAC do webhook opcional;
+- nº 8: sem limite de requisições;
+- nº 9: contagem de bateria na thread principal;
+- nº 10: testes ponta a ponta fora do CI;
+- §2.6 nº 5: áudio longo no computador.
+
 ## 1. Arquitetura
 
 ### 1.1 Fluxo
@@ -201,8 +252,6 @@ Para avaliar com teste antes de aplicar:
     **Recomendo anular no `done`.**
 - **Nome do arquivo:** nunca vai ao servidor. A chave no R2 é UUID, o PUT é feito com nome
   genérico, e o `file_ref` do job já é um hash [CÓDIGO].
-- **Quando vier o render de vídeo**, com legendas: o JSON com a letra fica 24 h, é apagado no
-  `done`, e nunca vai para logs (mesma regra da Etapa 2, com teste).
 
 ---
 
@@ -296,7 +345,6 @@ Confirmação por teste SQL.
   "sem internet → arquivo guardado" (`unpaid`) não se aplica, porque sem internet não há servidor.
 - **O aparelho continua como alternativa? Sim. Recomendo manter por pelo menos 3 meses
   [ESTIMATIVA]:**
-  - é o único caminho para render de vídeo (fora do escopo);
   - é o plano B se o servidor cair, ficar sem orçamento (seção 8) ou recusar o arquivo;
   - custa zero;
   - regra: o servidor é tentado primeiro quando a flag está ligada e o job é do escopo; se o
@@ -318,7 +366,7 @@ criação, **e de novo** no serviço:
 | Taxa e canais | medidos; recusa se diferirem do `job.source`. Aplicar a regra do app: no máximo 2 canais, estéreo idêntico vira mono | O app faz assim [CÓDIGO]. |
 | `audio_start_s` | recalculado (primeiro timestamp do FFmpeg); tolerância de 1 amostra | Sincronia do remux. |
 | `content_fingerprint` | recalculado com `signalFingerprint` sobre o áudio do servidor; **não** recusa se divergir enquanto a paridade (seção 5) não for bit a bit, mas registra | Só bate se a decodificação for idêntica. |
-| Tamanho do arquivo | trilha de áudio: ≤ 40 MB [ESTIMATIVA: 15 min de AAC 256 kbps ≈ 29 MB]; vídeo para remux: ≤ 600 MB [ESTIMATIVA], seção 11, item 4 | DoS e custo de banda. |
+| Tamanho do arquivo | trilha de áudio: ≤ 40 MB [ESTIMATIVA: 15 min de AAC 256 kbps ≈ 29 MB]. O vídeo nunca é enviado (o remux é no aparelho, decisão 4) | DoS e custo de banda. |
 | Contêiner e codec | só os que o app aceita: MP4/MOV/M4A (AAC, ALAC), MP3, WAV (PCM 16/24/32 e float), WebM/Ogg (Opus/Vorbis), FLAC; verificado pelo **ffprobe**, nunca pela extensão | Superfície do FFmpeg (seção 9). |
 | Cadeia | `jobChainSchema` [CÓDIGO], com módulos conhecidos e faixas validadas, mais **≤ 41 módulos** (32 do editor + 9 do master [CÓDIGO]); ≤ 2 `amp`, ≤ 1 `drum_studio`, ≤ 4 `reverb` [ESTIMATIVA] | O custo cresce com módulos pesados. |
 | Intensidade e ruído | `intensity ∈ {25, 50, 75, 100}` e `denoise ∈ [0, 1]` [CÓDIGO] | — |
@@ -532,10 +580,9 @@ Regras do servidor, cada uma confirmada contra o app (Chrome + `load.ts`) [MEDID
   roda em Node sem mudanças].
 - **MP3/M4A:** o `ffmpeg-encode.ts` da Etapa 3, promovido a módulo do serviço: libmp3lame
   320 kbps e AAC 192 kbps com `+faststart`, iguais ao `QUALITY_HIGH` do app [CÓDIGO/MEDIDO].
-- **Remux** (vídeo só trocando o áudio): `ffmpeg -i video -i audio_tratado.m4a -map 0:v:0 -map
-  1:a:0 -c:v copy -c:a copy`, com `-itsoffset audio_start_s` para respeitar o atraso inicial. O
-  contêiner de saída é o do original (mp4/webm, como o `exportVideo`). Para isso o servidor
-  precisa do **vídeo inteiro** (seção 11, item 4).
+- **Vídeo (só trocar o áudio):** o servidor **não faz remux** nem recebe o vídeo (decisão 4).
+  Ele devolve só o áudio tratado em AAC (M4A), e o **aparelho** junta esse áudio ao vídeo original
+  sem recodificar a imagem, como o `exportVideo` já faz hoje.
 
 ### 6.6 Logs de custo sem conteúdo
 
@@ -675,7 +722,7 @@ sentido escrevendo status e reservando crédito, e testar crédito sem fila é m
 | 6 | **Fila e progresso**: rotas da Vercel + Cloud Tasks + Realtime | Precisa de **conta Google Cloud** | Job de ponta a ponta com progresso na tela; retentativa após matar a instância; teto de concorrência | Interruptor desligado. |
 | 7 | **Deploy no Cloud Run** (imagem, Secret Manager, OIDC, região, limites, alertas de orçamento) | GCP | `/run` só com OIDC; 10 jobs reais; custo por job registrado e próximo da seção 8; alertas configurados | `gcloud run services delete` ou `max-instances 0`; interruptor. |
 | 8 | **Feature flag no cliente**, primeiro **só na sua conta**; fallback para o aparelho | App (Vercel) | Roteiro de fumaça (`docs/roteiro-fumaca-exportacao.md`) passando pelo servidor; mesmo `p_ref`; saldo correto; fallback quando o servidor recusa | Flag desligada = app exatamente como hoje. |
-| 9 | **Remux de vídeo** (só trocar o áudio) | Local + GCP | Duração, resolução e sincronia iguais ao `exportVideo` do app (roteiro de fumaça, item b) | Flag só para remux. |
+| 9 | **Vídeo: remux no aparelho** com o áudio vindo do servidor (o servidor não faz remux) | App (Vercel), sem servidor novo | Duração, resolução e sincronia iguais ao `exportVideo` de hoje (roteiro de fumaça, item b) | Flag só para vídeo. |
 
 **O que dá para fazer e testar 100% local, antes de qualquer conta:** as fatias 1 e 2 já (sem
 Docker), e as fatias 3 e 4 com Docker funcionando nesta máquina.
@@ -723,8 +770,8 @@ Docker), e as fatias 3 e 4 com Docker funcionando nesta máquina.
     já pago;
   - o servidor fecha essa brecha **só no caminho dele**.
 - **Data de revisão: 2027-01-15** [ESTIMATIVA: ~3 meses depois da fatia 8]. Nessa data, decidir
-  se a exportação **final** no aparelho é aposentada, mantendo no aparelho só a prévia e o que o
-  servidor ainda não faz (render de vídeo até a Etapa 5).
+  se a exportação **final** no aparelho é aposentada, mantendo no aparelho só a prévia, o remux
+  do vídeo (que nunca vai ao servidor) e o VS.
 - **Condições para aposentar:**
   - servidor estável por 30 dias, com taxa de falha < 1% [ESTIMATIVA];
   - custo dentro do orçamento;
@@ -736,7 +783,7 @@ Docker), e as fatias 3 e 4 com Docker funcionando nesta máquina.
 | # | Pergunta | Minha recomendação |
 |---|---|---|
 | 1 | **Ancorar o `p_ref` ao conteúdo** (seção 3.4)? Fecha a brecha de repetir um ref pago com outro arquivo. Refs pagos no aparelho seriam ancorados no primeiro uso no servidor. | **Sim.** |
-| 2 | **Manter o processamento no aparelho como alternativa?** | **Sim**, por pelo menos 3 meses e para sempre no render de vídeo, até a Etapa 5. |
+| 2 | **Manter o processamento no aparelho como alternativa?** | **Sim**, por pelo menos 3 meses (revisão em 2027-01-15). |
 | 3 | **O que enviar num job de áudio:** só a trilha de áudio (cópia sem recodificar, ~1 MB/min) ou o arquivo inteiro? | **Só a trilha.** Upload 10 a 50× menor em vídeo [ESTIMATIVA], mais barato e rápido no 4G. A cópia já existe no app. |
 | 4 | **Remux no servidor ou no aparelho?** No servidor, exige enviar o **vídeo inteiro** (centenas de MB no celular). Alternativa: o servidor devolve só o áudio tratado em AAC e o **aparelho junta** com o vídeo original sem recodificar (o mediabunny já faz isso no `exportVideo`). | **No aparelho**, com o áudio vindo do servidor: muito menos upload, e o arquivo de vídeo nunca sai do celular. Se você preferir no servidor, o limite fica em 600 MB. |
 | 5 | **Música de fundo na v1?** | **Não:** jobs com música vão para o aparelho. Entra numa fatia seguinte, com segundo upload. |
