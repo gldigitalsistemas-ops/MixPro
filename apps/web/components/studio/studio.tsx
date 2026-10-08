@@ -63,6 +63,7 @@ import { editSnapshot, mergeVideoTools, restorePatch } from "@/lib/edit-state";
 import { useEditState } from "./use-edit-state";
 import { AutoSetupCard } from "./auto-setup-card";
 import { DiagnosisCard, type DiagnosisState } from "./diagnosis-card";
+import { ResultSummary } from "./result-summary";
 import { runDiagnosis } from "@/lib/dsp/diagnose-runner";
 import { fetchServerExportEnabled, resetServerExportEnabled } from "@/lib/export/server-client";
 import { analyzeAudio } from "@/lib/dsp/analyze";
@@ -1060,6 +1061,11 @@ export function Studio() {
                 overlay={overlay}
                 colorLook={media.kind === "video" ? (videoTools?.color ?? null) : null}
               />
+              {processed && (
+                <div className="mt-3">
+                  <ResultSummary original={original} processed={processed} kind={auto?.kind ?? null} delivery={delivery} volumeOn={social} />
+                </div>
+              )}
               {media.duration > 26 && media.duration <= 600 && (
                 <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs text-muted">
                   <input type="checkbox" checked={fullPreview} onChange={toggleFullPreview} className="size-4 accent-violet-500" />
