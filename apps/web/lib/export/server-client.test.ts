@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import type { ChainDoc } from "@/lib/dsp/chain";
 import type { Look } from "@/lib/media/compose";
 import { buildExportJob, type ExportState } from "./build-job";
-import { prepareServerInput, runServerExport, serverEligible, ServerExportError } from "./server-client";
+import { phaseLabel, prepareServerInput, runServerExport, serverEligible, ServerExportError } from "./server-client";
 
 const CHAINS: Record<string, ChainDoc> = JSON.parse(read(join(fileURLToPath(new URL("./fixtures", import.meta.url)), "chains.json"), "utf8"));
 const SR = 48000;
@@ -68,7 +68,7 @@ test("fluxo completo: cria, envia com progresso real, inicia, acompanha e baixa"
   assert.deepEqual([...new Uint8Array(await blob.arrayBuffer())], [1, 2, 3]);
   assert.deepEqual(s.calls.filter((c) => c.method === "POST").map((c) => c.url), ["/api/export/jobs", "/api/export/jobs/J1/start"]);
   const labels = phases.map(([l]) => l);
-  for (const l of ["Enviando o áudio…", "Na fila do servidor…", "Processando no servidor…", "Baixando o resultado…"]) assert.ok(labels.includes(l), l);
+  for (const l of ["Enviando o áudio…", "Na fila do servidor…", "Processando o som…", "Baixando o resultado…"]) assert.ok(labels.includes(l), l);
   const progress = phases.map(([, p]) => p);
   assert.ok(progress.every((p, i) => i === 0 || p >= progress[i - 1]), "o progresso só avança");
   assert.ok(progress.every((p) => p >= 0 && p <= 100));
@@ -167,4 +167,12 @@ test("vídeo: só a trilha de áudio vai ao servidor, bem menor e com o índice 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("rótulos pela etapa real: análise, processamento, exportação", () => {
+  assert.equal(phaseLabel("queued", 0), "Na fila do servidor…");
+  assert.equal(phaseLabel("running", 0), "Analisando o áudio…");
+  assert.equal(phaseLabel("running", 10), "Processando o som…");
+  assert.equal(phaseLabel("running", 89), "Processando o som…");
+  assert.equal(phaseLabel("running", 90), "Exportando o arquivo…");
 });

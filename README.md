@@ -1,64 +1,55 @@
 # Mix Pro
 
-Estúdio online de experimentação de sonoridades: o usuário envia o áudio, testa presets profissionais, compara A/B e baixa o resultado.
+Estúdio online de tratamento, mixagem e masterização de áudio: o usuário grava, o Mix Pro transforma. Envia o áudio (ou o vídeo, só para não precisar extrair o som), vê o diagnóstico, compara A/B e baixa o resultado profissional.
 
-> Você cria o som. Nós ajudamos a encontrar a sonoridade.
+> O usuário grava. O Mix Pro transforma o áudio.
 
 ## Estrutura
 
 ```
-apps/web        Next.js 16 (App Router) + Tailwind 4 — app, landing, admin, API
-apps/worker     Worker Python de áudio (DSP determinístico, Docker)
-packages/contracts  Contrato da cadeia DSP (zod → JSON Schema p/ o worker)
-supabase/       Migrações SQL (tabelas, RLS, funções), seed e testes SQL
-infra/e2e       Stack local mínima (Postgres+GoTrue+PostgREST+MinIO) p/ teste ponta a ponta
-docs/           Arquitetura, worker, deploy, armazenamento
+apps/web             Next.js 16 (App Router) + Tailwind 4: app, landing, admin, rotas /api
+apps/export-service  Serviço de exportação (Node 22 + FFmpeg) que roda o mesmo DSP no servidor
+apps/worker          Worker Python da arquitetura antiga (legado; não usado na exportação)
+packages/contracts   Contratos (zod): cadeia DSP, ExportJob, destinos de volume
+supabase/            Migrações SQL (tabelas, RLS, RPCs), reversões, seed e testes SQL
+infra/gcp            Roteiro de implantação no Google Cloud (Cloud Shell)
+docs/                Arquitetura, motor de áudio, serviço, jobs, implantação
 ```
 
 ## Arquitetura
 
-```
-Navegador ──► Next.js (Vercel) ──► Supabase: Auth · Postgres (RLS) · fila de jobs
-    │                                          ▲
-    └── upload/download direto ──► R2 (S3) ◄───┴── Worker (seu PC → VPS → N workers)
-        por URL assinada
-```
+O processamento padrão roda **no aparelho** (motor DSP em TypeScript num Web Worker). Contas liberadas processam **no servidor**: o navegador envia só a trilha de áudio ao R2, o Cloud Tasks aciona o Cloud Run, e o resultado volta por URL assinada; em vídeo, o áudio novo é encaixado no vídeo original **sem recodificar a imagem**. Qualquer recusa ou falha do servidor cai no aparelho.
 
-- **Processamento assíncrono.** Nenhuma requisição fica aberta esperando o áudio. O worker puxa jobs (`queued → processing → completed/failed`).
-- **Créditos por ledger.** O saldo é a soma de transações. O débito é atômico no banco (`authorize_download`).
-- **Presets versionados e imutáveis.** Projetos antigos continuam reproduzíveis.
-- **Nada de regra comercial no código.** Tudo fica em `system_settings` (Admin → Configurações).
+Leia: [Arquitetura](docs/ARCHITECTURE.md) · [Motor de áudio](docs/AUDIO_ENGINE.md) · [Serviço](docs/WORKER.md) · [Jobs](docs/PROCESSING_JOBS.md) · [Implantação](docs/DEPLOYMENT.md).
 
 ## Rodando localmente
 
 ```bash
 pnpm install
-cp apps/web/.env.example apps/web/.env.local   # preencha
+cp apps/web/.env.example apps/web/.env.local   # preencha o Supabase (o resto é opcional)
 pnpm dev                                       # http://localhost:3000
 ```
 
-Worker: veja [docs/worker.md](docs/worker.md). Deploy: [docs/deploy.md](docs/deploy.md).
-
 ## Testes
+
+Os testes usam `node:test` com `tsx`. No Windows, rode o `tsx` direto (os scripts `pnpm test` usam caminhos que o `cmd` não entende):
 
 | O quê | Comando |
 |---|---|
-| Banco (RLS, créditos, fila, admin) | `sh supabase/tests/run.sh` |
-| Motor DSP e E/S de áudio | `docker build --target test apps/worker` |
-| Contrato da cadeia | `pnpm --filter @mixpro/contracts test` |
-| Tipos e lint do app | `pnpm --filter @mixpro/web typecheck && pnpm lint` |
-| Ponta a ponta (stack real local) | `sh infra/e2e/up.sh`, `pnpm build && pnpm start` e `node apps/web/scripts/e2e.mjs` |
+| Motor, exportação, diagnóstico, rotas (app) | `node packages/contracts/node_modules/tsx/dist/cli.mjs --test apps/web/lib/**/*.test.ts` |
+| Contratos | `cd packages/contracts && node node_modules/tsx/dist/cli.mjs --test tests/*.test.ts` |
+| Serviço, banco e nuvem de teste | `cd apps/export-service && node ../../packages/contracts/node_modules/tsx/dist/cli.mjs --test test/*.test.ts` |
+| Tipos e lint do app | `cd apps/web && npx tsc --noEmit -p . && npx eslint` |
+| Banco (RLS, créditos, admin) | `sh supabase/tests/run.sh` |
 
-## Status das fases
+Os testes que usam FFmpeg precisam de `FFMPEG_PATH` e `FFPROBE_PATH` (sem eles são pulados). Os de banco e de nuvem precisam de `.env.export-test` (projeto Supabase **de teste**) e das chaves `R2_*`; sem eles são pulados. Nunca use as chaves de produção em teste.
 
-| Fase | Status |
+## Status
+
+| Parte | Situação |
 |---|---|
-| 1. Fundação (auth, banco, dashboard, projetos) | ✅ |
-| 2. Motor de áudio (upload, fila, worker, waveform, player) | ✅ |
-| 3. Presets (browser, preview, A/B, intensidade, favoritos, admin) | ✅ |
-| 4. Download + créditos (5 grátis, ledger, bloqueio sem saldo) | ✅ |
-| 5. Multitrack e estéreo L/R | ⏳ estrutura pronta no banco |
-| 6. Pagamentos (Mercado Pago, PIX/cartão, webhook) | ⏳ |
-| 7. Mixagem profissional (pedidos, arquivos no PC do admin) | ⏳ |
-| 8. Indicação (+10/+10) | ⏳ |
-| 9–11. Admin completo, viral/PWA, AI Audio Lab | ⏳ parcial |
+| Estúdio: análise automática, presets, A/B, intensidade, destinos de volume, diagnóstico | pronto |
+| Exportação no servidor (R2, fila, Cloud Run, créditos, cancelamento, histórico) | código e testes prontos; banco e R2 testados com nuvem de teste; **falta implantar no Google Cloud e liberar por conta** |
+| Vídeo: só trocar o áudio sem recodificar a imagem | pronto (no aparelho, com o áudio do servidor ou local) |
+| VS (separar stems) | no navegador; versão no servidor com GPU só planejada ([jobs](docs/PROCESSING_JOBS.md#vs-preparação)) |
+| Remoção do código de edição de vídeo, legendas e capas | planejada para depois da fusão na `main` |

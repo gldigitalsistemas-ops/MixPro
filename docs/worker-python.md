@@ -1,3 +1,5 @@
+> **Legado.** Este é o worker em Python da arquitetura antiga (fila `processing_jobs`). O fluxo atual de exportação no servidor está em [WORKER.md](WORKER.md).
+
 # Worker de áudio: rodar no seu PC, depois na VPS
 
 O worker é um programa independente que **busca trabalhos na fila** (no Supabase), processa o áudio e devolve o resultado ao storage. Ele só precisa de internet de saída: nenhuma porta aberta, nenhum IP fixo, nenhum túnel.

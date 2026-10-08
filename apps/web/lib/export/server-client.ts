@@ -136,6 +136,14 @@ async function api<T>(fetchFn: typeof fetch, path: string, init: RequestInit): P
   return body as T;
 }
 
+/** Rótulo pela etapa REAL do serviço: 10% = decodificou; 10–90% = DSP (mix e master); depois, gravação. */
+export function phaseLabel(status: string, progress: number): string {
+  if (status === "queued") return "Na fila do servidor…";
+  if (progress < 10) return "Analisando o áudio…";
+  if (progress < 90) return "Processando o som…";
+  return "Exportando o arquivo…";
+}
+
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /** Roda o job no servidor e devolve o arquivo de áudio tratado (WAV, MP3 ou M4A conforme o alvo). */
@@ -189,7 +197,7 @@ export async function runServerExport(job: ExportJob, media: Pick<LoadedMedia, "
         return await res.blob();
       }
       if (s.status === "failed" || s.status === "expired") throw fromCode(s.error_code ?? "INTERNAL");
-      h.onPhase(s.status === "queued" ? "Na fila do servidor…" : "Processando no servidor…", 20 + Math.min(75, Math.max(0, s.progress) * 0.75));
+      h.onPhase(phaseLabel(s.status, s.progress), 20 + Math.min(75, Math.max(0, s.progress) * 0.75));
       if (Date.now() - started > maxWait) throw fromCode("TIMEOUT");
       await sleep(Date.now() - started > 60_000 ? 3000 : 1500);
     }
