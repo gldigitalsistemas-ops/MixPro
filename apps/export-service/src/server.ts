@@ -8,7 +8,8 @@
  * ocupada), 503 (falha passageira: o Cloud Tasks tenta de novo).
  *
  * Jobs: no Supabase (RPCs da fatia 4) quando SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY existem; senão,
- * arquivo JSON local (fatia 3). Armazenamento: pasta local (R2 na fatia 5). Variáveis (só nomes):
+ * arquivo JSON local (fatia 3). Armazenamento: R2 quando R2_BUCKET existe (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID,
+ * R2_SECRET_ACCESS_KEY), senão pasta local. Variáveis (só nomes):
  *   PORT, STORAGE_DIR, JOBS_FILE, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (secreta: Secret Manager),
  *   FFMPEG_PATH, FFPROBE_PATH, EXPORT_SERVICE_TOKEN (opcional; no
  *   Cloud Run vira OIDC), NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY (públicas, para o
@@ -20,6 +21,7 @@ import { RestCatalog, StaticCatalog } from "./adapters/catalog";
 import { LocalJobStore } from "./adapters/jobs";
 import { SupabaseJobStore } from "./adapters/supabase-jobs";
 import { LocalStorage } from "./adapters/storage";
+import { R2Storage } from "./adapters/r2-storage";
 import { logService } from "./log";
 import { DEFAULT_LIMITS, runJob, type ServiceDeps } from "./pipeline";
 
@@ -71,7 +73,7 @@ function depsFromEnv(): ServiceDeps {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
   return {
-    storage: new LocalStorage(process.env.STORAGE_DIR ?? ".dados/armazenamento"),
+    storage: process.env.R2_BUCKET ? new R2Storage() : new LocalStorage(process.env.STORAGE_DIR ?? ".dados/armazenamento"),
     jobs:
       process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
         ? new SupabaseJobStore(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
