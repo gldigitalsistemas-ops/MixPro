@@ -154,6 +154,7 @@ end $$;
 -- -----------------------------------------------------------------------------
 insert into public.system_settings (key, value, description, is_public) values
   ('export_server_enabled', 'false', 'Exportação no servidor ligada (interruptor geral). Desligada: o app processa no aparelho.', false),
+  ('export_server_users', '""', 'Ids de usuários (separados por vírgula) com o servidor de exportação ligado mesmo com o interruptor geral desligado: liberação gradual.', false),
   ('export_user_active', '1', 'Jobs de exportação ativos (na fila ou rodando) por usuário.', false),
   ('export_user_per_hour', '10', 'Jobs de exportação por usuário por hora.', false),
   ('export_user_per_day', '40', 'Jobs de exportação por usuário por dia.', false),
@@ -164,6 +165,20 @@ on conflict (key) do nothing;
 create or replace function public.export_setting_bool(p_key text)
 returns boolean language sql stable security definer set search_path = public as $$
   select (value #>> '{}')::boolean from public.system_settings where key = p_key
+$$;
+
+/**
+ * Liberação gradual do servidor: ligado para todos (export_server_enabled = true) ou só para os
+ * usuários listados em export_server_users (ids separados por vírgula). Os dois desligados: ninguém.
+ */
+create or replace function public.export_server_allowed(p_user uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce(public.export_setting_bool('export_server_enabled'), false)
+      or exists (
+        select 1 from public.system_settings s
+         where s.key = 'export_server_users'
+           and p_user::text = any (string_to_array(replace(s.value #>> '{}', ' ', ''), ','))
+      )
 $$;
 
 /** Início do dia de hoje no horário de Brasília (para os tetos diários). */
@@ -231,7 +246,7 @@ begin
     return jsonb_build_object('job_id', v_job.id, 'outcome', 'done', 'status', v_job.status, 'credit_state', v_job.credit_state);
   end if;
 
-  if not coalesce(public.export_setting_bool('export_server_enabled'), false) then
+  if not public.export_server_allowed(p_user) then
     raise exception 'CAPACITY' using errcode = 'P0001';
   end if;
   if (select count(*) from public.export_jobs where user_id = p_user and status in ('queued', 'running'))
@@ -605,6 +620,7 @@ begin
     'public.export_jobs_invariant_violations()',
     'public.export_job_diffs(text, jsonb)',
     'public.export_setting_bool(text)',
+    'public.export_server_allowed(uuid)',
     'public.export_day_start()',
     'public.export_job_status_sync()'
   ] loop

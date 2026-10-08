@@ -25,6 +25,7 @@ end $$;
 
 drop function if exists public.create_export_job(uuid, text, text, text, text, text);
 drop function if exists public.get_export_job(uuid);
+drop function if exists public.export_server_allowed(uuid);
 drop function if exists public.start_export_job(uuid, integer);
 drop function if exists public.report_export_progress(uuid, integer);
 drop function if exists public.commit_export_credit(uuid, text, jsonb, jsonb);
@@ -48,6 +49,6 @@ drop type if exists public.export_credit_state;
 drop type if exists public.export_status;
 
 delete from public.system_settings where key in (
-  'export_server_enabled', 'export_user_active', 'export_user_per_hour', 'export_user_per_day',
+  'export_server_enabled', 'export_server_users', 'export_user_active', 'export_user_per_hour', 'export_user_per_day',
   'export_server_daily_cpu_s', 'export_server_daily_jobs'
 );
