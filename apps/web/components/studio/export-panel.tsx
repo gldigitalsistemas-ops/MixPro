@@ -23,6 +23,10 @@ import type { CabIR, DrumKit, DrumLibraryItem } from "@/lib/drums/library";
 import { FILTERS, lookIsActive } from "@/lib/media/color";
 import { buildExportJob, composeChain, type ChainParts } from "@/lib/export/build-job";
 import { executeExportJob, FILE_GONE } from "@/lib/export/execute-job";
+import { rendersVideo } from "@/lib/export/look";
+import { runServerExport, serverEligible, ServerExportError } from "@/lib/export/server-client";
+import { remuxVideoWithAudio } from "@/lib/media/remux";
+import { readableFile } from "@/lib/media/file-access";
 import { audioRef, editRef, resultRef, settingsRef } from "@/lib/export/refs";
 import { downloadBlob } from "@/lib/download";
 import { BatchExport } from "./batch-export";
@@ -31,7 +35,7 @@ import { isPhone } from "@/lib/device";
 import { cn, formatDuration } from "@/lib/cn";
 
 export type Target = "video" | AudioFormat;
-type Phase = { label: string; progress: number } | null;
+type Phase = { label: string; progress: number; server?: boolean } | null;
 type Result = { url: string; blob: Blob; filename: string; target: Target; key: string };
 
 type Props = {
@@ -73,6 +77,8 @@ type Props = {
   spend: (ref: string, kind: "video" | "audio") => Promise<void>;
   onNeedCredits: () => void;
   signedIn: boolean;
+  /** O servidor de exportação está ligado para esta conta (a rota /api/export/config decide). */
+  serverExport?: boolean;
   /** Abre o login/cadastro; resolve true quando a pessoa entrou. */
   requireLogin: (reason: string) => Promise<boolean>;
 };
@@ -90,6 +96,8 @@ export function ExportPanel(props: Props) {
   const [lastResult, setResult] = useState<Result | null>(null);
   const cache = useRef<{ key: string; value: DspResult } | null>(null);
   const running = useRef(false);
+  /** Cancela o job no servidor (só existe enquanto ele roda lá). */
+  const serverAbort = useRef<AbortController | null>(null);
   /** Arquivo já gerado cujo download não pôde ser registrado (sem internet): não gera de novo. */
   const unpaid = useRef<{ key: string; out: { blob: Blob; filename: string } } | null>(null);
 
@@ -159,6 +167,43 @@ export function ExportPanel(props: Props) {
       // trava: o p_ref do job tem de ser a mesma chave da tela (senão cobraria de novo quem já baixou)
       if (resultKey !== resultRef(settingsKey, target)) throw new Error("p_ref do pedido de exportação diferente da chave da tela");
       let out: { blob: Blob; filename: string } | undefined = unpaid.current?.key === resultKey ? unpaid.current.out : undefined;
+      if (!out && props.serverExport && serverEligible(job) && (target !== "video" || (media.kind === "video" && media.videoContainer === "mp4" && !rendersVideo(job)))) {
+        const ctrl = new AbortController();
+        serverAbort.current = ctrl;
+        try {
+          const audio = await runServerExport(job, media, { signal: ctrl.signal, onPhase: (label, progress) => setPhase({ label, progress, server: true }) });
+          if (target === "video") {
+            const file = await readableFile(media.file);
+            if (!file) throw new MediaError(FILE_GONE);
+            out = await remuxVideoWithAudio({ file, audioStart: media.audioStart, videoContainer: media.videoContainer }, audio, (p) =>
+              setPhase({ label: "Montando o vídeo com o som novo…", progress: p * 100 }),
+            );
+          } else {
+            out = { blob: audio, filename: `${media.file.name.replace(/\.[^.]+$/, "").slice(0, 60) || "audio"}-mixpro.${target}` };
+          }
+        } catch (err) {
+          if (err instanceof DOMException && err.name === "AbortError") {
+            toast.info("Processamento cancelado. Nenhum crédito foi usado.");
+            return;
+          }
+          if (err instanceof ServerExportError) {
+            if (err.code === "INSUFFICIENT_CREDITS") return onNeedCredits();
+            if (!err.device) {
+              reportError("exportar", err, { severity: "aviso", context: { formato: target, codigo: err.code, onde: "servidor" } });
+              toast.error(err.message);
+              return;
+            }
+            // o aparelho assume: a pessoa só é avisada, sem texto técnico
+            toast.info("Vamos processar neste aparelho.");
+          } else {
+            // qualquer outra falha (por exemplo, ao juntar o vídeo) cai no caminho do aparelho
+            reportError("exportar", err, { severity: "aviso", context: { formato: target, onde: "servidor/remux" } });
+            toast.info("Vamos processar neste aparelho.");
+          }
+        } finally {
+          serverAbort.current = null;
+        }
+      }
       if (!out) {
         out = await executeExportJob(job, {
           media,
@@ -170,6 +215,7 @@ export function ExportPanel(props: Props) {
           onPhase: (label, progress) => setPhase({ label, progress }),
         });
       }
+      // no resultado do servidor o débito já foi feito lá: esta chamada usa a mesma chave, não cobra de novo e atualiza o saldo
       setPhase({ label: "Registrando o download…", progress: 100 });
       try {
         await spend(resultKey, target === "video" ? "video" : "audio");
@@ -319,7 +365,16 @@ export function ExportPanel(props: Props) {
         <div className="flex flex-col gap-2 rounded-2xl bg-white/5 p-4" aria-live="polite">
           <p className="text-sm">{phase.label}</p>
           <ProgressBar value={phase.progress} label={phase.label} />
-          <p className="text-xs text-subtle">Tudo acontece no seu aparelho. Mantenha esta tela aberta e não troque de app até terminar.</p>
+          {phase.server ? (
+            <>
+              <p className="text-xs text-subtle">O processamento acontece no servidor. Você pode esperar aqui; o resultado chega nesta tela.</p>
+              <Button variant="secondary" size="sm" onClick={() => serverAbort.current?.abort()} className="self-start">
+                Cancelar
+              </Button>
+            </>
+          ) : (
+            <p className="text-xs text-subtle">Tudo acontece no seu aparelho. Mantenha esta tela aberta e não troque de app até terminar.</p>
+          )}
         </div>
       ) : (
         <div className="flex flex-col gap-2">

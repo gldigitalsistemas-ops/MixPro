@@ -64,6 +64,7 @@ import { useEditState } from "./use-edit-state";
 import { AutoSetupCard } from "./auto-setup-card";
 import { DiagnosisCard, type DiagnosisState } from "./diagnosis-card";
 import { runDiagnosis } from "@/lib/dsp/diagnose-runner";
+import { fetchServerExportEnabled, resetServerExportEnabled } from "@/lib/export/server-client";
 import { analyzeAudio } from "@/lib/dsp/analyze";
 import { autoSetup, instrumentCategories, instrumentOfCategory, pickPreset, type AutoSetup } from "@/lib/auto-setup";
 import { analyzeVideoColor } from "@/lib/media/frames";
@@ -199,6 +200,7 @@ export function Studio() {
   const [resume, setResume] = useState<SavedSession | null>(null);
   const [auto, setAuto] = useState<AutoSetup | null>(null);
   const [diag, setDiag] = useState<DiagnosisState>(null);
+  const [serverExport, setServerExport] = useState(false);
   const diagCtrl = useRef<AbortController | null>(null);
   /** Decisão sobre o ajuste automático: aceitar ou fazer a própria mixagem. */
   const [autoDecision, setAutoDecision] = useState<"aceito" | "manual" | null>(null);
@@ -228,6 +230,17 @@ export function Studio() {
         .catch(() => setCatalogError(true)),
     [],
   );
+  // servidor de exportação: só tenta quando está ligado para esta conta (senão, tudo no aparelho como sempre)
+  useEffect(() => {
+    resetServerExportEnabled();
+    if (!user) return;
+    let alive = true;
+    void fetchServerExportEnabled().then((v) => alive && setServerExport(v));
+    return () => {
+      alive = false;
+    };
+  }, [user]);
+
   useEffect(() => {
     void loadCatalog();
     track("studio_open");
@@ -1265,6 +1278,7 @@ export function Studio() {
               <Card className={cn("p-4", !audioOnly && view !== "baixar" && "hidden")}>
                 <h2 className="mb-3 font-display text-lg font-semibold">Baixar</h2>
                 <ExportPanel
+                  serverExport={Boolean(user) && serverExport}
                   media={media}
                   preset={preset}
                   chainParts={assetsReady ? chainParts : null}

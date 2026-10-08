@@ -301,6 +301,20 @@ test("(h) limites por usuário, teto global e interruptor → RATE_LIMITED / CAP
   assert.equal(ok.outcome, "created");
 });
 
+test("(h2) liberação gradual: só os usuários listados usam o servidor com o interruptor geral desligado", { skip }, async () => {
+  const a = await newUser(5);
+  const b = await newUser(5);
+  await setSetting("export_server_enabled", false);
+  await setSetting("export_server_users", "");
+  await assert.rejects(create(a, ref()), (e: RpcError) => e.code === "CAPACITY", "ninguém liberado");
+  await setSetting("export_server_users", ` ${a.id} , ${randomUUID()}`);
+  assert.equal((await create(a, ref())).outcome, "created", "liberado pela lista (com espaços)");
+  await assert.rejects(create(b, ref()), (e: RpcError) => e.code === "CAPACITY", "fora da lista");
+  await setSetting("export_server_users", "");
+  await setSetting("export_server_enabled", true);
+  assert.equal((await create(b, ref())).outcome, "created", "interruptor geral liga para todos");
+});
+
 test("(i) job preso é liberado pela limpeza; start retoma um running parado", { skip }, async () => {
   const u = await newUser(2);
   const c = await create(u, ref());
