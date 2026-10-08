@@ -3,6 +3,7 @@
  * Funções puras, sem React. O formato é o mesmo de antes desta extração: sessões já salvas no
  * aparelho de quem usa o app continuam abrindo (testado com um snapshot no formato antigo).
  */
+import { DELIVERY_IDS } from "@mixpro/contracts";
 import type { CaptionPosition, CaptionStyleId, Caption } from "@/lib/captions/model";
 import type { ChainDoc } from "@/lib/dsp/chain";
 import type { DrumTweaks } from "@/lib/drums/tweaks";
@@ -31,6 +32,8 @@ export type EditSnapshot<Tab extends string = string, Noise extends string = str
   intensity: number | null;
   noise: Noise | null;
   social: boolean;
+  /** Destino do ajuste final de volume; ausente = padrão. */
+  delivery?: string;
   captionState: SavedCaptionState | null;
   videoTools: SavedVideoTools | null;
   drumTweaks: DrumTweaks | null;
@@ -67,6 +70,7 @@ export function restorePatch(r: Record<string, unknown>): Partial<EditSnapshot> 
   for (const k of ["preset", "categoryId", "intensity", "noise", "captionState", "drumTweaks", "reverbTweak", "custom", "masterId", "autoDecision", "niche", "platform", "postEdit"])
     if (k in r && r[k] !== undefined) out[k] = r[k];
   if (typeof r.social === "boolean") out.social = r.social;
+  if (typeof r.delivery === "string" && (DELIVERY_IDS as readonly string[]).includes(r.delivery)) out.delivery = r.delivery;
   if (r.videoTools) out.videoTools = r.videoTools;
   if (typeof r.postVariant === "number") out.postVariant = r.postVariant;
   if (typeof r.tab === "string") out.tab = r.tab;

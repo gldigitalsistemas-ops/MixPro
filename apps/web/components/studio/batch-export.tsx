@@ -2,6 +2,7 @@
 
 import { openPicker } from "@/lib/media/file-access";
 import { reportError } from "@/lib/error-log";
+import { DELIVERY_TARGETS, type DeliveryId } from "@mixpro/contracts";
 import { useRef, useState } from "react";
 import { CheckCircle2, Download, Files, Loader2, Share2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,7 @@ export function BatchExport(props: {
   intensity: number;
   denoise: number;
   social: boolean;
+  delivery: DeliveryId;
   look: Look;
   assetsAt: (sampleRate: number) => Promise<{ drumSamples?: DrumSampleSet; impulses?: Record<string, Float32Array> }>;
   lockedKits: DrumKit[];
@@ -92,7 +94,7 @@ export function BatchExport(props: {
         const assets = await props.assetsAt(media.sampleRate);
         patch(i, { label: "Aplicando o som…" });
         const processed = await runDsp(
-          { channels: media.channels, sampleRate: media.sampleRate, chain: props.chain, intensity: props.intensity, social: props.social, denoise: props.denoise, ...assets },
+          { channels: media.channels, sampleRate: media.sampleRate, chain: props.chain, intensity: props.intensity, social: props.social, delivery: { targetLufs: DELIVERY_TARGETS[props.delivery].targetLufs, ceilingDb: DELIVERY_TARGETS[props.delivery].ceilingDb }, denoise: props.denoise, ...assets },
           (p) => patch(i, { progress: 20 + p * 50 }),
         );
         const onProgress = (p: number) => patch(i, { progress: 70 + p * 30 });

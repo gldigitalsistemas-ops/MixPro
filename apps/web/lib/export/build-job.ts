@@ -5,7 +5,7 @@
  * withDrumTweaks → withReverb → withMaster (que congela o master com freezeChain na intensidade
  * padrão dele). A intensidade da mixagem NÃO é congelada aqui: vai à parte, como hoje no runDsp.
  */
-import { exportJobSchema, type ExportJob, type ExportTarget } from "@mixpro/contracts";
+import { DEFAULT_DELIVERY, DELIVERY_TARGETS, exportJobSchema, type DeliveryId, type ExportJob, type ExportTarget } from "@mixpro/contracts";
 import type { ChainDoc } from "@/lib/dsp/chain";
 import { isBuiltinCab } from "@/lib/dsp/cab-ir";
 import type { Signal } from "@/lib/dsp/types";
@@ -54,6 +54,8 @@ export type ExportState = {
   intensity: number;
   denoise: number;
   social: boolean;
+  /** Destino do ajuste final de volume (padrão: redes, YouTube e streaming). */
+  delivery?: DeliveryId;
   cutLevel: CutLevel;
   segments: Segment[];
   cutting: boolean;
@@ -104,8 +106,9 @@ function assetsOf(chain: ChainDoc, library: ExportState["library"]): ExportJob["
 
 export function buildExportJob(s: ExportState): ExportJob {
   const { media, look } = s;
+  const deliveryTarget = DELIVERY_TARGETS[s.delivery ?? DEFAULT_DELIVERY];
   const chain = composeChain(s.chainParts);
-  const audio = audioRef({ file: media.file, presetSlug: s.preset.slug, intensity: s.intensity, social: s.social, denoise: s.denoise, chain });
+  const audio = audioRef({ file: media.file, presetSlug: s.preset.slug, intensity: s.intensity, social: s.social, denoise: s.denoise, chain, delivery: deliveryTarget });
   const edit = editRef({ cutting: s.cutting, segments: s.segments, look, audiogram: s.audiogram, music: s.music, comparing: s.comparing });
   const video = s.target === "video";
   const render = video && (media.kind === "audio" || s.comparing || needsRender(look, s.cutting));
@@ -137,7 +140,7 @@ export function buildExportJob(s: ExportState): ExportJob {
       intensity: s.intensity as ExportJob["audio"]["intensity"],
       master: master ? { slug: master.slug, version_id: master.versionId ?? null } : null,
       denoise: s.denoise,
-      social: { enabled: s.social, target_lufs: -14, ceiling_db: -1 },
+      social: { enabled: s.social, target_lufs: deliveryTarget.targetLufs as -18 | -16 | -14 | -9, ceiling_db: -1 },
       assets: assetsOf(chain, s.library),
       music: s.music ? { fingerprint: signalFingerprint(s.music.channels), level: s.music.level, upload_ref: null } : null,
       audio_ref: audio,

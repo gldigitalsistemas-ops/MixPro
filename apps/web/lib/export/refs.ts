@@ -3,6 +3,7 @@
  * O p_ref NÃO pode mudar: baixar de novo o mesmo resultado não gasta crédito, e quem já baixou
  * seria cobrado outra vez. Código igual ao que ficava no export-panel (testado contra uma cópia).
  */
+import { deliverySuffix } from "@mixpro/contracts";
 import type { ChainDoc } from "@/lib/dsp/chain";
 import { fnvHex } from "@/lib/hash";
 import type { Look } from "@/lib/media/compose";
@@ -14,11 +15,20 @@ export type FileLike = { name: string; size: number; lastModified: number };
 /** Arquivo do usuário: nome|tamanho|data (o nome só entra dentro do hash). */
 export const fileKey = (f: FileLike) => fnvHex(`${f.name}|${f.size}|${f.lastModified}`);
 
-export type AudioRefInput = { file: FileLike; presetSlug: string; intensity: number; social: boolean; denoise: number; chain: ChainDoc };
+export type AudioRefInput = {
+  file: FileLike;
+  presetSlug: string;
+  intensity: number;
+  social: boolean;
+  denoise: number;
+  chain: ChainDoc;
+  /** Destino do ajuste final de volume; sem ele vale o padrão (-14 LUFS, -1 dBFS), que não muda a chave. */
+  delivery?: { targetLufs: number; ceilingDb: number };
+};
 
 /** O áudio tratado só depende do som. */
 export function audioRef(a: AudioRefInput): string {
-  return `${fileKey(a.file)}_${a.presetSlug}_${a.intensity}_${a.social ? 1 : 0}_n${Math.round(a.denoise * 100)}_x${fnvHex(JSON.stringify(a.chain))}`;
+  return `${fileKey(a.file)}_${a.presetSlug}_${a.intensity}_${a.social ? 1 : 0}${a.social && a.delivery ? deliverySuffix(a.delivery.targetLufs, a.delivery.ceilingDb) : ""}_n${Math.round(a.denoise * 100)}_x${fnvHex(JSON.stringify(a.chain))}`;
 }
 
 export type EditRefInput = {

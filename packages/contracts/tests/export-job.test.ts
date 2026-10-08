@@ -89,7 +89,8 @@ test("ExportJob inválido é recusado", () => {
     ["NaN em tempo", (j) => (j.cuts.segments[0].end = NaN)],
     ["sem trechos", (j) => (j.cuts.segments = [])],
     ["ruído acima de 1", (j) => (j.audio.denoise = 1.5)],
-    ["alvo de loudness diferente", (j) => (j.audio.social.target_lufs = -16)],
+    ["alvo de loudness fora dos destinos", (j) => (j.audio.social.target_lufs = -12)],
+    ["teto de pico diferente", (j) => (j.audio.social.ceiling_db = -0.5)],
     ["file_ref com o nome do arquivo", (j) => (j.source.file_ref = "meu-video.mp4")],
     ["módulo desconhecido na cadeia", (j) => j.audio.chain.chain.push({ type: "vst_pago", params: {} })],
     ["parâmetro fora da faixa", (j) => (j.audio.chain.chain[1].params.gain_db = { value: 99, neutral: 0 })],
@@ -112,4 +113,12 @@ test("cadeia do job aceita mixagem longa + master (até 80 módulos)", () => {
   assert.equal(exportJobSchema.safeParse(job).success, true);
   job.audio.chain.chain = Array.from({ length: 81 }, () => step);
   assert.equal(exportJobSchema.safeParse(job).success, false);
+});
+
+test("destinos de loudness: cada alvo do app é aceito e o padrão tem sufixo vazio", async () => {
+  const { DELIVERY_TARGETS, deliverySuffix, DEFAULT_DELIVERY, exportJobSchema } = await import("../src/index");
+  assert.equal(deliverySuffix(-14, -1), "");
+  assert.equal(DELIVERY_TARGETS[DEFAULT_DELIVERY].targetLufs, -14);
+  assert.notEqual(deliverySuffix(-9, -1), "");
+  assert.ok(exportJobSchema);
 });

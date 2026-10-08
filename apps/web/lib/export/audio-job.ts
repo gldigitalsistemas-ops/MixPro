@@ -30,6 +30,7 @@ export async function processJobAudio(
     chain: job.audio.chain,
     intensity: job.audio.intensity,
     social: job.audio.social.enabled,
+    delivery: { targetLufs: job.audio.social.target_lufs, ceilingDb: job.audio.social.ceiling_db },
     denoise: job.audio.denoise,
     preroll: 0,
     drumSamples: inputs.drumSamples,

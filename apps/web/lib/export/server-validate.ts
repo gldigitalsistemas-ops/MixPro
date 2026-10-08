@@ -10,7 +10,7 @@
  *     recebe nome nem data. Essa parte é ancorada depois ao áudio decodificado (Etapa 4, decisão 1).
  * O resultado nunca carrega valores recebidos, só códigos e caminhos de campos.
  */
-import { SERVER_LIMITS, serverExportJobSchema, type ExportJob, type ServerJobCode } from "@mixpro/contracts";
+import { SERVER_LIMITS, deliverySuffix, serverExportJobSchema, type ExportJob, type ServerJobCode } from "@mixpro/contracts";
 import type { ChainDoc } from "@/lib/dsp/chain";
 import { DSP_VERSION } from "@/lib/dsp/version";
 import { fnvHex } from "@/lib/hash";
@@ -56,7 +56,7 @@ export function validateServerJob(body: string, dspVersion: string = DSP_VERSION
 
   // p_ref recalculado. A cadeia usa o JSON BRUTO: o zod reordena as chaves e o hash depende da ordem.
   const rawChain = (raw as { audio: { chain: ChainDoc } }).audio.chain;
-  const audio = `${job.source.file_ref}_${job.audio.preset.slug}_${job.audio.intensity}_${job.audio.social.enabled ? 1 : 0}_n${Math.round(job.audio.denoise * 100)}_x${fnvHex(JSON.stringify(rawChain))}`;
+  const audio = `${job.source.file_ref}_${job.audio.preset.slug}_${job.audio.intensity}_${job.audio.social.enabled ? 1 : 0}${job.audio.social.enabled ? deliverySuffix(job.audio.social.target_lufs, job.audio.social.ceiling_db) : ""}_n${Math.round(job.audio.denoise * 100)}_x${fnvHex(JSON.stringify(rawChain))}`;
   if (audio !== job.audio.audio_ref) return fail("REF_INVALID", ["audio.audio_ref"]);
   const edit = editRef({
     cutting: job.cuts.applied,

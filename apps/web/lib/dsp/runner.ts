@@ -13,6 +13,7 @@ export type DspJob = {
   chain: ChainDoc;
   intensity: number;
   social: boolean;
+  delivery?: { targetLufs: number; ceilingDb: number };
   denoise?: number;
   preroll?: number;
   drumSamples?: DrumSampleSet;
@@ -67,6 +68,7 @@ export function runDsp(job: DspJob, onProgress?: (v: number) => void, signal?: A
       chain: job.chain,
       intensity: job.intensity,
       social: job.social,
+      delivery: job.delivery,
       denoise: job.denoise ?? 0,
       preroll: job.preroll ?? 0,
       drumSamples: job.drumSamples,

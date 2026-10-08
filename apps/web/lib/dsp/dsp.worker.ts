@@ -12,6 +12,7 @@ export type DspRequest = {
   intensity: number;
   /** Aplica o ajuste final de loudness para redes (-14 LUFS, teto -1 dBFS). */
   social: boolean;
+  delivery?: { targetLufs: number; ceilingDb: number };
   /** Remoção de ruído antes do preset: 0 = desligada, 1 = total. */
   denoise: number;
   /** Amostras iniciais usadas só para "aquecer" dinâmica/reverb; são descartadas na saída. */

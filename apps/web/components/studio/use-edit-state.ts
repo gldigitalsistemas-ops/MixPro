@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Intensity } from "@mixpro/contracts";
+import { DEFAULT_DELIVERY, type DeliveryId, type Intensity } from "@mixpro/contracts";
 import type { ChainDoc } from "@/lib/dsp/chain";
 import type { DrumTweaks } from "@/lib/drums/tweaks";
 import type { StudioPreset } from "@/lib/presets";
@@ -21,6 +21,8 @@ export function useEditState() {
   const [chosenPreset, setPreset] = useState<StudioPreset | null>(null);
   const [chosenIntensity, setIntensity] = useState<Intensity | null>(null);
   const [social, setSocial] = useState(true);
+  /** Destino do ajuste final de volume (vale quando `social` está ligado). */
+  const [delivery, setDelivery] = useState<DeliveryId>(DEFAULT_DELIVERY);
   const [chosenNoise, setNoise] = useState<NoiseLevel | null>(null);
   const [captionState, setCaptionState] = useState<CaptionState | null>(null);
   const [videoTools, setVideoTools] = useState<VideoToolsState | null>(null);
@@ -38,6 +40,8 @@ export function useEditState() {
     setIntensity,
     social,
     setSocial,
+    delivery,
+    setDelivery,
     chosenNoise,
     setNoise,
     captionState,

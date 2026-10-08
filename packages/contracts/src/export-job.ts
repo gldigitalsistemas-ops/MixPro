@@ -119,7 +119,7 @@ export const exportJobSchema = z
         master: z.object({ slug: shortText(120), version_id: z.string().uuid().nullable() }).strict().nullable(),
         /** Remoção de ruído: 0 = desligada, 1 = total. */
         denoise: z.number().min(0).max(1),
-        social: z.object({ enabled: z.boolean(), target_lufs: z.literal(-14), ceiling_db: z.literal(-1) }).strict(),
+        social: z.object({ enabled: z.boolean(), target_lufs: z.union([z.literal(-18), z.literal(-16), z.literal(-14), z.literal(-9)]), ceiling_db: z.literal(-1) }).strict(),
         assets: z.object({ drum_samples: z.array(drumAssetSchema).max(12), irs: z.array(irAssetSchema).max(8) }).strict(),
         music: z
           .object({

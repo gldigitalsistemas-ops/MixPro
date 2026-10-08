@@ -53,6 +53,7 @@ async function processFull(job: ExportJob, ctx: ExecuteContext): Promise<DspResu
       chain: job.audio.chain,
       intensity: job.audio.intensity,
       social: job.audio.social.enabled,
+      delivery: { targetLufs: job.audio.social.target_lufs, ceilingDb: job.audio.social.ceiling_db },
       denoise,
       drumSamples: ctx.drumSamples,
       impulses: ctx.impulses,

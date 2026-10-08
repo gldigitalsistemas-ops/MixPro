@@ -18,7 +18,7 @@ import { DspAbortError, runDsp } from "@/lib/dsp/runner";
 import { pickExcerpt, toAudioBuffer, type Excerpt } from "@/lib/media/excerpt";
 import { loadMedia, MediaLoadError, type LoadedMedia } from "@/lib/media/load";
 import { fetchPresets, type StudioCategory, type StudioPreset } from "@/lib/presets";
-import type { Intensity } from "@mixpro/contracts";
+import { DELIVERY_TARGETS, type DeliveryId, type Intensity } from "@mixpro/contracts";
 import { drawCaptions, type CaptionRender } from "@/lib/captions/model";
 import { captionFontFamily, ensureCaptionFont } from "@/lib/captions/font";
 import { CaptionsPanel, type CaptionState } from "./captions-panel";
@@ -165,6 +165,8 @@ export function Studio() {
     setIntensity,
     social,
     setSocial,
+    delivery,
+    setDelivery,
     chosenNoise,
     setNoise,
     captionState,
@@ -434,6 +436,7 @@ export function Studio() {
     if ("intensity" in p) setIntensity(p.intensity as Intensity | null);
     if ("noise" in p) setNoise(p.noise as NoiseLevel | null);
     if ("social" in p) setSocial(p.social!);
+    if ("delivery" in p && p.delivery) setDelivery(p.delivery as DeliveryId);
     if ("captionState" in p) setCaptionState(p.captionState as CaptionState | null);
     const vt = p.videoTools as VideoToolsState | undefined;
     if (vt) setVideoTools((cur) => mergeVideoTools(cur, vt));
@@ -546,6 +549,7 @@ export function Studio() {
         intensity: chosenIntensity,
         noise: chosenNoise,
         social,
+        delivery,
         captionState,
         videoTools,
         drumTweaks,
@@ -561,7 +565,7 @@ export function Studio() {
       }));
     }, 800);
     return () => clearTimeout(t);
-  }, [media, loading, chosenPreset, categoryId, chosenIntensity, chosenNoise, social, captionState, videoTools, drumTweaks, reverbTweak, custom, masterId, autoDecision, chosenNiche, chosenPlatform, postEdit, postVariant, tab]);
+  }, [media, loading, chosenPreset, categoryId, chosenIntensity, chosenNoise, social, delivery, captionState, videoTools, drumTweaks, reverbTweak, custom, masterId, autoDecision, chosenNiche, chosenPlatform, postEdit, postVariant, tab]);
 
   useEffect(() => {
     if (window.location.search.includes("compartilhado=1")) return;
@@ -586,6 +590,7 @@ export function Studio() {
           chain,
           intensity: dspIntensity,
           social,
+          delivery: { targetLufs: DELIVERY_TARGETS[delivery].targetLufs, ceilingDb: DELIVERY_TARGETS[delivery].ceilingDb },
           denoise: denoiseAmount,
           preroll: excerpt.preroll,
           drumSamples,
@@ -602,7 +607,7 @@ export function Studio() {
               )
             : r.channels;
           setProcessed({
-            key: `${preset.id}-${dspIntensity}-${social}-${denoiseAmount}-${music ? `${music.name}-${music.level}` : ""}-${JSON.stringify(chain)}`,
+            key: `${preset.id}-${dspIntensity}-${social}-${delivery}-${denoiseAmount}-${music ? `${music.name}-${music.level}` : ""}-${JSON.stringify(chain)}`,
             buffer: toAudioBuffer(out, media.sampleRate),
             peaks: waveformPeaks(out),
             lufs: music ? integratedLoudness(out, media.sampleRate) : r.lufs,
@@ -622,7 +627,7 @@ export function Studio() {
       ctrl.abort();
       endTask();
     };
-  }, [media, excerpt, preset, chain, dspIntensity, social, denoiseAmount, music, assetsReady, drumSamples, impulses]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [media, excerpt, preset, chain, dspIntensity, social, delivery, denoiseAmount, music, assetsReady, drumSamples, impulses]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const captionRender = useMemo<CaptionRender | null>(
     () =>
@@ -1264,6 +1269,8 @@ export function Studio() {
                   postText={audioOnly ? "" : postText}
                   social={social}
                   onSocialChange={setSocial}
+                  delivery={delivery}
+                  onDeliveryChange={setDelivery}
                   balance={account?.balance ?? null}
                   spend={spend}
                   onNeedCredits={showNoCredits}

@@ -15,6 +15,8 @@ export type ProcessAudioOptions = {
   intensity: number;
   /** Aplica o ajuste final de loudness para redes (-14 LUFS, teto -1 dBFS). */
   social: boolean;
+  /** Destino do ajuste final; sem ele: -14 LUFS e teto de -1 dBFS. */
+  delivery?: { targetLufs: number; ceilingDb: number };
   /** Remoção de ruído antes do preset: 0 = desligada, 1 = total. */
   denoise: number;
   /** Amostras iniciais usadas só para "aquecer" dinâmica/reverb; são descartadas na saída. */
@@ -43,6 +45,6 @@ export async function processAudio(
     onProgress?.(split + (1 - split) * (done / (total + (o.social ? 1 : 0)))),
   );
   if (o.preroll > 0) out = out.map((ch) => ch.slice(o.preroll));
-  if (o.social) out = finalizeForSocial(out, sampleRate);
+  if (o.social) out = finalizeForSocial(out, sampleRate, o.delivery?.targetLufs ?? -14, o.delivery?.ceilingDb ?? -1);
   return { channels: out, lufs: integratedLoudness(out, sampleRate), peak: samplePeak(out) };
 }

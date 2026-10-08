@@ -2,6 +2,7 @@
 
 import { isFileGone } from "@/lib/media/file-access";
 import { beginTask, reportError } from "@/lib/error-log";
+import { DELIVERY_IDS, DELIVERY_TARGETS, type DeliveryId } from "@mixpro/contracts";
 import { useEffect, useRef, useState } from "react";
 import { AudioLines, Copy, Download, Film, Music, Share2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,8 @@ type Props = {
   denoise: number;
   social: boolean;
   onSocialChange: (v: boolean) => void;
+  delivery: DeliveryId;
+  onDeliveryChange: (v: DeliveryId) => void;
   /** Trechos mantidos (tempo do original) e se há cortes de pausas. */
   cutLevel: CutLevel;
   segments: Segment[];
@@ -77,7 +80,7 @@ type Props = {
 const canShareFiles = (file: File) => typeof navigator !== "undefined" && !!navigator.canShare?.({ files: [file] });
 
 export function ExportPanel(props: Props) {
-  const { media, preset, chainParts, intensity, denoise, social, onSocialChange, segments, cutting, look, audiogram, music } = props;
+  const { media, preset, chainParts, intensity, denoise, social, onSocialChange, delivery, onDeliveryChange, segments, cutting, look, audiogram, music } = props;
   const { balance, spend, onNeedCredits, signedIn, requireLogin, drumSamples, impulses, lockedKits, onUnlock } = props;
   const toast = useToast();
   const [phase, setPhase] = useState<Phase>(null);
@@ -93,7 +96,7 @@ export function ExportPanel(props: Props) {
   // cadeia final: as mesmas funções da prévia do estúdio (lib/export/build-job)
   const chain = chainParts ? composeChain(chainParts) : null;
   // o áudio tratado (cache) só depende do som; o arquivo final depende também de cortes, formato e legendas
-  const audioKey = preset && chain ? audioRef({ file: media.file, presetSlug: preset.slug, intensity, social, denoise, chain }) : null;
+  const audioKey = preset && chain ? audioRef({ file: media.file, presetSlug: preset.slug, intensity, social, denoise, chain, delivery: DELIVERY_TARGETS[delivery] }) : null;
   const editKey = editRef({ cutting, segments, look, audiogram, music, comparing });
   const settingsKey = audioKey && settingsRef(audioKey, editKey);
 
@@ -140,6 +143,7 @@ export function ExportPanel(props: Props) {
         intensity,
         denoise,
         social,
+        delivery,
         cutLevel: props.cutLevel,
         segments,
         cutting,
@@ -263,12 +267,33 @@ export function ExportPanel(props: Props) {
       <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-border p-3">
         <input type="checkbox" checked={social} onChange={(e) => onSocialChange(e.target.checked)} className="mt-1 size-4 accent-violet-500" />
         <span>
-          <span className="block text-sm font-medium">Volume ideal para redes sociais</span>
+          <span className="block text-sm font-medium">Ajustar o volume final</span>
           <span className="block text-xs text-muted">
-            Ajusta para -14 LUFS, o padrão de Instagram, TikTok, YouTube e Spotify. Seu {media.kind === "video" ? "vídeo" : "áudio"} não fica mais baixo que os outros.
+            Leva o {media.kind === "video" ? "vídeo" : "áudio"} ao volume do destino escolhido, com teto de pico em -1 dBFS.
           </span>
         </span>
       </label>
+      {social && (
+        <ul className="grid gap-2 sm:grid-cols-2" aria-label="Destino do volume">
+          {DELIVERY_IDS.map((id) => {
+            const d = DELIVERY_TARGETS[id];
+            const on = delivery === id;
+            return (
+              <li key={id}>
+                <button
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => onDeliveryChange(id)}
+                  className={cn("h-full w-full rounded-2xl border p-3 text-left transition", on ? "border-violet-400 bg-primary/12" : "border-border hover:bg-white/[0.04]")}
+                >
+                  <span className="block text-sm font-semibold">{d.label}</span>
+                  <span className="block text-xs text-muted">{d.description}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       {media.kind === "video" && (
         <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-violet-400/30 bg-primary/5 p-3">
@@ -351,6 +376,7 @@ export function ExportPanel(props: Props) {
           intensity={intensity}
           denoise={denoise}
           social={social}
+          delivery={delivery}
           look={look}
           assetsAt={props.assetsAt}
           lockedKits={lockedKits}
