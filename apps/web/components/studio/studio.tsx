@@ -62,6 +62,8 @@ import type { ChainParts } from "@/lib/export/build-job";
 import { editSnapshot, mergeVideoTools, restorePatch } from "@/lib/edit-state";
 import { useEditState } from "./use-edit-state";
 import { AutoSetupCard } from "./auto-setup-card";
+import { DiagnosisCard, type DiagnosisState } from "./diagnosis-card";
+import { runDiagnosis } from "@/lib/dsp/diagnose-runner";
 import { analyzeAudio } from "@/lib/dsp/analyze";
 import { autoSetup, instrumentCategories, instrumentOfCategory, pickPreset, type AutoSetup } from "@/lib/auto-setup";
 import { analyzeVideoColor } from "@/lib/media/frames";
@@ -196,6 +198,8 @@ export function Studio() {
   // edição anterior salva no aparelho (ex.: o navegador fechou a página): oferece continuar
   const [resume, setResume] = useState<SavedSession | null>(null);
   const [auto, setAuto] = useState<AutoSetup | null>(null);
+  const [diag, setDiag] = useState<DiagnosisState>(null);
+  const diagCtrl = useRef<AbortController | null>(null);
   /** Decisão sobre o ajuste automático: aceitar ou fazer a própria mixagem. */
   const [autoDecision, setAutoDecision] = useState<"aceito" | "manual" | null>(null);
   /** Ordem das abas de "Escolha o som" (definida no admin). */
@@ -486,12 +490,24 @@ export function Studio() {
       const m = await loadMedia(file, (p) => setLoading(p * 100));
       applyExcerpt(m, pickExcerpt(m.channels, m.sampleRate));
       let setup: AutoSetup | null = null;
+      let found: ReturnType<typeof analyzeAudio> | null = null;
       try {
-        setup = autoSetup(analyzeAudio(m.channels, m.sampleRate), m.kind);
+        found = analyzeAudio(m.channels, m.sampleRate);
+        setup = autoSetup(found, m.kind);
       } catch {
         // análise é só uma ajuda: sem ela, valem os padrões
       }
       setAuto(setup);
+      // diagnóstico (medidas reais) num Worker, sem travar a tela
+      diagCtrl.current?.abort();
+      const dc = new AbortController();
+      diagCtrl.current = dc;
+      setDiag({ status: "loading" });
+      runDiagnosis(m.channels, m.sampleRate, { kind: found?.kind, instrument: found?.instrument?.type ?? null }, dc.signal)
+        .then((diagnosis) => setDiag({ status: "ready", diagnosis }))
+        .catch(() => {
+          if (!dc.signal.aborted) setDiag({ status: "error" });
+        });
       setVideoTools(defaultVideoTools(m));
       // imagem: correção automática a partir de alguns quadros (sem travar a tela)
       if (m.kind === "video") {
@@ -1061,6 +1077,8 @@ export function Studio() {
             </div>
 
             <StyleBar current={styleSettings} onApply={applyStyle} />
+
+            {view === "som" && <DiagnosisCard state={diag} />}
 
             {view === "som" && auto && (
               <AutoSetupCard
