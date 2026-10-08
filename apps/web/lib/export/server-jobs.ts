@@ -11,9 +11,9 @@ import { SERVER_LIMITS } from "@mixpro/contracts";
 import { validateServerJob } from "./server-validate";
 import { exportErrorInfo } from "./error-messages";
 import type { QueueService } from "./queue";
+import { MAX_INPUT_BYTES } from "./server-limits";
 
-/** Tamanho máximo da entrada (a trilha de áudio; o vídeo nunca sobe). */
-export const MAX_INPUT_BYTES = 40 * 1024 * 1024;
+export { MAX_INPUT_BYTES };
 export const UPLOAD_URL_TTL_S = 900;
 export const DOWNLOAD_URL_TTL_S = 60;
 
@@ -138,4 +138,10 @@ export async function cancelJob(d: Deps, userId: string, jobId: string): Promise
   if (error) return fail(rpcCode(error));
   await d.objects.delete(row.input_key).catch(() => {});
   return { ok: true, status: "failed" };
+}
+
+/** O servidor de exportação está ligado para este usuário (interruptor geral ou lista de liberados)? */
+export async function serverEnabled(d: Pick<Deps, "rpc">, userId: string): Promise<boolean> {
+  const { data, error } = await d.rpc("export_server_allowed", { p_user: userId });
+  return !error && data === true;
 }
