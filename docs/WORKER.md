@@ -1,6 +1,6 @@
 # Serviço de exportação (worker de áudio)
 
-`apps/export-service`: um servidor HTTP mínimo em Node 22 que executa um job por vez. O DSP é o do app (`apps/web/lib`), empacotado com esbuild; o FFmpeg decodifica a entrada e codifica MP3 e M4A. (O worker em Python de `apps/worker` e o `docs/worker.md` pertencem à arquitetura antiga e não são usados por este fluxo.)
+`apps/export-service`: um servidor HTTP mínimo em Node 22 que executa um job por vez. O DSP é o do app (`apps/web/lib`), empacotado com esbuild; o FFmpeg decodifica a entrada e codifica MP3 e M4A. (O worker em Python de `apps/worker` e o [worker-python.md](worker-python.md) pertencem à arquitetura antiga e não são usados por este fluxo.)
 
 ## Endpoints
 
