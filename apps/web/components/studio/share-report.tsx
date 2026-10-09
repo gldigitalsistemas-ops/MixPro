@@ -60,7 +60,8 @@ export function ShareReport(p: Props) {
         {
           before: p.original.buffer,
           after: p.processed.buffer,
-          title: baseName(p.media.file.name).replace(/-/g, " "),
+          // o nome do arquivo nunca sai do aparelho (política de privacidade): a página mostra "Antes e depois"
+          title: "",
           preset: p.presetName ?? "",
           lufsBefore: p.original.lufs,
           lufsAfter: p.processed.lufs,

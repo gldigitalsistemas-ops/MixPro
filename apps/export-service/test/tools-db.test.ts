@@ -135,7 +135,7 @@ test("(c) falha libera a reserva sem debitar; saída com chave fora do padrão �
   const id = c.body.job_id as string;
   await store.start(id, 900_000);
   await assert.rejects(store.commit(id, [{ key: `out/../${id}.mp3`, name: "x.mp3", bytes: 1 }], {}, cost), (e: unknown) => e instanceof RpcError && e.code === "INVALID_JOB");
-  await store.release(id, "DECODE_FAILED", cost);
+  await store.release(id, "UNSUPPORTED_FORMAT", cost);
   const j = await job(id);
   assert.equal(j.status, "failed");
   assert.equal(j.credit_state, "released");
