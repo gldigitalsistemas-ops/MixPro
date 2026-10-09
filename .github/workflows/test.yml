@@ -69,5 +69,7 @@ jobs:
         run: |
           docker run -d --name svc -p 8080:8080 mixpro-export
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8080/healthz && break; sleep 1; done
+          # falha de verdade se o serviço não subiu (antes o laço terminava sem erro)
+          curl -fsS http://127.0.0.1:8080/healthz || { docker logs svc; exit 1; }
           test "$(docker exec svc id -u)" != "0"
           docker rm -f svc
