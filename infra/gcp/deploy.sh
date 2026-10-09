@@ -117,9 +117,9 @@ gcloud iam service-accounts add-iam-policy-binding "$INVOKER" \
 
 echo "==> 8/8 Conferência"
 echo -n "   chamada sem autenticação (deve ser 403): "
-curl -s -o /dev/null -w '%{http_code}\n' "${SERVICE_URL}/healthz"
+curl -s -o /dev/null -w '%{http_code}\n' "${SERVICE_URL}/health"
 echo -n "   chamada com a sua identidade (deve ser 200): "
-curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $(gcloud auth print-identity-token)" "${SERVICE_URL}/healthz"
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $(gcloud auth print-identity-token)" "${SERVICE_URL}/health"
 
 cat <<EOF
 

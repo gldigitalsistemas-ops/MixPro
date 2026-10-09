@@ -2,7 +2,7 @@
 /**
  * Serviço de exportação de áudio (Etapa 4). HTTP mínimo:
  *   POST /run   { "job_id": "<uuid>" }  → executa o job (lido do adaptador, nunca do corpo)
- *   GET  /healthz                        → { ok, dsp_version }
+ *   GET  /health (e /healthz, fora do Cloud Run) → { ok, dsp_version }
  * Um job por vez por instância (no Cloud Run: concorrência 1). Respostas: 200 (done/failed —
  * falha definitiva, sem retentativa), 404, 409 (o mesmo job já está rodando), 429 (instância
  * ocupada), 503 (falha passageira: o Cloud Tasks tenta de novo).
@@ -47,7 +47,8 @@ export function createService(deps: ServiceDeps, token?: string): Server {
   let busy = false;
   return createServer(async (req, res) => {
     const send = (code: number, body: unknown) => res.writeHead(code, { "content-type": "application/json" }).end(JSON.stringify(body));
-    if (req.method === "GET" && req.url === "/healthz") return send(200, { ok: true, dsp_version: DSP_VERSION });
+    // /health: o Cloud Run reserva caminhos terminados em "z" (o /healthz dá 404 lá; fica para uso local e no CI)
+    if (req.method === "GET" && (req.url === "/health" || req.url === "/healthz")) return send(200, { ok: true, dsp_version: DSP_VERSION });
     if (req.method !== "POST" || req.url !== "/run") return send(404, { error: "NOT_FOUND" });
     if (token && req.headers.authorization !== `Bearer ${token}`) return send(401, { error: "UNAUTHORIZED" });
     const body = await readBody(req, 1024);

@@ -7,7 +7,7 @@
 | Método | Rota | Resposta |
 |---|---|---|
 | `POST` | `/run` com `{"job_id": "<uuid>"}` | 200 (`done`/`failed`, falha definitiva), 404, 409 (já rodando), 429 (instância ocupada), 503 (falha passageira: o Cloud Tasks tenta de novo) |
-| `GET` | `/healthz` | `{ ok, dsp_version }` |
+| `GET` | `/health` (`/healthz` só fora do Cloud Run, que reserva caminhos terminados em "z") | `{ ok, dsp_version }` |
 
 O job é sempre lido do banco; o corpo da requisição só diz qual. No Cloud Run a autenticação é do IAM (OIDC do Cloud Tasks); `EXPORT_SERVICE_TOKEN` é opcional, para uso fora do Cloud Run.
 
