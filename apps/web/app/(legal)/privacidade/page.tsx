@@ -11,17 +11,24 @@ export default function Privacy() {
       <p className="rounded-xl border border-warning/30 bg-warning/10 p-3 text-amber-200">
         Texto base conforme a LGPD (Lei 13.709/2018), descrevendo o que o app realmente faz. Revise com um profissional jurídico.
       </p>
-      <p>Última atualização: 1º de outubro de 2026.</p>
+      <p>Última atualização: 9 de outubro de 2026.</p>
 
       <h2>Controlador dos dados</h2>
       <BusinessBlock />
 
-      <h2>Seus vídeos e áudios não saem do seu aparelho</h2>
+      <h2>Suas gravações</h2>
       <p>
-        O tratamento do som, as legendas automáticas (a inteligência artificial é baixada e roda no seu aparelho) e a montagem do vídeo
-        acontecem no seu navegador. Não recebemos, não guardamos e não usamos suas gravações para treinar inteligência artificial. A única
-        exceção é a Mixagem Profissional, em que você mesmo envia um link para os arquivos.
+        Na maioria dos casos o tratamento do som acontece no seu próprio aparelho, no navegador. Quando o processamento no servidor está
+        ativo para a sua conta, enviamos <strong>somente a trilha de áudio</strong> (a imagem do vídeo nunca sai do seu aparelho) para
+        tratá-la e devolver o resultado. Nesse caso:
       </p>
+      <ul className="list-disc pl-5">
+        <li>o áudio enviado e o áudio tratado ficam guardados por no máximo 24 horas e depois são apagados automaticamente;</li>
+        <li>o nome do arquivo não é enviado; os arquivos ficam com nomes aleatórios e só você consegue baixar o resultado;</li>
+        <li>guardamos apenas medidas técnicas do resultado (duração, volume, tempo de processamento), sem o conteúdo;</li>
+        <li>suas gravações nunca são usadas para treinar inteligência artificial nem compartilhadas para outros fins.</li>
+      </ul>
+      <p>A Mixagem Profissional é diferente: você mesmo envia um link para os arquivos.</p>
 
       <h2>Dados que coletamos e por quê</h2>
       <ul className="list-disc pl-5">
@@ -49,8 +56,9 @@ export default function Privacy() {
 
       <h2>Com quem os dados são compartilhados</h2>
       <p>
-        Apenas com os serviços que fazem o app funcionar: Supabase (banco de dados e login), Vercel (hospedagem do site) e Mercado Pago
-        (pagamentos). Os modelos de inteligência artificial das legendas são baixados de um repositório público, sem envio dos seus dados.
+        Apenas com os serviços que fazem o app funcionar: Supabase (banco de dados e login), Vercel (hospedagem do site), Mercado Pago
+        (pagamentos) e, quando o processamento no servidor é usado, Cloudflare R2 (armazenamento temporário dos áudios, até 24 horas) e
+        Google Cloud (processamento do áudio). Os modelos de inteligência artificial das legendas são baixados de um repositório público, sem envio dos seus dados.
         Alguns desses serviços podem armazenar dados fora do Brasil, com as garantias previstas na LGPD. Não vendemos dados.
       </p>
 
