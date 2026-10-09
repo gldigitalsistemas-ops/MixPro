@@ -230,7 +230,7 @@ function ToolForm(props: {
         const body = (await res.json()) as { outputs?: { url: string }[] };
         const url = body.outputs?.[i]?.url;
         if (!url) throw new Error();
-        window.location.href = url;
+        window.location.assign(url);
       } catch {
         toast.error("O arquivo não está mais disponível. Processe de novo.");
       }

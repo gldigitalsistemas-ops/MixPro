@@ -12,6 +12,7 @@ import { useToast } from "@/components/ui/toast";
 import { exportErrorInfo } from "@/lib/export/error-messages";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { formatDateTime, formatDuration } from "@/lib/cn";
+import { ToolJobsList } from "./tool-jobs";
 
 type Row = {
   id: string;
@@ -170,8 +171,10 @@ export function ProjectsView() {
     <div className="flex flex-col gap-4">
       <div>
         <h1 className="font-display text-2xl font-semibold">Meus projetos</h1>
-        <p className="text-sm text-muted">Seus áudios e vídeos tratados. Os processados no servidor ficam disponíveis para baixar de novo por 24 horas.</p>
+        <p className="text-sm text-muted">Seus áudios e vídeos tratados. Os processados no servidor ficam disponíveis para baixar de novo por 24 horas (30 dias no Plano Pro).</p>
       </div>
+
+      <ToolJobsList />
 
       {rows === null ? (
         <p className="flex items-center gap-2 text-sm text-muted">
