@@ -193,7 +193,8 @@ export function ExportPanel(props: Props) {
               toast.error(err.message);
               return;
             }
-            // o aparelho assume: a pessoa só é avisada, sem texto técnico
+            // o aparelho assume: a pessoa só é avisada, sem texto técnico; o código vai para Admin → Logs
+            reportError("exportar", err, { severity: "aviso", context: { formato: target, codigo: err.code, onde: "servidor → aparelho" } });
             toast.info("Vamos processar neste aparelho.");
           } else {
             // qualquer outra falha (por exemplo, ao juntar o vídeo) cai no caminho do aparelho
