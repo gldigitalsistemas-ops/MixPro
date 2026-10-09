@@ -60,6 +60,7 @@ import { useEditState } from "./use-edit-state";
 import { AutoSetupCard } from "./auto-setup-card";
 import { DiagnosisCard, type DiagnosisState } from "./diagnosis-card";
 import { ResultSummary } from "./result-summary";
+import { ShareReport } from "./share-report";
 import { runDiagnosis } from "@/lib/dsp/diagnose-runner";
 import { fetchServerExportEnabled, resetServerExportEnabled } from "@/lib/export/server-client";
 import { analyzeAudio } from "@/lib/dsp/analyze";
@@ -922,6 +923,19 @@ export function Studio() {
               {processed && (
                 <div className="mt-3">
                   <ResultSummary original={original} processed={processed} kind={auto?.kind ?? null} delivery={delivery} volumeOn={social} />
+                  {original && (
+                    <ShareReport
+                      media={media}
+                      original={original}
+                      processed={processed}
+                      diagnosis={diag?.status === "ready" ? diag.diagnosis : null}
+                      presetName={preset?.name ?? null}
+                      delivery={social ? delivery : null}
+                      requireLogin={requireLogin}
+                      onNeedCredits={showNoCredits}
+                      onBalanceChange={refresh}
+                    />
+                  )}
                 </div>
               )}
               {media.duration > 26 && media.duration <= 600 && (

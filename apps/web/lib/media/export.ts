@@ -155,14 +155,19 @@ export async function exportAudio(
   onProgress: (v: number) => void,
 ): Promise<ExportResult> {
   const filename = `${baseName(media.file)}-mixpro.${format}`;
+  return { blob: await encodeAudio(processed, media.sampleRate, format, onProgress), filename };
+}
+
+/** Codifica o sinal em WAV (16 bits), MP3 ou M4A (AAC) no próprio navegador. */
+export async function encodeAudio(channels: Signal, sampleRate: number, format: AudioFormat, onProgress: (v: number) => void = () => {}): Promise<Blob> {
   if (format === "wav") {
-    const blob = encodeWav(processed, media.sampleRate);
+    const blob = encodeWav(channels, sampleRate);
     onProgress(1);
-    return { blob, filename };
+    return blob;
   }
 
   const codec: AudioCodec = format === "mp3" ? "mp3" : "aac";
-  if (!(await ensureEncoder(codec, processed.length, media.sampleRate))) {
+  if (!(await ensureEncoder(codec, channels.length, sampleRate))) {
     throw new MediaError(`Este navegador não consegue gerar ${format.toUpperCase()}. Baixe em WAV.`);
   }
   const output = new Output({
@@ -172,9 +177,9 @@ export async function exportAudio(
   const source = new AudioBufferSource({ codec, quality: QUALITY_HIGH });
   output.addAudioTrack(source);
   await output.start();
-  await feed(source, processed, media.sampleRate, onProgress);
+  await feed(source, channels, sampleRate, onProgress);
   await output.finalize();
   const buffer = output.target.buffer;
   if (!buffer) throw new MediaError("Falha ao gerar o arquivo de áudio.");
-  return { blob: new Blob([buffer], { type: format === "mp3" ? "audio/mpeg" : "audio/mp4" }), filename };
+  return new Blob([buffer], { type: format === "mp3" ? "audio/mpeg" : "audio/mp4" });
 }
