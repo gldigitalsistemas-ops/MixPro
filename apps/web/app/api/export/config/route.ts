@@ -1,6 +1,6 @@
 import { withUser } from "@/lib/api";
 import { getSession } from "@/lib/supabase/server";
-import { wifConfigFromEnv } from "@/lib/export/gcp-wif";
+import { oidcClaims, wifConfigFromEnv } from "@/lib/export/gcp-wif";
 import { cloudTasksConfigFromEnv } from "@/lib/export/queue-cloud-tasks";
 import { r2ConfigFromEnv } from "@/lib/export/r2";
 import { exportDeps, testGoogleAuth } from "@/lib/export/server-deps";
@@ -46,6 +46,7 @@ export async function GET(req: Request) {
     if (!admin) return Response.json({ enabled: true });
     // ?testar=1: confere a autenticação com o Google (o mesmo caminho usado para criar a tarefa na fila)
     const google = new URL(req.url).searchParams.get("testar") === "1" ? await testGoogleAuth(req) : undefined;
-    return Response.json({ enabled: true, oidc_da_vercel: oidc || !wifConfigFromEnv(), google });
+    const token = google ? oidcClaims(req.headers.get("x-vercel-oidc-token") ?? process.env.VERCEL_OIDC_TOKEN ?? null) : undefined;
+    return Response.json({ enabled: true, oidc_da_vercel: oidc || !wifConfigFromEnv(), google, token_vercel: token });
   });
 }

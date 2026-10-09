@@ -17,6 +17,8 @@ export class WifError extends Error {
   constructor(
     public step: "oidc" | "sts" | "impersonate",
     public status = 0,
+    /** Motivo devolvido pelo Google (texto curto, sem segredos); só aparece no diagnóstico do admin. */
+    public detail = "",
   ) {
     super(`WIF ${step}${status ? `: HTTP ${status}` : ""}`);
   }
@@ -54,7 +56,10 @@ export function wifTokenSource(cfg: WifConfig, oidcToken: () => string | null, f
         subjectTokenType: "urn:ietf:params:oauth:token-type:jwt",
       }),
     });
-    if (!sts.ok) throw new WifError("sts", sts.status);
+    if (!sts.ok) {
+      const body = (await sts.json().catch(() => null)) as { error_description?: string } | null;
+      throw new WifError("sts", sts.status, String(body?.error_description ?? "").slice(0, 300));
+    }
     const federated = ((await sts.json()) as { access_token?: string }).access_token;
     if (!federated) throw new WifError("sts");
 
@@ -63,11 +68,26 @@ export function wifTokenSource(cfg: WifConfig, oidcToken: () => string | null, f
       headers: { authorization: `Bearer ${federated}`, "content-type": "application/json" },
       body: JSON.stringify({ scope: [SCOPE], lifetime: "3600s" }),
     });
-    if (!imp.ok) throw new WifError("impersonate", imp.status);
+    if (!imp.ok) {
+      const body = (await imp.json().catch(() => null)) as { error?: { message?: string } } | null;
+      throw new WifError("impersonate", imp.status, String(body?.error?.message ?? "").slice(0, 300));
+    }
     const body = (await imp.json()) as { accessToken?: string; expireTime?: string };
     if (!body.accessToken) throw new WifError("impersonate");
     const exp = body.expireTime ? Date.parse(body.expireTime) : now() + 3_600_000;
     cache.v = { token: body.accessToken, exp: Number.isFinite(exp) ? exp : now() + 3_600_000 };
     return cache.v.token;
   };
+}
+
+/** Campos públicos do token OIDC da Vercel (sem a assinatura), para o diagnóstico do admin. */
+export function oidcClaims(token: string | null): Record<string, unknown> | null {
+  if (!token) return null;
+  try {
+    const c = JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8")) as Record<string, unknown>;
+    const pick = ["iss", "aud", "sub", "owner", "project", "environment", "exp"];
+    return Object.fromEntries(pick.filter((k) => k in c).map((k) => [k, c[k]]));
+  } catch {
+    return { erro: "token ilegível" };
+  }
 }

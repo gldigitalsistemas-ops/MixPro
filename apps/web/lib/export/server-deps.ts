@@ -72,13 +72,13 @@ export function exportDeps(req?: Request): Deps {
  * Diagnóstico (só admin): consegue o token do Google pelo mesmo caminho da fila? Devolve só a etapa e o
  * status HTTP da falha, nunca valores.
  */
-export async function testGoogleAuth(req: Request): Promise<{ ok: true } | { ok: false; etapa: string; status: number }> {
+export async function testGoogleAuth(req: Request): Promise<{ ok: true } | { ok: false; etapa: string; status: number; motivo: string }> {
   try {
     await tokenSource(req)();
     return { ok: true };
   } catch (e) {
-    const x = e as { step?: string; status?: number; message?: string };
-    return { ok: false, etapa: x.step ?? (x.message?.slice(0, 80) || "desconhecida"), status: x.status ?? 0 };
+    const x = e as { step?: string; status?: number; message?: string; detail?: string };
+    return { ok: false, etapa: x.step ?? (x.message?.slice(0, 80) || "desconhecida"), status: x.status ?? 0, motivo: x.detail ?? "" };
   }
 }
 
