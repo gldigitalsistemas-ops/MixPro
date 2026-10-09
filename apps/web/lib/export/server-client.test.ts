@@ -139,8 +139,8 @@ test("elegibilidade: áudio comum sim; com música ou com legendas não", () => 
   assert.equal(serverEligible(withCaptions), false);
 });
 
-test("arquivo grande demais é recusado antes de enviar (WAV de 41 MB)", async () => {
-  const big = { file: { name: "x.wav", size: 41 * 1024 * 1024 } as File, kind: "audio" as const };
+test("arquivo grande demais é recusado antes de enviar (WAV de 201 MB)", async () => {
+  const big = { file: { name: "x.wav", size: 201 * 1024 * 1024 } as File, kind: "audio" as const };
   await assert.rejects(prepareServerInput(big), (e: ServerExportError) => e.code === "TOO_LARGE" && e.device);
 });
 

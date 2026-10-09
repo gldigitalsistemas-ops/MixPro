@@ -53,7 +53,8 @@ export type ServiceLimits = {
 };
 
 export const DEFAULT_LIMITS: ServiceLimits = {
-  maxInputBytes: 40 * 1024 * 1024,
+  // WAV de 10 min (o limite de duração) em 48 kHz/24 bits estéreo ≈ 173 MB; a decodificação é em fluxo
+  maxInputBytes: 200 * 1024 * 1024,
   maxDurationS: 600,
   staleMs: 15 * 60_000,
   maxAttempts: 3,

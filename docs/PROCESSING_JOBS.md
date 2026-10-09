@@ -48,7 +48,7 @@ O **progresso** é real: 10% depois de decodificar a entrada, de 10 a 90% confor
 | `export_server_daily_cpu_s` | 6000 | teto de CPU por dia (Brasília) |
 | `export_server_daily_jobs` | 300 | teto de jobs por dia (Brasília) |
 
-Limites do serviço: entrada de até 40 MB e 10 min, uma requisição por instância, 2 instâncias, 15 min por requisição.
+Limites do serviço: entrada de até 200 MB e 10 min, uma requisição por instância, 2 instâncias, 15 min por requisição.
 
 ## Retentativas, cancelamento e limpeza
 

@@ -29,8 +29,16 @@ export async function GET(req: Request) {
 
   webpush.setVapidDetails(subject, pub, priv);
   const today = startOfDayBrt();
+  // ?teste=1: só as inscrições de administradores, sem a regra do dia e sem marcar como enviado
+  const test = new URL(req.url).searchParams.get("teste") === "1";
+  const admins = test ? ((await admin.from("profiles").select("id").eq("role", "admin")).data ?? []).map((r) => r.id as string) : [];
   const store: Store = {
     due: async (limit) => {
+      if (test) {
+        if (!admins.length) return [];
+        const { data } = await admin.from("push_subscriptions").select("id,endpoint,p256dh,auth,user_id,failures").in("user_id", admins).limit(20);
+        return (data ?? []) as Sub[];
+      }
       const { data } = await admin
         .from("push_subscriptions")
         .select("id,endpoint,p256dh,auth,user_id,failures")
@@ -40,10 +48,12 @@ export async function GET(req: Request) {
       return (data ?? []) as Sub[];
     },
     activeToday: async (ids) => {
+      if (test) return new Set<string>();
       const { data } = await admin.from("credit_transactions").select("user_id").in("user_id", ids).eq("type", "DOWNLOAD").gte("created_at", today);
       return new Set((data ?? []).map((r) => r.user_id as string));
     },
     markSent: async (ids) => {
+      if (test) return;
       await admin.from("push_subscriptions").update({ last_sent_at: new Date().toISOString(), failures: 0 }).in("id", ids);
     },
     remove: async (ids) => {
