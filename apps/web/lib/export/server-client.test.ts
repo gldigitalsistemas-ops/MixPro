@@ -176,3 +176,15 @@ test("rótulos pela etapa real: análise, processamento, exportação", () => {
   assert.equal(phaseLabel("running", 89), "Processando o som…");
   assert.equal(phaseLabel("running", 90), "Exportando o arquivo…");
 });
+
+test("envio bloqueado (CORS/rede) ou fila indisponível: cancela na hora para liberar a reserva", async () => {
+  const offlineXhr = () => {
+    const x = fakeXhr()() as unknown as { send: () => void; onerror: () => void };
+    x.send = () => x.onerror();
+    return x as unknown as XMLHttpRequest;
+  };
+  const s = fakeServer([]);
+  await assert.rejects(runServerExport(job(), media, hooks({ fetchFn: s.fetchFn, xhr: offlineXhr }).h), (e: ServerExportError) => e.device);
+  assert.ok(s.calls.some((c) => c.url.endsWith("/cancel")), "envio falhou → cancelado");
+  assert.ok(!s.calls.some((c) => c.url.endsWith("/start")));
+});
