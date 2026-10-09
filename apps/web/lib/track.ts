@@ -17,7 +17,10 @@ export type TrackEvent =
   | "kit_unlocked"
   | "batch_export"
   | "vs_separated"
-  | "vs_download";
+  | "vs_download"
+  | "tool_done"
+  | "report_pdf"
+  | "share_page";
 
 /** Registra um uso (para o painel do admin). Nunca atrapalha o usuário: erros são ignorados. */
 export function track(event: TrackEvent, props: Record<string, string | number | boolean> = {}) {

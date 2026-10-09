@@ -99,7 +99,7 @@ export async function prepareServerInput(media: Pick<LoadedMedia, "file" | "kind
   }
 }
 
-function put(url: string, body: Blob, onProgress: (v: number) => void, signal: AbortSignal | undefined, makeXhr: () => XMLHttpRequest): Promise<void> {
+export function put(url: string, body: Blob, onProgress: (v: number) => void, signal: AbortSignal | undefined, makeXhr: () => XMLHttpRequest): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = makeXhr();
     const onAbort = () => xhr.abort();
@@ -124,7 +124,7 @@ function put(url: string, body: Blob, onProgress: (v: number) => void, signal: A
   });
 }
 
-async function api<T>(fetchFn: typeof fetch, path: string, init: RequestInit): Promise<T> {
+export async function api<T>(fetchFn: typeof fetch, path: string, init: RequestInit): Promise<T> {
   let res: Response;
   try {
     res = await fetchFn(path, { cache: "no-store", ...init });

@@ -352,3 +352,21 @@ grant execute on function public.my_is_pro() to authenticated;
 create extension if not exists pg_cron;
 select cron.unschedule(jobid) from cron.job where jobname = 'mixpro-limpeza-ferramentas';
 select cron.schedule('mixpro-limpeza-ferramentas', '*/5 * * * *', 'select public.cleanup_tool_jobs()');
+
+-- eventos de uso das ferramentas, do relatório e da página de compartilhar (painel do admin)
+create or replace function public.track_event(p_event text, p_props jsonb default '{}')
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if p_event not in ('studio_open', 'file_loaded', 'captions_generated', 'export', 'share', 'checkout_start', 'tour_done',
+                     'style_saved', 'preset_saved', 'preset_shared', 'shared_preset_opened', 'kit_unlocked', 'batch_export',
+                     'vs_separated', 'vs_download', 'tool_done', 'report_pdf', 'share_page') then
+    return;
+  end if;
+  if pg_column_size(p_props) > 2048 then
+    p_props := '{}';
+  end if;
+  insert into public.analytics_events (user_id, event, props) values (auth.uid(), p_event, coalesce(p_props, '{}'));
+end $$;
+revoke execute on function public.track_event(text, jsonb) from public;
+grant execute on function public.track_event(text, jsonb) to anon, authenticated;
