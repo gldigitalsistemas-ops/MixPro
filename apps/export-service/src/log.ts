@@ -42,3 +42,23 @@ export function logJob(entry: JobLog) {
 export function logService(evento: "inicio" | "parada", info: { porta?: number; dsp_version: string }) {
   process.stdout.write(JSON.stringify({ evento: `servico_${evento}`, porta: info.porta ?? null, dsp_version: info.dsp_version }) + "\n");
 }
+
+/**
+ * Diagnóstico de falhas internas, sem conteúdo: só o evento, o nome da função do banco, o status HTTP,
+ * o tipo do erro e o código fechado.
+ */
+export function logDiag(
+  evento: "banco_falhou" | "banco_sem_conexao" | "run_falhou",
+  info: { funcao?: string; http?: number; tipo?: string; codigo?: string | null } = {},
+) {
+  const safe = (v: unknown, re: RegExp) => (typeof v === "string" && re.test(v) ? v : null);
+  process.stdout.write(
+    JSON.stringify({
+      evento,
+      funcao: safe(info.funcao, /^[a-z_]{1,40}$/),
+      http: typeof info.http === "number" ? info.http : null,
+      tipo: safe(info.tipo, /^[A-Za-z]{1,40}$/),
+      codigo: safe(info.codigo, /^[A-Z_]{1,40}$/),
+    }) + "\n",
+  );
+}

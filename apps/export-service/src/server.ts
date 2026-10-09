@@ -22,7 +22,7 @@ import { LocalJobStore } from "./adapters/jobs";
 import { SupabaseJobStore } from "./adapters/supabase-jobs";
 import { LocalStorage } from "./adapters/storage";
 import { R2Storage } from "./adapters/r2-storage";
-import { logService } from "./log";
+import { logDiag, logService } from "./log";
 import { DEFAULT_LIMITS, runJob, type ServiceDeps } from "./pipeline";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -63,8 +63,7 @@ export function createService(deps: ServiceDeps, token?: string): Server {
       const r = await runJob(jobId, deps);
       send(r.http, { status: r.status, error_code: r.error_code ?? null });
     } catch (e) {
-      process.stderr.write(JSON.stringify({ evento: "run_falhou", tipo: e instanceof Error ? e.name : "erro", codigo: (e as { code?: string }).code ?? null }) + "
-");
+      logDiag("run_falhou", { tipo: e instanceof Error ? e.name : "erro", codigo: (e as { code?: string }).code ?? null });
       send(500, { error: "INTERNAL" });
     } finally {
       busy = false;
