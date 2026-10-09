@@ -11,6 +11,8 @@ import { useToast } from "@/components/ui/toast";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/cn";
 import { ProStatusBadge } from "./pro-status";
+import { ProgressBar } from "@/components/ui/misc";
+import { put } from "@/lib/export/server-client";
 
 type Service = {
   id: string;
@@ -35,6 +37,35 @@ export function ProView() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [serviceId, setServiceId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [mode, setMode] = useState<"upload" | "link">("upload");
+  const [stemFiles, setStemFiles] = useState<File[]>([]);
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
+
+  /** Envia as faixas direto ao armazenamento (com progresso) e devolve o link da página dos arquivos. */
+  async function uploadStems(list: File[]): Promise<string> {
+    const res = await fetch("/api/pro/uploads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ files: list.map((f) => ({ name: f.name, bytes: f.size })) }),
+    });
+    const body = (await res.json().catch(() => null)) as { uploads?: string[]; files_url?: string; error?: string } | null;
+    if (!res.ok || !body?.uploads || !body.files_url) throw new Error(body?.error ?? "Não foi possível preparar o envio.");
+    const total = list.reduce((a, f) => a + f.size, 0) || 1;
+    let sent = 0;
+    setUploadPct(0);
+    try {
+      for (let i = 0; i < list.length; i++) {
+        const before = sent;
+        await put(body.uploads[i], list[i], (p) => setUploadPct(((before + p * list[i].size) / total) * 100), undefined, () => new XMLHttpRequest()).catch(() => {
+          throw new Error(`O envio de “${list[i].name}” não foi concluído. Verifique a internet e tente de novo.`);
+        });
+        sent += list[i].size;
+      }
+    } finally {
+      setUploadPct(null);
+    }
+    return body.files_url;
+  }
 
   useEffect(() => {
     supabaseBrowser()
@@ -63,10 +94,14 @@ export function ProView() {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     if (!(await requireLogin("Crie sua conta para fazer o pedido de mixagem."))) return;
-    const files = String(form.get("files_url") ?? "").trim();
-    if (!/^https:\/\//i.test(files)) return toast.error("Cole o link dos arquivos (começa com https://).");
+    let files = String(form.get("files_url") ?? "").trim();
+    if (mode === "link" && !/^https:\/\//i.test(files)) return toast.error("Cole o link dos arquivos (começa com https://).");
+    if (mode === "upload" && !stemFiles.length) return toast.error("Escolha os arquivos das faixas.");
+    if (mode === "upload" && service && stemFiles.filter((f) => !/\.(zip|mid|midi|txt|pdf)$/i.test(f.name)).length > service.max_stems)
+      return toast.error(`Este serviço aceita até ${service.max_stems} faixas. Junte as extras ou escolha outro serviço.`);
     setSending(true);
     try {
+      if (mode === "upload") files = await uploadStems(stemFiles);
       const bpm = Number(form.get("bpm"));
       const res = await fetch("/api/pro/orders", {
         method: "POST",
@@ -130,7 +165,7 @@ export function ProView() {
         <h2 className="mb-3 font-display text-lg font-semibold">Como funciona</h2>
         <ol className="grid gap-3 text-sm sm:grid-cols-2">
           {[
-            [Link2, "Envie o link das faixas", "Coloque as faixas separadas (voz, violão, bateria…) numa pasta do Google Drive, WeTransfer ou Dropbox e cole o link."],
+            [Link2, "Envie as faixas", "Envie as faixas separadas (voz, violão, bateria…) direto pelo app, ou cole um link do Google Drive, WeTransfer ou Dropbox."],
             [CalendarClock, "Pague com segurança", "PIX, cartão ou boleto pelo Mercado Pago. O prazo começa na aprovação."],
             [Headphones, "Receba a mixagem", "Você recebe o link do arquivo final e conversa com o engenheiro pelo pedido."],
             [RotateCcw, "Peça ajustes", "Não ficou do seu jeito? Peça revisões dentro do limite do serviço."],
@@ -179,14 +214,52 @@ export function ProView() {
                 <input name="bpm" type="number" min={40} max={300} className={inputCls} placeholder="120" />
               </label>
             </div>
-            <label className="flex flex-col gap-1.5 text-sm">
-              Link das faixas
-              <input name="files_url" type="url" required className={inputCls} placeholder="https://drive.google.com/…" />
-              <span className="text-xs text-subtle">
-                Até {service.max_stems} faixas em WAV ou AIFF, todas começando no mesmo ponto. No Google Drive, deixe o
-                compartilhamento como “qualquer pessoa com o link”.
-              </span>
-            </label>
+            <div className="flex flex-col gap-2 text-sm">
+              <span>Faixas</span>
+              <div className="grid grid-cols-2 gap-2 rounded-2xl bg-white/5 p-1" role="radiogroup" aria-label="Como enviar as faixas">
+                {(["upload", "link"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    role="radio"
+                    aria-checked={mode === m}
+                    onClick={() => setMode(m)}
+                    className={mode === m ? "rounded-xl bg-primary py-2 font-semibold text-white" : "rounded-xl py-2 text-muted"}
+                  >
+                    {m === "upload" ? "Enviar pelo app" : "Colar um link"}
+                  </button>
+                ))}
+              </div>
+              {mode === "upload" ? (
+                <>
+                  <input
+                    type="file"
+                    multiple
+                    accept=".wav,.aif,.aiff,.flac,.mp3,.m4a,.ogg,.zip,.mid,.midi"
+                    onChange={(e) => setStemFiles(Array.from(e.target.files ?? []))}
+                    className="text-sm file:mr-3 file:rounded-xl file:border-0 file:bg-primary file:px-3 file:py-2 file:font-semibold file:text-white"
+                  />
+                  {stemFiles.length > 0 && (
+                    <span className="text-xs text-muted">
+                      {stemFiles.length} arquivo{stemFiles.length > 1 ? "s" : ""} · {Math.max(1, Math.round(stemFiles.reduce((a, f) => a + f.size, 0) / 1e6))} MB
+                    </span>
+                  )}
+                  {uploadPct !== null && <ProgressBar value={uploadPct} label="Enviando as faixas" />}
+                  <span className="text-xs text-subtle">
+                    Até {service.max_stems} faixas em WAV ou AIFF (ou um ZIP), todas começando no mesmo ponto. Os arquivos ficam guardados por 30 dias e só
+                    você e o engenheiro têm acesso.
+                  </span>
+                </>
+              ) : (
+                <>
+                  <input name="files_url" type="url" className={inputCls} placeholder="https://drive.google.com/…" />
+                  <span className="text-xs text-subtle">
+                    Até {service.max_stems} faixas em WAV ou AIFF, todas começando no mesmo ponto. No Google Drive, deixe o
+                    compartilhamento como “qualquer pessoa com o link”.
+                  </span>
+                </>
+              )}
+            </div>
             <label className="flex flex-col gap-1.5 text-sm">
               Como você imagina o som? (opcional)
               <textarea
