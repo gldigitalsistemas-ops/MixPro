@@ -68,6 +68,20 @@ export function exportDeps(req?: Request): Deps {
   };
 }
 
+/**
+ * Diagnóstico (só admin): consegue o token do Google pelo mesmo caminho da fila? Devolve só a etapa e o
+ * status HTTP da falha, nunca valores.
+ */
+export async function testGoogleAuth(req: Request): Promise<{ ok: true } | { ok: false; etapa: string; status: number }> {
+  try {
+    await tokenSource(req)();
+    return { ok: true };
+  } catch (e) {
+    const x = e as { step?: string; status?: number; message?: string };
+    return { ok: false, etapa: x.step ?? (x.message?.slice(0, 80) || "desconhecida"), status: x.status ?? 0 };
+  }
+}
+
 /** O servidor está pronto para receber jobs novos (R2 e Google configurados)? */
 export function exportServerConfigured(): boolean {
   try {

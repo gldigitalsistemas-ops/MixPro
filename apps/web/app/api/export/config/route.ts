@@ -3,7 +3,7 @@ import { getSession } from "@/lib/supabase/server";
 import { wifConfigFromEnv } from "@/lib/export/gcp-wif";
 import { cloudTasksConfigFromEnv } from "@/lib/export/queue-cloud-tasks";
 import { r2ConfigFromEnv } from "@/lib/export/r2";
-import { exportDeps } from "@/lib/export/server-deps";
+import { exportDeps, testGoogleAuth } from "@/lib/export/server-deps";
 
 /** Por que o servidor não está disponível (só nomes de variáveis e etapas, nunca valores). */
 function missing(): string[] {
@@ -43,6 +43,9 @@ export async function GET(req: Request) {
       return Response.json({ enabled: false });
     }
     if (!allowed) return Response.json(admin ? { enabled: false, motivo: "sua conta não está em export_server_users e o interruptor geral está desligado" } : { enabled: false });
-    return Response.json(admin ? { enabled: true, oidc_da_vercel: oidc || !wifConfigFromEnv() } : { enabled: true });
+    if (!admin) return Response.json({ enabled: true });
+    // ?testar=1: confere a autenticação com o Google (o mesmo caminho usado para criar a tarefa na fila)
+    const google = new URL(req.url).searchParams.get("testar") === "1" ? await testGoogleAuth(req) : undefined;
+    return Response.json({ enabled: true, oidc_da_vercel: oidc || !wifConfigFromEnv(), google });
   });
 }

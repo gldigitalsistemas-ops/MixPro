@@ -105,7 +105,9 @@ export async function startJob(d: Deps, userId: string, jobId: string): Promise<
   }
   try {
     await d.queue.enqueue(jobId);
-  } catch {
+  } catch (e) {
+    // nos logs da Vercel: só a etapa e o status HTTP (WifError/QueueError não carregam valores)
+    console.error("[export] fila indisponível:", e instanceof Error ? e.message.slice(0, 120) : "erro");
     return fail("CAPACITY");
   }
   return { ok: true, status: "queued" };
