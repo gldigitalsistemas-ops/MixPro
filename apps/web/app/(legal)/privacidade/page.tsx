@@ -23,12 +23,19 @@ export default function Privacy() {
         tratá-la e devolver o resultado. Nesse caso:
       </p>
       <ul className="list-disc pl-5">
-        <li>o áudio enviado e o áudio tratado ficam guardados por no máximo 24 horas e depois são apagados automaticamente;</li>
+        <li>
+          o áudio enviado e o áudio tratado ficam guardados por no máximo 24 horas e depois são apagados automaticamente (no Plano Pro, os
+          resultados das ferramentas ficam no Cofre por até 30 dias);
+        </li>
         <li>o nome do arquivo não é enviado; os arquivos ficam com nomes aleatórios e só você consegue baixar o resultado;</li>
         <li>guardamos apenas medidas técnicas do resultado (duração, volume, tempo de processamento), sem o conteúdo;</li>
         <li>suas gravações nunca são usadas para treinar inteligência artificial nem compartilhadas para outros fins.</li>
       </ul>
-      <p>A Mixagem Profissional é diferente: você mesmo envia um link para os arquivos.</p>
+      <p>
+        Na Mixagem Profissional, você envia as faixas pelo app (guardadas por até 30 dias, acessíveis só a você e ao engenheiro de áudio)
+        ou um link seu. Quando você cria um link de antes e depois, os dois trechos curtos (até 30 segundos) ficam públicos para quem tiver
+        o link por 24 horas e depois são apagados.
+      </p>
 
       <h2>Dados que coletamos e por quê</h2>
       <ul className="list-disc pl-5">
@@ -62,7 +69,7 @@ export default function Privacy() {
       <h2>Com quem os dados são compartilhados</h2>
       <p>
         Apenas com os serviços que fazem o app funcionar: Supabase (banco de dados e login), Vercel (hospedagem do site), Mercado Pago
-        (pagamentos) e, quando o processamento no servidor é usado, Cloudflare R2 (armazenamento temporário dos áudios, até 24 horas) e
+        (pagamentos) e, quando o processamento no servidor é usado, Cloudflare R2 (armazenamento temporário dos áudios: 24 horas, ou até 30 dias no Cofre e na Mixagem Profissional) e
         Google Cloud (processamento do áudio). O modelo de separação de faixas (VS) é baixado de um repositório público, sem envio dos seus dados.
         Alguns desses serviços podem armazenar dados fora do Brasil, com as garantias previstas na LGPD. Não vendemos dados.
       </p>

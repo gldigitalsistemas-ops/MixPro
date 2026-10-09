@@ -32,6 +32,11 @@ export default function Terms() {
       <h2>4. Créditos e preços</h2>
       <ul className="list-disc pl-5">
         <li>Cada download de um resultado novo usa 1 crédito. Baixar de novo o mesmo resultado não gasta outro crédito.</li>
+        <li>
+          As ferramentas do servidor (tom e andamento, voz + playback, masterização por referência, modo álbum, separação de faixas e
+          relatório técnico) usam a quantidade de créditos mostrada antes de começar. Os créditos só são debitados quando o resultado fica
+          pronto; se algo falhar ou você cancelar, nada é cobrado. A conversão de formato é grátis.
+        </li>
         <li>Contas novas recebem créditos grátis de boas-vindas, na quantidade informada na tela de cadastro.</li>
         <li>
           Créditos são comprados pelo Mercado Pago (PIX, cartão ou boleto), pelo preço exibido na tela de compra antes do pagamento. Não

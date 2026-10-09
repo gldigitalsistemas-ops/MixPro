@@ -12,6 +12,7 @@ Para o básico de Supabase e Vercel (projeto, login, domínio) veja [deploy.md](
 | `SUPABASE_SERVICE_ROLE_KEY` | Vercel (Production), Secret Manager | secreta; nunca no navegador |
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | Vercel (Production), Secret Manager | token do R2 só com acesso a `mixpro-exports` |
 | `GCP_PROJECT_ID`, `GCP_REGION`, `EXPORT_TASKS_QUEUE`, `EXPORT_SERVICE_URL` | Vercel (Production) | `deploy.sh` imprime os valores |
+| `EXPORT_STEMS_URL`, `EXPORT_TASKS_QUEUE_PRO` | Vercel (Production) | serviço pesado `mixpro-stems` (separação e álbum) e fila do Plano Pro; `deploy.sh` imprime. Sem `EXPORT_STEMS_URL` a separação no servidor fica indisponível |
 | `GCP_WIF_PROVIDER` | Vercel (Production e Preview) | acesso **sem chave** (recomendado; obrigatório quando a organização bloqueia chaves): sai de `infra/gcp/wif-vercel.sh`, com o OIDC da Vercel ligado |
 | `GCP_SERVICE_ACCOUNT_JSON` | Vercel (Production) | alternativa com chave da conta `export-enqueuer` (só se a organização permitir) |
 | `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET` | Vercel | pagamentos (não relacionado a esta etapa) |
@@ -26,7 +27,7 @@ Nunca coloque segredos no código nem em variáveis `NEXT_PUBLIC_*`. Modelo: `ap
      ```json
      [{ "AllowedOrigins": ["https://SEU-DOMINIO"], "AllowedMethods": ["PUT", "GET", "HEAD"], "AllowedHeaders": ["*"], "ExposeHeaders": ["ETag"], "MaxAgeSeconds": 3600 }]
      ```
-   - **Regra de ciclo de vida:** apagar objetos após 1 dia e abortar uploads incompletos após 1 dia.
+   - **Regras de ciclo de vida:** prefixo `in/` e prefixo `out/` → apagar após 1 dia; prefixo `cofre/` → apagar após 30 dias (Cofre do Plano Pro e faixas da Mixagem Profissional); abortar uploads incompletos após 1 dia. A página antes/depois usa `out/share/` (some em 1 dia).
 3. **Google Cloud (Cloud Shell).** Crie o projeto com faturamento e, **antes de tudo**, um alerta de orçamento. Depois: `export GCP_PROJECT_ID=... && bash infra/gcp/deploy.sh`. O roteiro cria as APIs, as três contas de serviço (`export-runner`, `export-invoker`, `export-enqueuer`), os segredos (pedidos no terminal, sem eco), a imagem, o Cloud Run **fechado ao público** (2 GiB, 1 CPU, 1 requisição por instância, até 2 instâncias, 15 min) e a fila (2 em paralelo, 3 tentativas). Ele termina conferindo que a chamada sem autenticação dá 403.
 4. **Vercel.** Cadastre as variáveis da tabela acima em Production e faça um novo deploy.
 5. **Liberar só a sua conta.** No Supabase (projeto de produção), em `system_settings`, ponha o seu id de usuário em `export_server_users` (e deixe `export_server_enabled = false`). Rode o roteiro de fumaça: [roteiro-fumaca-exportacao.md](roteiro-fumaca-exportacao.md). Confira o custo por job (`cpu_ms`, `rss_mb`, `wall_ms` em `export_jobs`) e se ficou perto do previsto.
@@ -62,3 +63,10 @@ Cloud Run (região `us-central1`, faixa 1) escala a zero e tem cota grátis; Clo
 - No iPhone, as notificações só funcionam com o app instalado na Tela de Início (iOS 16.4 ou mais novo).
 - Desligar todos os envios: `update public.system_settings set value = 'false' where key = 'push_daily_enabled';`
 
+
+## Ferramentas, Plano Pro, antes/depois e relatório
+
+- Banco: `20261010000001_tools_pro.sql` (tool_jobs, RPCs, preços em `tool_credit_costs`, Plano Pro em `subscription_plans`, limpeza no `pg_cron`) e `20261010000002_share_report.sql` (página antes/depois e `spend_report_credit`). Bateria: `apps/export-service/test/tools-db.test.ts` e `tools-nuvem.test.ts` (R2 real + banco de teste + FFmpeg).
+- Imagem: o Dockerfile baixa o HT-Demucs de um commit fixo do Hugging Face (conferido por SHA-256), instala `onnxruntime-node@1.22.0` e confere o filtro `rubberband` do FFmpeg (`STEMS_MODEL_DIR=/app/models`).
+- Cloud Run: `mixpro-export` (4 GiB, 1 CPU, até 3 instâncias) e `mixpro-stems` (8 GiB, 8 CPU, 60 min, até 2 instâncias), a mesma imagem. Filas `mixpro-export` (2 em paralelo) e `mixpro-export-pro` (3 em paralelo, Plano Pro).
+- Preços: editáveis em `system_settings.tool_credit_costs` (sem novo deploy). Limites: `tool_user_active`, `tool_user_per_day`, `tool_server_daily_jobs`, `share_links_per_day`.
