@@ -162,7 +162,7 @@ export function VSStudio() {
   async function open(file: File) {
     if (phase.kind === "decoding" || phase.kind === "separating") return;
     if (!canSeparateHere()) {
-      toast.error("Para criar o VS, abra o Mix Pro no computador: o celular não tem memória para a IA de separação.");
+      toast.error("Neste aparelho a IA não cabe na memória: use \"Separar no servidor\" ou abra no computador.");
       return;
     }
     player.pause();
@@ -394,6 +394,12 @@ export function VSStudio() {
               A IA que separa as pistas precisa de mais memória do que este aparelho tem livre (cerca de 4 GB; computador com 8 GB de RAM ou mais): aqui a página
               fecharia no meio. No computador (Chrome ou Edge) funciona e leva mais ou menos 1,5× a duração da música.
             </p>
+            <p className="text-muted">
+              Ou separe <strong className="text-foreground">no servidor do Mix Pro</strong>: funciona em qualquer aparelho e você baixa as pistas em WAV.
+            </p>
+            <a href="/ferramentas?ferramenta=stems" className="self-start rounded-xl bg-primary px-4 py-2 font-semibold text-white">
+              Separar no servidor
+            </a>
             <Button
               variant="secondary"
               size="sm"
@@ -435,6 +441,15 @@ export function VSStudio() {
           Separar e ouvir é grátis. Baixar usa 1 crédito por música (baixe quantas versões quiser). A separação roda no computador e leva
           cerca de 1,5× a duração da música; na primeira vez baixa a IA (~170 MB), que fica guardada.
         </p>
+        {canSeparate && (
+          <p className="text-center text-xs text-muted">
+            Sem tempo ou computador mais fraco?{" "}
+            <a href="/ferramentas?ferramenta=stems" className="text-violet-200 underline">
+              Separe no servidor do Mix Pro
+            </a>{" "}
+            e baixe as pistas prontas.
+          </p>
+        )}
       </div>
     );
   }
