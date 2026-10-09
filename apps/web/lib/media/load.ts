@@ -164,7 +164,13 @@ async function decodeWithWebAudio(file: File, kind: LoadedMedia["kind"]) {
   return fromAudioBuffer(buffer);
 }
 
+/** Formatos da Microsoft (WMA/WMV/ASF) que nenhum navegador decodifica. */
+export const WINDOWS_MEDIA = /\.(wma|wmv|asf)$/i;
+export const WINDOWS_MEDIA_MESSAGE =
+  "Arquivos WMA/WMV (Windows Media) não abrem em nenhum navegador. Converta para MP3, WAV ou M4A (no Windows: abra no app Windows Media Player ou Clipchamp e salve/exporte em MP3 ou MP4) e envie de novo.";
+
 export async function loadMedia(file: File, onProgress: (v: number) => void): Promise<LoadedMedia> {
+  if (WINDOWS_MEDIA.test(file.name) || /ms-wma|ms-wmv|ms-asf/i.test(file.type)) throw new MediaLoadError("unsupported", WINDOWS_MEDIA_MESSAGE);
   const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
   let kind: LoadedMedia["kind"] = file.type.startsWith("video/") ? "video" : "audio";
   let videoContainer: LoadedMedia["videoContainer"] = "mp4";

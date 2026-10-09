@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Montserrat, Sora } from "next/font/google";
 import { ToastProvider } from "@/components/ui/toast";
 import { PwaSetup } from "@/components/pwa/pwa";
+import { EngagementPrompt } from "@/components/pwa/engagement";
 import { UpdateBanner } from "@/components/pwa/update-banner";
 import { ErrorReporter } from "@/components/errors/error-reporter";
 import "./globals.css";
@@ -37,6 +38,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body>
         <ToastProvider>{children}</ToastProvider>
         <PwaSetup />
+        <EngagementPrompt />
         <UpdateBanner />
         <ErrorReporter />
       </body>

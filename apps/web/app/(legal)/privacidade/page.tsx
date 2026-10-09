@@ -49,6 +49,11 @@ export default function Privacy() {
           identificação.
         </li>
         <li>
+          <strong>Lembrete diário (opcional):</strong> se você ativar, guardamos o endereço de notificação que o seu navegador gera
+          (sem nome nem e-mail) para enviar uma mensagem por dia. Você desativa na página Conta ou nas configurações do navegador
+          (consentimento).
+        </li>
+        <li>
           <strong>No seu navegador:</strong> cookies de sessão (necessários para o login) e armazenamento local para preferências e o
           código de indicação. Não usamos cookies de publicidade.
         </li>

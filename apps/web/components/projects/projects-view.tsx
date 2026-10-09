@@ -26,19 +26,42 @@ type Row = {
   expires_at: string;
 };
 
-const TARGET: Record<Row["target"], string> = { wav: "WAV", mp3: "MP3", m4a: "M4A", video: "Vídeo com o áudio tratado" };
+const TARGET: Record<Row["target"], string> = {
+  wav: "WAV",
+  mp3: "MP3",
+  m4a: "M4A",
+  video: "Vídeo com o áudio tratado",
+};
+
+type DeviceRow = { id: string; target: Row["target"]; created_at: string };
+
+/**
+ * Download registrado sem job do servidor por perto (2 min) = processado no aparelho. O formato vem do fim da
+ * referência do resultado (…_mp3, …_wav, …_m4a, …_video).
+ */
+function deviceRows(txs: { id: string; reference_id: string | null; created_at: string }[], jobs: Row[]): DeviceRow[] {
+  const done = jobs.filter((j) => j.status === "done").map((j) => ({ t: new Date(j.created_at).getTime(), target: j.target }));
+  return txs.flatMap((tx) => {
+    const target = (tx.reference_id?.match(/_(mp3|wav|m4a|video)$/)?.[1] ?? null) as Row["target"] | null;
+    if (!target) return [];
+    const at = new Date(tx.created_at).getTime();
+    const fromServer = done.some((j) => j.target === target && at >= j.t - 60_000 && at - j.t <= 30 * 60_000);
+    return fromServer ? [] : [{ id: tx.id, target, created_at: tx.created_at }];
+  });
+}
 
 function statusOf(r: Row, now: number): { label: string; tone: Tone } {
   if (r.status === "queued") return { label: "Na fila", tone: "info" };
   if (r.status === "running") return { label: "Processando", tone: "primary" };
-  if (r.status === "done") return new Date(r.expires_at).getTime() > now ? { label: "Concluído", tone: "success" } : { label: "Arquivo expirado", tone: "neutral" };
+  if (r.status === "done")
+    return new Date(r.expires_at).getTime() > now ? { label: "Concluído", tone: "success" } : { label: "Arquivo expirado", tone: "neutral" };
   if (r.status === "expired") return { label: "Arquivo expirado", tone: "neutral" };
   return r.error_code === "CANCELLED" ? { label: "Cancelado", tone: "neutral" } : { label: "Não concluído", tone: "danger" };
 }
 
 /**
- * Meus projetos: o que foi processado no servidor. Os arquivos ficam 24 horas (privacidade e custo);
- * depois só o registro fica. O que é processado no próprio aparelho não passa por aqui.
+ * Meus projetos: o que foi processado no servidor (arquivos por 24 horas; depois só o registro) e o que
+ * foi processado no próprio aparelho (vem dos downloads registrados; o arquivo fica só no aparelho).
  */
 export function ProjectsView() {
   const { user, requireLogin } = useAccountCtx();
@@ -47,6 +70,8 @@ export function ProjectsView() {
   const [busyId, setBusyId] = useState<string | null>(null);
   /** O "agora" da última atualização da lista (valor puro durante a renderização). */
   const [now, setNow] = useState(0);
+  /** Downloads feitos no aparelho (sem job no servidor). */
+  const [device, setDevice] = useState<DeviceRow[]>([]);
 
   const load = useCallback(async () => {
     const { data, error } = await supabaseBrowser()
@@ -55,7 +80,25 @@ export function ProjectsView() {
       .order("created_at", { ascending: false })
       .limit(50);
     if (!error) {
-      setRows((data ?? []) as Row[]);
+      const jobs = (data ?? []) as Row[];
+      const { data: txs } = await supabaseBrowser()
+        .from("credit_transactions")
+        .select("id,reference_id,created_at")
+        .eq("type", "DOWNLOAD")
+        .eq("reference_type", "export")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      setRows(jobs);
+      setDevice(
+        deviceRows(
+          (txs ?? []) as {
+            id: string;
+            reference_id: string | null;
+            created_at: string;
+          }[],
+          jobs,
+        ),
+      );
       setNow(Date.now());
     }
   }, []);
@@ -76,8 +119,13 @@ export function ProjectsView() {
   async function download(r: Row) {
     setBusyId(r.id);
     try {
-      const res = await fetch(`/api/export/jobs/${r.id}`, { cache: "no-store" });
-      const body = (await res.json().catch(() => null)) as { download_url?: string | null; error?: string } | null;
+      const res = await fetch(`/api/export/jobs/${r.id}`, {
+        cache: "no-store",
+      });
+      const body = (await res.json().catch(() => null)) as {
+        download_url?: string | null;
+        error?: string;
+      } | null;
       if (!res.ok || !body?.download_url) throw new Error(body?.error);
       const a = document.createElement("a");
       a.href = body.download_url;
@@ -96,7 +144,9 @@ export function ProjectsView() {
   async function cancel(r: Row) {
     setBusyId(r.id);
     try {
-      const res = await fetch(`/api/export/jobs/${r.id}/cancel`, { method: "POST" });
+      const res = await fetch(`/api/export/jobs/${r.id}/cancel`, {
+        method: "POST",
+      });
       if (!res.ok) throw new Error();
       toast.success("Processamento cancelado. Nenhum crédito foi usado.");
       await load();
@@ -120,14 +170,14 @@ export function ProjectsView() {
     <div className="flex flex-col gap-4">
       <div>
         <h1 className="font-display text-2xl font-semibold">Meus projetos</h1>
-        <p className="text-sm text-muted">O que foi processado no servidor. Os arquivos ficam disponíveis por 24 horas; depois, só o registro.</p>
+        <p className="text-sm text-muted">Seus áudios e vídeos tratados. Os processados no servidor ficam disponíveis para baixar de novo por 24 horas.</p>
       </div>
 
       {rows === null ? (
         <p className="flex items-center gap-2 text-sm text-muted">
           <Loader2 className="size-4 animate-spin" aria-hidden /> Carregando…
         </p>
-      ) : rows.length === 0 ? (
+      ) : rows.length === 0 && device.length === 0 ? (
         <Card className="flex flex-col items-start gap-3 p-6">
           <p className="text-sm text-muted">Nada por aqui ainda. Quando você processar um áudio no servidor, ele aparece nesta lista.</p>
           <Link href="/estudio" className="text-sm text-violet-300 underline">
@@ -135,52 +185,84 @@ export function ProjectsView() {
           </Link>
         </Card>
       ) : (
-        <ul className="flex flex-col gap-2">
-          {rows.map((r) => {
-            const st = statusOf(r, now);
-            const available = r.status === "done" && new Date(r.expires_at).getTime() > now;
-            const Icon = r.kind === "video" ? Film : AudioLines;
-            return (
-              <li key={r.id}>
-                <Card className="flex flex-col gap-3 p-4">
-                  <div className="flex items-start gap-3">
-                    <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white/[0.06]">
-                      <Icon className="size-5" aria-hidden />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold">{r.kind === "video" ? "Vídeo" : "Áudio"} · {TARGET[r.target]}</p>
-                      <p className="text-xs text-muted">
-                        {formatDateTime(r.created_at)}
-                        {r.duration_s ? ` · ${formatDuration(r.duration_s)}` : ""}
-                        {r.lufs !== null ? ` · ${Number(r.lufs).toFixed(1)} LUFS` : ""}
-                      </p>
+        <>
+          <ul className="flex flex-col gap-2">
+            {rows.map((r) => {
+              const st = statusOf(r, now);
+              const available = r.status === "done" && new Date(r.expires_at).getTime() > now;
+              const Icon = r.kind === "video" ? Film : AudioLines;
+              return (
+                <li key={r.id}>
+                  <Card className="flex flex-col gap-3 p-4">
+                    <div className="flex items-start gap-3">
+                      <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white/[0.06]">
+                        <Icon className="size-5" aria-hidden />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold">
+                          {r.kind === "video" ? "Vídeo" : "Áudio"} · {TARGET[r.target]}
+                        </p>
+                        <p className="text-xs text-muted">
+                          {formatDateTime(r.created_at)}
+                          {r.duration_s ? ` · ${formatDuration(r.duration_s)}` : ""}
+                          {r.lufs !== null ? ` · ${Number(r.lufs).toFixed(1)} LUFS` : ""}
+                        </p>
+                      </div>
+                      <Badge tone={st.tone}>{st.label}</Badge>
                     </div>
-                    <Badge tone={st.tone}>{st.label}</Badge>
-                  </div>
-                  {r.status === "running" && <ProgressBar value={r.progress} label="Processando no servidor" />}
-                  {r.status === "failed" && r.error_code && r.error_code !== "CANCELLED" && <p className="text-xs text-muted">{exportErrorInfo(r.error_code).message}</p>}
-                  <div className="flex flex-wrap gap-2">
-                    {available && (
-                      <Button size="sm" variant="secondary" disabled={busyId === r.id} onClick={() => void download(r)}>
-                        <Download className="size-4" aria-hidden /> Baixar de novo
-                      </Button>
+                    {r.status === "running" && <ProgressBar value={r.progress} label="Processando no servidor" />}
+                    {r.status === "failed" && r.error_code && r.error_code !== "CANCELLED" && (
+                      <p className="text-xs text-muted">{exportErrorInfo(r.error_code).message}</p>
                     )}
-                    {(r.status === "queued" || r.status === "running") && (
-                      <Button size="sm" variant="secondary" disabled={busyId === r.id} onClick={() => void cancel(r)}>
-                        <XCircle className="size-4" aria-hidden /> Cancelar
-                      </Button>
-                    )}
-                    {(r.status === "failed" || r.status === "expired" || !available) && r.status !== "queued" && r.status !== "running" && (
-                      <Link href="/estudio" className="inline-flex h-9 items-center text-sm text-violet-300 underline">
-                        Processar de novo
-                      </Link>
-                    )}
-                  </div>
-                </Card>
-              </li>
-            );
-          })}
-        </ul>
+                    <div className="flex flex-wrap gap-2">
+                      {available && (
+                        <Button size="sm" variant="secondary" disabled={busyId === r.id} onClick={() => void download(r)}>
+                          <Download className="size-4" aria-hidden /> Baixar de novo
+                        </Button>
+                      )}
+                      {(r.status === "queued" || r.status === "running") && (
+                        <Button size="sm" variant="secondary" disabled={busyId === r.id} onClick={() => void cancel(r)}>
+                          <XCircle className="size-4" aria-hidden /> Cancelar
+                        </Button>
+                      )}
+                      {(r.status === "failed" || r.status === "expired" || !available) && r.status !== "queued" && r.status !== "running" && (
+                        <Link href="/estudio" className="inline-flex h-9 items-center text-sm text-violet-300 underline">
+                          Processar de novo
+                        </Link>
+                      )}
+                    </div>
+                  </Card>
+                </li>
+              );
+            })}
+          </ul>
+          {device.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <h2 className="mt-2 text-sm font-semibold text-muted">Processados no seu aparelho</h2>
+              <ul className="flex flex-col gap-2">
+                {device.map((d) => {
+                  const Icon = d.target === "video" ? Film : AudioLines;
+                  return (
+                    <li key={d.id}>
+                      <Card className="flex items-start gap-3 p-4">
+                        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white/[0.06]">
+                          <Icon className="size-5" aria-hidden />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold">
+                            {d.target === "video" ? "Vídeo" : "Áudio"} · {TARGET[d.target]}
+                          </p>
+                          <p className="text-xs text-muted">{formatDateTime(d.created_at)} · o arquivo ficou salvo só neste aparelho</p>
+                        </div>
+                        <Badge tone="success">Baixado</Badge>
+                      </Card>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

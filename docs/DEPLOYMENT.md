@@ -52,3 +52,13 @@ Cloud Run (região `us-central1`, faixa 1) escala a zero e tem cota grátis; Clo
 | Job fica em `queued` | o `start` não foi chamado (aba fechada no envio) ou a fila está pausada; a limpeza libera em 15 min |
 | Cloud Tasks recebe 403 do Cloud Run | `export-invoker` sem `roles/run.invoker` ou `audience` diferente da URL do serviço |
 | Falha ao criar tarefa (rota devolve CAPACITY) | `export-enqueuer` sem `roles/cloudtasks.enqueuer` na fila ou sem `serviceAccountUser` no invocador; chave `GCP_SERVICE_ACCOUNT_JSON` inválida |
+
+## Notificações diárias (Web Push)
+
+- Banco: `supabase/migrations/20261009000001_push.sql` (tabela `push_subscriptions`, só o servidor acessa; ajuste `push_daily_enabled`).
+- Vercel (Production e Preview): `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (secreta), `VAPID_SUBJECT` e `CRON_SECRET` (secreta).
+- Envio: cron da Vercel em `apps/web/vercel.json`, todo dia às 22:00 UTC (19:00 em Brasília; no plano Hobby o horário pode variar dentro da hora). Rota `/api/cron/push-diario`.
+- Regras: uma mensagem por dia (gira pela lista em `lib/push/messages.ts`); quem já baixou algo no dia não recebe; inscrições que o navegador cancelou são apagadas.
+- No iPhone, as notificações só funcionam com o app instalado na Tela de Início (iOS 16.4 ou mais novo).
+- Desligar todos os envios: `update public.system_settings set value = 'false' where key = 'push_daily_enabled';`
+

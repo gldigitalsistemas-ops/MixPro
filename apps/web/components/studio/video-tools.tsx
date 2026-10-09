@@ -34,15 +34,16 @@ export type VideoToolsState = {
   cta: { enabled: boolean; text: string | null; handle: string };
 };
 
-export const defaultVideoTools = (media: LoadedMedia): VideoToolsState => ({
-  cut: "off",
-  format: media.kind === "video" ? "original" : "9:16",
-  fit: "blur",
-  watermark: true,
-  audiogram: null,
-  color: { ...DEFAULT_LOOK },
-  cta: { enabled: true, text: null, handle: storedHandle() },
-});
+/**
+ * Vídeo: começa "como foi gravado" (sem selo, cor, nitidez nem chamada). Assim só o áudio é trocado,
+ * sem recodificar a imagem, e o processamento pode ir para o servidor. O vídeo é só o contêiner do áudio.
+ */
+export const NEUTRAL_LOOK = { ...DEFAULT_LOOK, auto: false, amount: 0, sharpen: 0, vignette: 0 };
+
+export const defaultVideoTools = (media: LoadedMedia): VideoToolsState =>
+  media.kind === "video"
+    ? { cut: "off", format: "original", fit: "blur", watermark: false, audiogram: null, color: { ...NEUTRAL_LOOK }, cta: { enabled: false, text: null, handle: storedHandle() } }
+    : { cut: "off", format: "9:16", fit: "blur", watermark: true, audiogram: null, color: { ...DEFAULT_LOOK }, cta: { enabled: true, text: null, handle: storedHandle() } };
 
 const KEY_HANDLE = "mixpro.handle";
 function storedHandle(): string {

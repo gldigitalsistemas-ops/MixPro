@@ -7,6 +7,7 @@ import { ChevronRight, Coins, Gift, LogOut, Mic2, Palette, Shield, Star, Trash2 
 import { useAccountCtx } from "@/components/account/account-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PushSettings } from "@/components/pwa/push-settings";
 import { useToast } from "@/components/ui/toast";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { deleteStyle, listStyles, type SavedStyle } from "@/lib/styles";
@@ -89,6 +90,8 @@ export function AccountView() {
           </div>
         </label>
       </Card>
+
+      <PushSettings />
 
       <Card className="p-2">
         {links.map(({ href, icon: Icon, label }) => (
