@@ -4,7 +4,7 @@
   "description": "Serviço de exportação de áudio (Etapa 4). Usa lib/export e lib/dsp de apps/web pelo alias @/ do tsconfig; sem dependências próprias.",
   "scripts": {
     "start": "../../packages/contracts/node_modules/.bin/tsx src/server.ts",
-    "test": "../../packages/contracts/node_modules/.bin/tsx --test test/*.test.ts",
+    "test": "../../packages/contracts/node_modules/.bin/tsx --test --test-concurrency=1 test/*.test.ts",
     "typecheck": "../web/node_modules/.bin/tsc -p ."
   }
 }

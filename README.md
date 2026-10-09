@@ -38,7 +38,7 @@ Os testes usam `node:test` com `tsx`. No Windows, rode o `tsx` direto (os script
 |---|---|
 | Motor, exportação, diagnóstico, rotas (app) | `node packages/contracts/node_modules/tsx/dist/cli.mjs --test apps/web/lib/**/*.test.ts` |
 | Contratos | `cd packages/contracts && node node_modules/tsx/dist/cli.mjs --test tests/*.test.ts` |
-| Serviço, banco e nuvem de teste | `cd apps/export-service && node ../../packages/contracts/node_modules/tsx/dist/cli.mjs --test test/*.test.ts` |
+| Serviço, banco e nuvem de teste | `cd apps/export-service && node ../../packages/contracts/node_modules/tsx/dist/cli.mjs --test --test-concurrency=1 test/*.test.ts` |
 | Tipos e lint do app | `cd apps/web && npx tsc --noEmit -p . && npx eslint` |
 | Banco (RLS, créditos, admin) | `sh supabase/tests/run.sh` |
 

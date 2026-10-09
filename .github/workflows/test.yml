@@ -46,7 +46,7 @@ jobs:
         working-directory: apps/export-service
         env:
           REQUIRE_FFMPEG: "1"
-        run: ../../packages/contracts/node_modules/.bin/tsx --test test/*.test.ts
+        run: ../../packages/contracts/node_modules/.bin/tsx --test --test-concurrency=1 test/*.test.ts
 
   # imagem do serviço: construída e testada só aqui (nunca na máquina de desenvolvimento)
   imagem-servico:

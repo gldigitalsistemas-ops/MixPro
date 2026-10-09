@@ -34,7 +34,7 @@ node packages/contracts/node_modules/tsx/dist/cli.mjs apps/export-service/src/se
 
 # testes (precisam de FFmpeg para a maior parte)
 cd apps/export-service
-FFMPEG_PATH=... FFPROBE_PATH=... node ../../packages/contracts/node_modules/tsx/dist/cli.mjs --test test/*.test.ts
+FFMPEG_PATH=... FFPROBE_PATH=... node ../../packages/contracts/node_modules/tsx/dist/cli.mjs --test --test-concurrency=1 test/*.test.ts
 ```
 
 - `service.test.ts`: o serviço de ponta a ponta com pasta local.
