@@ -88,7 +88,8 @@ function depsFromEnv(): ServiceDeps {
 }
 
 // executado direto (tsx src/server.ts ou node server.mjs): sobe o servidor
-const isMain = typeof require !== "undefined" ? require.main === module : process.argv[1]?.match(/server\.(ts|mjs|js)$/);
+// (no pacote ESM não existe `module`: decide só pelo arquivo executado)
+const isMain = /server\.(ts|mjs|js)$/.test(process.argv[1] ?? "");
 if (isMain) {
   const port = Number(process.env.PORT ?? 8080);
   createService(depsFromEnv(), process.env.EXPORT_SERVICE_TOKEN || undefined).listen(port, () => logService("inicio", { porta: port, dsp_version: DSP_VERSION }));
