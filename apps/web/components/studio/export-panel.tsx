@@ -4,7 +4,7 @@ import { isFileGone } from "@/lib/media/file-access";
 import { beginTask, reportError } from "@/lib/error-log";
 import { DELIVERY_IDS, DELIVERY_TARGETS, type DeliveryId } from "@mixpro/contracts";
 import { useEffect, useRef, useState } from "react";
-import { AudioLines, Copy, Download, Film, Music, Share2, Sparkles } from "lucide-react";
+import { AudioLines, Download, Film, Music, Share2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/misc";
 import { useToast } from "@/components/ui/toast";
@@ -20,7 +20,6 @@ import type { MusicState } from "./music-picker";
 import type { StudioPreset } from "@/lib/presets";
 import type { DrumSampleSet } from "@/lib/dsp/drums/studio";
 import type { CabIR, DrumKit, DrumLibraryItem } from "@/lib/drums/library";
-import { FILTERS, lookIsActive } from "@/lib/media/color";
 import { buildExportJob, composeChain, type ChainParts } from "@/lib/export/build-job";
 import { executeExportJob, FILE_GONE } from "@/lib/export/execute-job";
 import { rendersVideo } from "@/lib/export/look";
@@ -29,7 +28,6 @@ import { remuxVideoWithAudio } from "@/lib/media/remux";
 import { readableFile } from "@/lib/media/file-access";
 import { audioRef, editRef, resultRef, settingsRef } from "@/lib/export/refs";
 import { downloadBlob } from "@/lib/download";
-import { BatchExport } from "./batch-export";
 import { keepAwake } from "@/lib/wake-lock";
 import { isPhone } from "@/lib/device";
 import { cn, formatDuration } from "@/lib/cn";
@@ -90,9 +88,8 @@ export function ExportPanel(props: Props) {
   const { balance, spend, onNeedCredits, signedIn, requireLogin, drumSamples, impulses, lockedKits, onUnlock } = props;
   const toast = useToast();
   const [phase, setPhase] = useState<Phase>(null);
-  // vídeo "antes → depois" (só para vídeo)
-  const [beforeAfter, setBeforeAfter] = useState(false);
-  const comparing = beforeAfter && media.kind === "video";
+  // o "antes → depois" em vídeo saiu do produto (o vídeo é só o contêiner do áudio)
+  const comparing = false;
   const [lastResult, setResult] = useState<Result | null>(null);
   const cache = useRef<{ key: string; value: DspResult } | null>(null);
   const running = useRef(false);
@@ -255,47 +252,26 @@ export function ExportPanel(props: Props) {
     }
   }
 
-  async function copyPost(silent = false) {
-    try {
-      await navigator.clipboard.writeText(post);
-      if (!silent) toast.success("Legenda copiada. É só colar no post.");
-      return true;
-    } catch {
-      if (!silent) toast.error("Não foi possível copiar. Selecione o texto e copie.");
-      return false;
-    }
-  }
-
   async function shareResult() {
     if (!result) return;
     const file = new File([result.blob], result.filename, { type: result.blob.type });
-    // Instagram e TikTok ignoram o texto do compartilhamento: vai também para a área de transferência
-    // (sem await antes do share: o Safari exige que o share saia direto do toque)
-    const copied = copyPost(true);
     try {
-      await navigator.share({ files: [file], title: "Mix Pro", text: post });
+      await navigator.share({ files: [file], title: "Mix Pro" });
       track("share", { target: result.target });
-      if (await copied) toast.success("A legenda do post está copiada: cole na descrição.");
     } catch (e) {
       if ((e as Error).name !== "AbortError") downloadBlob(result.blob, result.filename);
     }
   }
 
   const busy = phase !== null;
-  const post = props.postText;
   const shareable = result ? canShareFiles(new File([result.blob], result.filename, { type: result.blob.type })) : false;
   const saved = cutting ? media.duration - keptDuration(segments) : 0;
   const summary = [
     preset?.name,
     denoise > 0 && (denoise >= 1 ? "ruído removido" : "ruído reduzido"),
-    look.captions && "legendas",
-    makesVideo && look.cta && "chamada no final",
-    makesVideo && look.format !== "original" && `formato ${look.format}`,
     cutting && saved >= 0.5 && `${formatDuration(saved)} de pausas cortadas`,
     music && "música de fundo",
-    makesVideo && look.watermark && !comparing && "selo Mix Pro",
-    comparing && "antes → depois",
-    media.kind === "video" && lookIsActive(look.color) && (look.color!.filter === "natural" ? "imagem corrigida" : `imagem: ${FILTERS.find((f) => f.id === look.color!.filter)?.label}`),
+    media.kind === "video" && "vídeo original preservado",
     lockedKits.length > 0 && `kit premium: ${lockedKits.map((k) => k.name).join(", ")}`,
   ].filter(Boolean) as string[];
 
@@ -342,19 +318,6 @@ export function ExportPanel(props: Props) {
         </ul>
       )}
 
-      {media.kind === "video" && (
-        <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-violet-400/30 bg-primary/5 p-3">
-          <input type="checkbox" checked={beforeAfter} onChange={(e) => setBeforeAfter(e.target.checked)} className="mt-1 size-4 accent-violet-500" />
-          <span>
-            <span className="block text-sm font-medium">Vídeo “antes → depois” para Reels</span>
-            <span className="block text-xs text-muted">
-              O começo toca o som original do celular com o selo ANTES; na virada entra o som de estúdio com o selo DEPOIS. O formato
-              que mais chama atenção — e mostra o seu trabalho.
-            </span>
-          </span>
-        </label>
-      )}
-
       {lockedKits.length > 0 && (
         <p className="rounded-2xl border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-100">
           Você está usando o kit premium {lockedKits.map((k) => `“${k.name}” (${k.price_credits} créditos)`).join(" e ")}. Ouvir é
@@ -381,7 +344,7 @@ export function ExportPanel(props: Props) {
         <div className="flex flex-col gap-2">
           <Button size="lg" onClick={() => run(makesVideo ? "video" : "mp3")} disabled={!preset || !chain || busy} className="w-full">
             {media.kind === "video" ? <Film className="size-5" /> : audiogram ? <AudioLines className="size-5" /> : <Music className="size-5" />}
-            {media.kind === "video" ? "Gerar vídeo pronto para postar" : audiogram ? "Gerar audiograma (vídeo)" : "Gerar áudio pronto (MP3)"}
+            {media.kind === "video" ? "Gerar vídeo com o som novo" : audiogram ? "Gerar audiograma (vídeo)" : "Gerar áudio pronto (MP3)"}
           </Button>
           <div className="grid grid-cols-3 gap-2">
             {(makesVideo ? (["mp3", "wav", "m4a"] as const) : (["wav", "m4a"] as const)).map((f) => (
@@ -408,16 +371,12 @@ export function ExportPanel(props: Props) {
           ) : (
             <audio src={result.url} controls className="w-full" />
           )}
-          <p className="text-xs text-muted">Ao postar, a descrição do post já vai copiada: é só colar.</p>
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-2">
             {shareable && (
               <Button onClick={shareResult}>
-                <Share2 className="size-4" /> Postar
+                <Share2 className="size-4" /> Compartilhar
               </Button>
             )}
-            <Button variant="secondary" onClick={() => copyPost()}>
-              <Copy className="size-4" /> Copiar descrição
-            </Button>
             <Button variant={shareable ? "secondary" : "primary"} onClick={() => downloadBlob(result.blob, result.filename)}>
               <Download className="size-4" /> Baixar arquivo
             </Button>
@@ -425,25 +384,6 @@ export function ExportPanel(props: Props) {
         </div>
       )}
 
-      {!busy && preset && chain && (
-        <BatchExport
-          presetSlug={preset.slug}
-          chain={chain}
-          intensity={intensity}
-          denoise={denoise}
-          social={social}
-          delivery={delivery}
-          look={look}
-          assetsAt={props.assetsAt}
-          lockedKits={lockedKits}
-          onUnlock={onUnlock}
-          spend={spend}
-          balance={balance}
-          signedIn={signedIn}
-          requireLogin={requireLogin}
-          onNeedCredits={onNeedCredits}
-        />
-      )}
     </div>
   );
 }

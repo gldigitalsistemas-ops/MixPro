@@ -1,20 +1,6 @@
 import type { Metadata } from "next";
 import { BusinessFooter } from "@/components/layout/business-footer";
-import {
-  AudioLines,
-  Captions,
-  Coins,
-  Drum,
-  Gift,
-  Send,
-  Mic2,
-  RectangleVertical,
-  Scissors,
-  ShieldCheck,
-  Sparkles,
-  Wand2,
-  Waves,
-} from "lucide-react";
+import { AudioLines, Clapperboard, Coins, Drum, Gauge, Gift, Mic2, ShieldCheck, SlidersHorizontal, Sparkles, Stethoscope, Wand2, Waves } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
 import { Logo } from "@/components/ui/misc";
 import { DemoPlayer } from "@/components/landing/demo-player";
@@ -23,23 +9,23 @@ import { DemoPlayer } from "@/components/landing/demo-player";
 export const revalidate = 3600;
 
 export const metadata: Metadata = {
-  title: "Mix Pro — Som de estúdio e legendas nos seus vídeos",
+  title: "Mix Pro — Mixagem e masterização online para a sua gravação",
   description:
-    "Melhore o áudio dos seus vídeos para Reels, TikTok e YouTube: presets profissionais, remoção de ruído, legendas automáticas, cortes de silêncio e formato vertical. Direto no celular, sem enviar seu arquivo.",
+    "Grave no celular, no microfone ou na interface e deixe o Mix Pro tratar, mixar e masterizar: voz, violão, guitarra, baixo, bateria e música completa. Diagnóstico técnico, antes e depois e volume certo para Spotify, YouTube e Reels.",
   keywords: [
     "melhorar áudio do vídeo",
-    "legenda automática reels",
+    "masterizar música online",
     "remover ruído do vídeo",
     "voz de podcast",
-    "cortar silêncio do vídeo",
+    "melhorar som da gravação do celular",
     "mixagem online",
     "masterização online",
     "som de bateria de estúdio",
     "bateria gravada no celular",
   ],
   openGraph: {
-    title: "Mix Pro — Som de estúdio e legendas nos seus vídeos",
-    description: "Presets profissionais, legendas automáticas e cortes de silêncio. Grátis para começar, direto no celular.",
+    title: "Mix Pro — Você grava. O Mix Pro transforma o áudio.",
+    description: "Tratamento, mixagem e masterização para voz, instrumentos e músicas. Grátis para começar.",
     type: "website",
   },
 };
@@ -48,19 +34,19 @@ const FEATURES = [
   { icon: Wand2, title: "Som de estúdio", text: "Mais de 70 presets feitos por engenheiro de áudio: voz de criador, podcast, vocal, rap, instrumentos e masterização." },
   { icon: Drum, title: "Bateria de estúdio", text: "Gravou a bateria no celular? O app acha bumbo, caixa e tons e dá o som de estúdio: worship, pop rock, reggae, groove, soul e mais." },
   { icon: Waves, title: "Adeus, ruído", text: "Tira ventilador, ar-condicionado, rua e chiado com inteligência artificial." },
-  { icon: Captions, title: "Legendas automáticas", text: "A IA escreve o que você fala, palavra por palavra, no estilo dos Reels e TikTok." },
-  { icon: Scissors, title: "Corte de silêncios", text: "Remove pausas e “é…”, “hã…” automaticamente. Vídeo mais dinâmico, sem editar." },
-  { icon: RectangleVertical, title: "Formato vertical", text: "Transforma vídeo deitado em 9:16 com fundo desfocado, pronto para o feed." },
+  { icon: Stethoscope, title: "Diagnóstico do áudio", text: "Loudness, true peak, ruído, clipping, graves e agudos medidos de verdade, antes de tratar." },
+  { icon: Gauge, title: "Masterização no volume certo", text: "Natural, Podcast, Redes e streaming ou Alto: o volume ideal para cada destino, sem estourar." },
+  { icon: Clapperboard, title: "Vídeo com som novo", text: "Envie o vídeo e baixe o mesmo vídeo, com a imagem intacta e o áudio tratado." },
   { icon: AudioLines, title: "Violão, guitarra, baixo e teclado", text: "Gravou no celular ou plugou no cabo? Presets para cada jeito de gravar, com amplificadores e 10 caixas de estúdio." },
-  { icon: Send, title: "Post pronto", text: "Texto do post e hashtags tirados da sua fala. Um toque e está no Instagram, TikTok ou WhatsApp." },
+  { icon: SlidersHorizontal, title: "Separe a sua música", text: "Voz, bateria, baixo e instrumentos em faixas separadas para ensaio, playback e remix." },
 ];
 
 const FAQ = [
   ["Preciso instalar alguma coisa?", "Não. O Mix Pro funciona no navegador do celular ou do computador. Se quiser, dá para adicioná-lo à tela inicial como um app."],
-  ["Meu vídeo é enviado para algum servidor?", "Não. Todo o processamento acontece no seu aparelho. Seu arquivo nunca sai dele."],
+  ["Meu arquivo fica guardado?", "A imagem do vídeo nunca sai do seu aparelho. Para tratar, enviamos só o áudio, que é apagado automaticamente em até 24 horas e nunca é usado para treinar inteligência artificial."],
   ["Quanto custa?", "Testar e ouvir é grátis e ilimitado. Você ganha 5 downloads ao criar a conta; depois, cada download custa R$ 1,00 e você compra só o que precisar, por PIX ou cartão. Quem posta muito pode assinar o Plano Criador, com créditos todo mês por um preço menor."],
   ["Funciona com bateria gravada no celular?", "Sim. Na categoria Bateria de Estúdio o app identifica bumbo, caixa, tons e pratos e reforça cada batida com o timbre do estilo escolhido. Você ajusta o volume de cada peça e ouve na hora."],
-  ["Posso usar o áudio no CapCut?", "Sim. Além do vídeo pronto, você pode baixar só o áudio (MP3, WAV ou M4A) e as legendas em .srt."],
+  ["Em quais formatos eu baixo?", "MP3, WAV e M4A. Em vídeo, você baixa o mesmo vídeo com o som novo ou só o áudio tratado."],
   ["E se eu quiser uma mixagem feita por um profissional?", "Na Mixagem Profissional um engenheiro de áudio mixa a sua música à mão, com revisões inclusas."],
 ];
 
@@ -123,11 +109,11 @@ export default function Landing() {
               <Sparkles className="size-3.5" /> 5 downloads grátis · sem instalar nada
             </span>
             <h1 className="font-display text-4xl font-bold leading-[1.05] tracking-tight md:text-6xl">
-              Seu vídeo com <span className="text-gradient">som de estúdio</span> e legendas, em 1 minuto.
+              Você grava. O Mix Pro <span className="text-gradient">transforma o áudio</span>.
             </h1>
             <p className="max-w-xl text-lg text-muted">
-              Escolha o vídeo da galeria, toque num preset, gere as legendas e baixe pronto para o Reels, TikTok ou YouTube.
-              Tudo no seu celular.
+              Voz, violão, guitarra, baixo, bateria ou a música inteira: envie a gravação do celular, do microfone ou da interface e
+              baixe mixada e masterizada, no volume certo para Spotify, YouTube e Reels.
             </p>
             <div className="flex flex-wrap gap-3">
               <ButtonLink href="/estudio" size="lg">
@@ -138,7 +124,7 @@ export default function Landing() {
               </ButtonLink>
             </div>
             <p className="flex items-center gap-2 text-sm text-muted">
-              <ShieldCheck className="size-4 text-green-400" /> Seu arquivo é processado no seu aparelho e nunca é enviado.
+              <ShieldCheck className="size-4 text-green-400" /> O áudio enviado é apagado em até 24 horas. A imagem do vídeo nunca sai do aparelho.
             </p>
           </div>
           <PhoneMock />
@@ -149,7 +135,7 @@ export default function Landing() {
         </section>
 
         <section className="mx-auto max-w-6xl px-4 pb-16 md:px-8">
-          <h2 className="mb-2 font-display text-2xl font-semibold md:text-3xl">Tudo o que o seu vídeo precisa</h2>
+          <h2 className="mb-2 font-display text-2xl font-semibold md:text-3xl">Um estúdio inteiro para a sua gravação</h2>
           <p className="mb-8 text-muted">Ferramentas de estúdio que antes exigiam programa caro e muito tempo de edição.</p>
           <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {FEATURES.map(({ icon: Icon, title, text }) => (
@@ -168,9 +154,9 @@ export default function Landing() {
           <h2 className="mb-8 font-display text-2xl font-semibold md:text-3xl">Como funciona</h2>
           <ol className="grid gap-4 md:grid-cols-3">
             {[
-              ["Escolha o vídeo", "Direto da galeria do celular. Também funciona com áudio (MP3, WAV, M4A)."],
-              ["Ajuste em poucos toques", "Preset de som, remoção de ruído, legendas, cortes e formato. Ouça o antes e depois na hora."],
-              ["Baixe e poste", "Vídeo pronto para postar, ou só o áudio e a legenda para usar no CapCut."],
+              ["Envie a gravação", "Áudio (MP3, WAV, M4A, FLAC) ou vídeo (MP4, MOV), do celular ou do computador."],
+              ["Ouça o antes e depois", "O Mix Pro analisa, mostra o diagnóstico e escolhe o tratamento. Ajuste se quiser."],
+              ["Baixe pronto", "Áudio mixado e masterizado, ou o mesmo vídeo com o som novo."],
             ].map(([t, d], i) => (
               <li key={t} className="flex gap-4 rounded-3xl border border-border p-5">
                 <span className="font-display text-4xl font-bold text-violet-400/60">{i + 1}</span>

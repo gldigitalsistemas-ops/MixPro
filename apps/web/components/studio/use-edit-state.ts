@@ -6,13 +6,11 @@ import type { ChainDoc } from "@/lib/dsp/chain";
 import type { DrumTweaks } from "@/lib/drums/tweaks";
 import type { StudioPreset } from "@/lib/presets";
 import type { ReverbTweak } from "@/lib/reverb-tweak";
-import type { CaptionState } from "./captions-panel";
 import type { MusicState } from "./music-picker";
 import type { NoiseLevel } from "./noise-selector";
-import type { VideoToolsState } from "./video-tools";
 
 /**
- * Estado da edição que define o arquivo final (som, legendas, vídeo, música), num lugar só.
+ * Estado da edição que define o arquivo final (som e música de fundo), num lugar só.
  * Devolve os mesmos nomes de antes; o ExportJob é montado a partir destes valores.
  * O que é só da interface (abas, listas, prévia) continua no studio.tsx.
  */
@@ -24,8 +22,6 @@ export function useEditState() {
   /** Destino do ajuste final de volume (vale quando `social` está ligado). */
   const [delivery, setDelivery] = useState<DeliveryId>(DEFAULT_DELIVERY);
   const [chosenNoise, setNoise] = useState<NoiseLevel | null>(null);
-  const [captionState, setCaptionState] = useState<CaptionState | null>(null);
-  const [videoTools, setVideoTools] = useState<VideoToolsState | null>(null);
   const [music, setMusic] = useState<MusicState | null>(null);
   const [drumTweaks, setDrumTweaks] = useState<DrumTweaks | null>(null);
   const [reverbTweak, setReverbTweak] = useState<ReverbTweak | null>(null);
@@ -44,10 +40,6 @@ export function useEditState() {
     setDelivery,
     chosenNoise,
     setNoise,
-    captionState,
-    setCaptionState,
-    videoTools,
-    setVideoTools,
     music,
     setMusic,
     drumTweaks,

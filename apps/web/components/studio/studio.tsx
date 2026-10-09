@@ -2,7 +2,7 @@
 
 import { isFileGone, openPicker } from "@/lib/media/file-access";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AudioLines, Captions, Clapperboard, Download, FileAudio, FileVideo, RefreshCw, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { AudioLines, FileAudio, FileVideo, RefreshCw, ShieldCheck } from "lucide-react";
 import { ABPlayer, type ABSource } from "@/components/audio/ab-player";
 import { IntensitySelector } from "@/components/presets/intensity";
 import { Button } from "@/components/ui/button";
@@ -19,19 +19,14 @@ import { pickExcerpt, toAudioBuffer, type Excerpt } from "@/lib/media/excerpt";
 import { loadMedia, MediaLoadError, type LoadedMedia } from "@/lib/media/load";
 import { fetchPresets, type StudioCategory, type StudioPreset } from "@/lib/presets";
 import { DELIVERY_TARGETS, type DeliveryId, type Intensity } from "@mixpro/contracts";
-import { drawCaptions, type CaptionRender } from "@/lib/captions/model";
-import { captionFontFamily, ensureCaptionFont } from "@/lib/captions/font";
-import { CaptionsPanel, type CaptionState } from "./captions-panel";
 import { ExportPanel } from "./export-panel";
 import { StyleBar } from "./style-bar";
 import { MusicPicker } from "./music-picker";
 import { DrumPanel, drumDefaults, withDrumTweaks } from "./drum-panel";
 import { mixMusic, safeCeiling } from "@/lib/media/music";
-import { VideoTools, defaultVideoTools, type VideoToolsState } from "./video-tools";
-import { keptDuration, mapToOutput, speechSegments } from "@/lib/media/cuts";
-import { ctaSeconds, type EndCta, type Look } from "@/lib/media/compose";
+import { speechSegments } from "@/lib/media/cuts";
+import type { Look } from "@/lib/media/compose";
 import type { StyleSettings } from "@/lib/styles";
-import { allWords, buildCaptions, type CaptionStyleId, type CaptionPosition } from "@/lib/captions/model";
 import { NOISE_AMOUNT, NoiseSelector, type NoiseLevel } from "./noise-selector";
 import { PresetPicker } from "./preset-picker";
 import { StudioTour } from "./tour";
@@ -59,7 +54,7 @@ import {
 import { ReverbPanel } from "./reverb-panel";
 import { reverbFromChain, withReverb } from "@/lib/reverb-tweak";
 import type { ChainParts } from "@/lib/export/build-job";
-import { editSnapshot, mergeVideoTools, restorePatch } from "@/lib/edit-state";
+import { editSnapshot, restorePatch } from "@/lib/edit-state";
 import { useEditState } from "./use-edit-state";
 import { AutoSetupCard } from "./auto-setup-card";
 import { DiagnosisCard, type DiagnosisState } from "./diagnosis-card";
@@ -68,11 +63,6 @@ import { runDiagnosis } from "@/lib/dsp/diagnose-runner";
 import { fetchServerExportEnabled, resetServerExportEnabled } from "@/lib/export/server-client";
 import { analyzeAudio } from "@/lib/dsp/analyze";
 import { autoSetup, instrumentCategories, instrumentOfCategory, pickPreset, type AutoSetup } from "@/lib/auto-setup";
-import { analyzeVideoColor } from "@/lib/media/frames";
-import { ctaOptions, nicheById, suggestNiche, type NicheId, type Platform } from "@/lib/captions/niches";
-import { outputToSource } from "@/lib/media/before-after";
-import { composePost, coverTitle } from "@/lib/captions/post";
-import { PostComposer, storedNiche, storedPlatform } from "./post-composer";
 import { track } from "@/lib/track";
 import type { DrumSampleSet } from "@/lib/dsp/drums/studio";
 import {
@@ -119,9 +109,9 @@ function UploadCard({ icon, title, text, onClick }: { icon: React.ReactNode; tit
 
 function Steps() {
   const items = [
-    ["1", "Escolha o vídeo ou áudio", "Direto da galeria. O arquivo não sai do seu aparelho."],
-    ["2", "Toque num preset", "Voz de podcast, vocal, rap, instrumentos… e ouça antes e depois."],
-    ["3", "Baixe pronto para postar", "Vídeo com som novo, ou só o áudio para o CapCut."],
+    ["1", "Envie o áudio ou o vídeo", "Da galeria ou do computador: celular, microfone ou interface."],
+    ["2", "Ouça o antes e depois", "O Mix Pro analisa, escolhe o tratamento e você ajusta se quiser."],
+    ["3", "Baixe pronto para publicar", "Áudio mixado e masterizado, ou o mesmo vídeo com o som novo."],
   ];
   return (
     <ol className="grid gap-3 sm:grid-cols-3">
@@ -138,19 +128,12 @@ function Steps() {
   );
 }
 
-type Tab = "som" | "legendas" | "video" | "baixar";
-
-const TABS: { id: Tab; label: string; icon: typeof SlidersHorizontal }[] = [
-  { id: "som", label: "Som", icon: SlidersHorizontal },
-  { id: "legendas", label: "Legendas", icon: Captions },
-  { id: "video", label: "Vídeo", icon: Clapperboard },
-  { id: "baixar", label: "Baixar", icon: Download },
-];
+/** O vídeo é só o contêiner do áudio: a imagem sai exatamente como foi gravada. */
+const PLAIN_LOOK: Look = { format: "original", fit: "blur", watermark: false, captions: null, fontFamily: "sans-serif", color: null, cta: null };
 
 export function Studio() {
   const toast = useToast();
   const { user, account, favorites, spend, toggleFavorite, requireLogin, showNoCredits, refresh } = useAccountCtx();
-  const [tab, setTab] = useState<Tab>("som");
 
   const [catalog, setCatalog] = useState<{ presets: StudioPreset[]; categories: StudioCategory[] } | null>(null);
   const [catalogError, setCatalogError] = useState(false);
@@ -173,10 +156,6 @@ export function Studio() {
     setDelivery,
     chosenNoise,
     setNoise,
-    captionState,
-    setCaptionState,
-    videoTools,
-    setVideoTools,
     music,
     setMusic,
     drumTweaks,
@@ -207,14 +186,7 @@ export function Studio() {
   const [autoDecision, setAutoDecision] = useState<"aceito" | "manual" | null>(null);
   /** Ordem das abas de "Escolha o som" (definida no admin). */
   const [soundTabs, setSoundTabs] = useState<SoundTab[]>(DEFAULT_TAB_ORDER);
-  // descrição do post: nicho, plataforma, variação ("Outra sugestão") e o texto editado pela pessoa
-  const [chosenNiche, setNiche] = useState<NicheId | null>(null);
-  const [chosenPlatform, setPlatform] = useState<Platform | null>(null);
-  const [postVariant, setPostVariant] = useState(0);
-  const [postEdit, setPostEdit] = useState<string | null>(null);
   const [userPresetList, setUserPresets] = useState<StudioPreset[]>([]);
-  // preferências de legenda vindas de "Meu estilo" (usadas quando as legendas forem geradas)
-  const [captionPrefs, setCaptionPrefs] = useState<{ style: CaptionStyleId; position: CaptionPosition } | null>(null);
 
   const [excerpt, setExcerpt] = useState<Excerpt | null>(null);
   const [original, setOriginal] = useState<ABSource | null>(null);
@@ -455,19 +427,11 @@ export function Studio() {
     if ("noise" in p) setNoise(p.noise as NoiseLevel | null);
     if ("social" in p) setSocial(p.social!);
     if ("delivery" in p && p.delivery) setDelivery(p.delivery as DeliveryId);
-    if ("captionState" in p) setCaptionState(p.captionState as CaptionState | null);
-    const vt = p.videoTools as VideoToolsState | undefined;
-    if (vt) setVideoTools((cur) => mergeVideoTools(cur, vt));
     if ("drumTweaks" in p) setDrumTweaks(p.drumTweaks!);
     if ("reverbTweak" in p) setReverbTweak(p.reverbTweak!);
     if ("custom" in p) setCustom(p.custom!);
     if ("masterId" in p) setMasterId(p.masterId!);
     if ("autoDecision" in p) setAutoDecision(p.autoDecision!);
-    if ("niche" in p) setNiche(p.niche as NicheId | null);
-    if ("platform" in p) setPlatform(p.platform as Platform | null);
-    if ("postEdit" in p) setPostEdit(p.postEdit!);
-    if ("postVariant" in p) setPostVariant(p.postVariant!);
-    if ("tab" in p) setTab(p.tab as Tab);
     toast.success("Edição recuperada. Continue de onde parou.");
   }
 
@@ -488,8 +452,6 @@ export function Studio() {
     }
     setIntensity(null);
     setNoise(null);
-    setCaptionState(null);
-    setVideoTools(null);
     setMusic(null);
     setDrumTweaks(null);
     setReverbTweak(null);
@@ -497,9 +459,6 @@ export function Studio() {
     setAutoDecision(null);
     setMasterId(null);
     setFullPreview(false);
-    setPostEdit(null);
-    setPostVariant(0);
-    setTab("som");
     try {
       const m = await loadMedia(file, (p) => setLoading(p * 100));
       applyExcerpt(m, pickExcerpt(m.channels, m.sampleRate));
@@ -522,16 +481,6 @@ export function Studio() {
         .catch(() => {
           if (!dc.signal.aborted) setDiag({ status: "error" });
         });
-      setVideoTools(defaultVideoTools(m));
-      // imagem: correção automática a partir de alguns quadros (sem travar a tela)
-      if (m.kind === "video") {
-        analyzeVideoColor(m.file, m.duration)
-          .then((correction) => {
-            if (!correction) return;
-            setVideoTools((v) => (v ? { ...v, color: { ...v.color, correction } } : v));
-          })
-          .catch(() => {});
-      }
       setMedia(m);
       if (restore) applyRestore(restore);
       track("file_loaded", { kind: m.kind, seconds: Math.round(m.duration), content: setup?.kind ?? "?" });
@@ -580,22 +529,15 @@ export function Studio() {
         noise: chosenNoise,
         social,
         delivery,
-        captionState,
-        videoTools,
         drumTweaks,
         reverbTweak,
         custom,
         masterId,
         autoDecision,
-        niche: chosenNiche,
-        platform: chosenPlatform,
-        postEdit,
-        postVariant,
-        tab,
       }));
     }, 800);
     return () => clearTimeout(t);
-  }, [media, loading, chosenPreset, categoryId, chosenIntensity, chosenNoise, social, delivery, captionState, videoTools, drumTweaks, reverbTweak, custom, masterId, autoDecision, chosenNiche, chosenPlatform, postEdit, postVariant, tab]);
+  }, [media, loading, chosenPreset, categoryId, chosenIntensity, chosenNoise, social, delivery, drumTweaks, reverbTweak, custom, masterId, autoDecision]);
 
   useEffect(() => {
     if (window.location.search.includes("compartilhado=1")) return;
@@ -659,92 +601,11 @@ export function Studio() {
     };
   }, [media, excerpt, preset, chain, dspIntensity, social, delivery, denoiseAmount, music, assetsReady, drumSamples, impulses]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const captionRender = useMemo<CaptionRender | null>(
-    () =>
-      captionState
-        ? {
-            captions: captionState.captions,
-            style: captionState.style,
-            position: captionState.position,
-            fontFamily: captionFontFamily(),
-          }
-        : null,
-    [captionState],
-  );
-  useEffect(() => {
-    if (captionRender) void ensureCaptionFont();
-  }, [captionRender]);
-  const overlay = useMemo(
-    () =>
-      captionRender
-        ? (ctx: CanvasRenderingContext2D, w: number, h: number, t: number) => drawCaptions(ctx, w, h, t, captionRender)
-        : null,
-    [captionRender],
-  );
+  // o arquivo inteiro, sem cortes (o app só trata o som)
+  const segments = useMemo(() => (media ? speechSegments(media.channels, media.sampleRate, media.audioStart, "off", null) : []), [media]);
+  const look = PLAIN_LOOK;
 
-  const words = useMemo(() => (captionState ? allWords(captionState.captions) : null), [captionState]);
-
-  // A letra transcrita de canto/música não serve de descrição nem de título: aí valem os textos do nicho
-  const postWords = auto && auto.kind !== "speech" ? null : words;
-
-  // Post: nicho (escolhido, lembrado no aparelho ou sugerido pela análise) e plataforma
-  const niche: NicheId | null = useMemo(
-    () => chosenNiche ?? (media ? storedNiche() : null) ?? suggestNiche(auto?.kind, preset?.categoryId),
-    [chosenNiche, media, auto?.kind, preset?.categoryId],
-  );
-  const platform: Platform = useMemo(() => chosenPlatform ?? (media ? storedPlatform() : null) ?? "instagram", [chosenPlatform, media]);
-  const postText = useMemo(
-    () =>
-      postEdit ??
-      composePost({ words: postWords, mediaKind: media?.kind === "video" || videoTools?.audiogram ? "video" : "audio", niche: nicheById(niche), platform, variant: postVariant }),
-    [postEdit, postWords, media?.kind, videoTools?.audiogram, niche, platform, postVariant],
-  );
-  const coverSuggestion = useMemo(() => coverTitle(postWords, nicheById(niche), postVariant), [postWords, niche, postVariant]);
-  const segments = useMemo(
-    () => (media ? speechSegments(media.channels, media.sampleRate, media.audioStart, videoTools?.cut ?? "off", words) : []),
-    [media, videoTools?.cut, words],
-  );
-  // só áudio: o app só trata o som e baixa (sem cortes, legenda, vídeo, capa e post)
-  const audioOnly = media?.kind === "audio";
-  // aba de vídeo guardada numa sessão antiga não aparece para áudio
-  // só áudio: uma tela só (som, master e baixar), sem abas
-  const view: Tab = audioOnly ? "som" : tab;
-  const cutting = !audioOnly && (videoTools?.cut ?? "off") !== "off";
-  // chamada final (CTA): sugestões conforme o nicho; aparece no fim do vídeo já cortado
-  const ctaChoices = useMemo(() => ctaOptions(nicheById(niche)), [niche]);
-  const endCta = useMemo<EndCta | null>(() => {
-    const c = videoTools?.cta;
-    const text = (c?.text ?? ctaChoices[0] ?? "").trim();
-    if (!c?.enabled || !text || !segments.length) return null;
-    const out = keptDuration(segments);
-    return { text, handle: c.handle, start: outputToSource(segments, out - ctaSeconds(out)), end: segments[segments.length - 1].end };
-  }, [videoTools?.cta, ctaChoices, segments]);
-
-  const look = useMemo<Look>(
-    () => ({
-      format: videoTools?.format ?? "original",
-      fit: videoTools?.fit ?? "blur",
-      watermark: videoTools?.watermark ?? false,
-      captions: !audioOnly && captionState?.burnIn ? captionRender : null,
-      fontFamily: captionRender?.fontFamily ?? (typeof window === "undefined" ? "sans-serif" : captionFontFamily()),
-      color: media?.kind === "video" ? (videoTools?.color ?? null) : null,
-      cta: audioOnly ? null : endCta,
-    }),
-    [videoTools, captionState?.burnIn, captionRender, media?.kind, endCta, audioOnly],
-  );
-
-  const styleSettings: StyleSettings = {
-    presetSlug: preset?.slug,
-    intensity,
-    noise,
-    social,
-    captionStyle: captionState?.style,
-    captionPosition: captionState?.position,
-    format: videoTools?.format,
-    fit: videoTools?.fit,
-    cutSilence: videoTools?.cut,
-    watermark: videoTools?.watermark,
-  };
+  const styleSettings: StyleSettings = { presetSlug: preset?.slug, intensity, noise, social };
 
   function applyStyle(st: StyleSettings) {
     const p = [...(catalog?.presets ?? []), ...userPresets].find((x) => x.slug === st.presetSlug);
@@ -752,23 +613,6 @@ export function Studio() {
     if (st.intensity && [25, 50, 75, 100].includes(st.intensity)) setIntensity(st.intensity as Intensity);
     if (st.noise) setNoise(st.noise);
     if (typeof st.social === "boolean") setSocial(st.social);
-    if (st.captionStyle && st.captionPosition) {
-      const style = st.captionStyle as CaptionStyleId;
-      const position = st.captionPosition as CaptionPosition;
-      setCaptionPrefs({ style, position });
-      setCaptionState((c) => (c ? { ...c, style, position, captions: buildCaptions(allWords(c.captions), style) } : c));
-    }
-    setVideoTools((v) =>
-      v
-        ? {
-            ...v,
-            format: media?.kind === "audio" && st.format === "original" ? v.format : ((st.format as VideoToolsState["format"]) ?? v.format),
-            fit: (st.fit as VideoToolsState["fit"]) ?? v.fit,
-            cut: (st.cutSilence as VideoToolsState["cut"]) ?? v.cut,
-            watermark: st.watermark ?? v.watermark,
-          }
-        : v,
-    );
     toast.success("Estilo aplicado.");
   }
 
@@ -1003,7 +847,7 @@ export function Studio() {
                 <UploadCard
                   icon={<FileVideo className="size-7" />}
                   title="Enviar vídeo"
-                  text="Som, legendas, imagem e capa. MP4, MOV."
+                  text="Troca só o som: a imagem continua igual. MP4, MOV."
                   onClick={() => pickOf(VIDEO_ACCEPT)}
                 />
                 <a
@@ -1024,8 +868,8 @@ export function Studio() {
           </div>
 
           <p className="flex items-center justify-center gap-2 text-center text-xs text-muted">
-            <ShieldCheck className="size-4 text-green-400" /> Seu arquivo é processado no seu aparelho e não é enviado para
-            nenhum servidor.
+            <ShieldCheck className="size-4 text-green-400" /> A imagem do vídeo nunca sai do seu aparelho. O áudio enviado para
+            tratamento é apagado em até 24 horas.
           </p>
           <Steps />
         </section>
@@ -1058,8 +902,6 @@ export function Studio() {
                 }
                 offsetSeconds={excerpt ? excerpt.start / media.sampleRate : 0}
                 videoUrl={videoUrl}
-                overlay={overlay}
-                colorLook={media.kind === "video" ? (videoTools?.color ?? null) : null}
               />
               {processed && (
                 <div className="mt-3">
@@ -1076,33 +918,13 @@ export function Studio() {
           </div>
 
           <div className="flex flex-col gap-4">
-            <div className={cn("sticky top-[calc(4rem+env(safe-area-inset-top))] z-30 -mx-4 bg-bg/90 px-4 py-2 backdrop-blur-xl md:static md:mx-0 md:bg-transparent md:p-0 md:backdrop-blur-none", audioOnly && "hidden")}>
-              <div className={cn("grid gap-1 rounded-2xl border border-border bg-surface/60 p-1", audioOnly ? "grid-cols-2" : "grid-cols-4")} role="tablist" aria-label="Ferramentas">
-                {TABS.filter((t) => !audioOnly || t.id === "som" || t.id === "baixar").map(({ id, label, icon: Icon }) => (
-                  <button
-                    key={id}
-                    role="tab"
-                    aria-selected={view === id}
-                    onClick={() => setTab(id)}
-                    className={cn(
-                      "flex h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-medium transition sm:h-11 sm:flex-row sm:gap-2 sm:text-sm",
-                      view === id ? "bg-brand text-white" : "text-muted hover:text-text",
-                    )}
-                  >
-                    <Icon className="size-4" aria-hidden /> {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             <StyleBar current={styleSettings} onApply={applyStyle} />
 
-            {view === "som" && <DiagnosisCard state={diag} />}
+            <DiagnosisCard state={diag} />
 
-            {view === "som" && auto && (
+            {auto && (
               <AutoSetupCard
                 setup={auto}
-                imageNotes={media.kind === "video" && videoTools?.color.auto ? (videoTools.color.correction?.notes ?? null) : null}
                 applied={!chosenPreset && !chosenNoise}
                 decision={autoDecision}
                 onAccept={() => setAutoDecision("aceito")}
@@ -1125,7 +947,7 @@ export function Studio() {
               />
             )}
 
-            {view === "som" && (
+            {(
               <>
                 <Card className="p-4">
                   <h2 className="mb-3 font-display text-lg font-semibold">Escolha o som</h2>
@@ -1207,81 +1029,12 @@ export function Studio() {
                     <MasterPanel masters={masters} value={masterPreset?.id ?? null} onChange={setMasterId} />
                   </Card>
                 )}
-                {!audioOnly && (
-                  <Button variant="secondary" onClick={() => setTab("legendas")}>
-                    Próximo: legendas
-                  </Button>
-                )}
               </>
-            )}
-
-            {view === "legendas" && (
-              <>
-                <Card className="p-4">
-                  <h2 className="mb-3 font-display text-lg font-semibold">Legendas automáticas</h2>
-                  <CaptionsPanel
-                    media={media}
-                    value={captionState}
-                    onChange={setCaptionState}
-                    defaults={captionPrefs}
-                    mapTime={cutting ? (t) => mapToOutput(segments, t) : null}
-                  />
-                </Card>
-                <Button variant="secondary" onClick={() => setTab("video")}>
-                  Próximo: vídeo
-                </Button>
-              </>
-            )}
-
-            {view === "video" && videoTools && (
-              <>
-                <Card className="p-4">
-                  <h2 className="mb-3 font-display text-lg font-semibold">Vídeo</h2>
-                  <VideoTools
-                    media={media}
-                    videoUrl={videoUrl}
-                    value={videoTools}
-                    onChange={setVideoTools}
-                    segments={segments}
-                    hasWords={Boolean(words?.length)}
-                    coverSuggestion={coverSuggestion}
-                    ctaOptions={ctaChoices}
-                    look={look}
-                  />
-                </Card>
-                <Button variant="secondary" onClick={() => setTab("baixar")}>
-                  Próximo: baixar
-                </Button>
-              </>
-            )}
-
-            {view === "baixar" && !audioOnly && (
-              <Card className="p-4">
-                <PostComposer
-                  niche={niche}
-                  onNiche={(n) => {
-                    setNiche(n);
-                    setPostEdit(null);
-                  }}
-                  platform={platform}
-                  onPlatform={(p) => {
-                    setPlatform(p);
-                    setPostEdit(null);
-                  }}
-                  text={postText}
-                  onText={setPostEdit}
-                  onAnother={() => {
-                    setPostVariant((v) => v + 1);
-                    setPostEdit(null);
-                  }}
-                  hasSpeech={Boolean(postWords?.length)}
-                />
-              </Card>
             )}
 
             {/* sempre montado (só escondido fora da aba): trocar de aba no meio da geração não perde o vídeo */}
             {(
-              <Card className={cn("p-4", !audioOnly && view !== "baixar" && "hidden")}>
+              <Card className="p-4">
                 <h2 className="mb-3 font-display text-lg font-semibold">Baixar</h2>
                 <ExportPanel
                   serverExport={Boolean(user) && serverExport}
@@ -1297,14 +1050,14 @@ export function Studio() {
                   assetsAt={assetsAt}
                   intensity={dspIntensity}
                   denoise={denoiseAmount}
-                  cutLevel={videoTools?.cut ?? "off"}
+                  cutLevel="off"
                   segments={segments}
-                  cutting={cutting}
+                  cutting={false}
                   look={look}
                   audiogram={null}
                   music={music}
-                  words={audioOnly ? null : words}
-                  postText={audioOnly ? "" : postText}
+                  words={null}
+                  postText=""
                   social={social}
                   onSocialChange={setSocial}
                   delivery={delivery}

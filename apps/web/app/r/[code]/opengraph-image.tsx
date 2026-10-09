@@ -12,7 +12,7 @@ export default function Image() {
         kicker="você foi convidado"
         title="Ganhe +10 créditos"
         highlight="e deixe seus vídeos com som de estúdio."
-        footer="5 downloads grátis ao entrar · legendas automáticas"
+        footer="5 downloads grátis ao entrar · mixagem e masterização"
       />
     ),
     size,

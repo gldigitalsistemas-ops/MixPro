@@ -44,7 +44,7 @@ export default function Privacy() {
           aparelho.
         </li>
         <li>
-          <strong>Registros de uso:</strong> ações como abrir o estúdio, gerar legendas e baixar (sem o conteúdo dos arquivos) — para medir
+          <strong>Registros de uso:</strong> ações como abrir o estúdio, processar e baixar (sem o conteúdo dos arquivos) — para medir
           e melhorar o app e prevenir fraudes (legítimo interesse). O detalhe fica guardado por 90 dias; depois vira um resumo diário sem
           identificação.
         </li>
@@ -63,7 +63,7 @@ export default function Privacy() {
       <p>
         Apenas com os serviços que fazem o app funcionar: Supabase (banco de dados e login), Vercel (hospedagem do site), Mercado Pago
         (pagamentos) e, quando o processamento no servidor é usado, Cloudflare R2 (armazenamento temporário dos áudios, até 24 horas) e
-        Google Cloud (processamento do áudio). Os modelos de inteligência artificial das legendas são baixados de um repositório público, sem envio dos seus dados.
+        Google Cloud (processamento do áudio). O modelo de separação de faixas (VS) é baixado de um repositório público, sem envio dos seus dados.
         Alguns desses serviços podem armazenar dados fora do Brasil, com as garantias previstas na LGPD. Não vendemos dados.
       </p>
 

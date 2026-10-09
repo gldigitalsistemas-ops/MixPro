@@ -16,7 +16,7 @@ const TIPS = [
   {
     icon: SlidersHorizontal,
     title: "Teste à vontade",
-    text: "Troque presets, intensidade, ruído, música, legendas e formato nas abas. Nada é gerado nem cobrado enquanto você testa.",
+    text: "Troque o preset, a intensidade, o ruído e o volume final. Nada é gerado nem cobrado enquanto você testa.",
   },
   {
     icon: Download,

@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-export const alt = "Mix Pro — Som de estúdio e legendas nos seus vídeos";
+export const alt = "Mix Pro — Você grava. O Mix Pro transforma o áudio.";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -52,9 +52,9 @@ export default function Image() {
     (
       <OgCard
         kicker="grátis para começar"
-        title="Som de estúdio e legendas"
-        highlight="nos seus vídeos, em 1 minuto."
-        footer="Presets profissionais · remoção de ruído · cortes · 9:16"
+        title="Mixagem e masterização"
+        highlight="para a sua gravação."
+        footer="Voz · instrumentos · bateria · música completa · vídeo"
       />
     ),
     size,

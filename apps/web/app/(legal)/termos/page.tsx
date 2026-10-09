@@ -17,9 +17,9 @@ export default function Terms() {
 
       <h2>2. O serviço</h2>
       <p>
-        O Mix Pro trata o áudio de vídeos e gravações (presets de mixagem, remoção de ruído, bateria de estúdio, amplificadores, legendas,
-        formato para redes sociais e outros recursos). O processamento acontece no seu próprio aparelho: seus arquivos não são enviados
-        para os nossos servidores. O resultado depende da qualidade da gravação original e do aparelho usado; não garantimos um resultado
+        O Mix Pro trata, mixa e masteriza o áudio de gravações e vídeos (presets de mixagem, remoção de ruído, bateria de estúdio,
+        amplificadores, masterização e outros recursos). O processamento acontece no seu aparelho ou, quando disponível, nos nossos
+        servidores: nesse caso enviamos só o áudio, que é apagado automaticamente em até 24 horas. O resultado depende da qualidade da gravação original e do aparelho usado; não garantimos um resultado
         específico. Ouça sempre a prévia antes de baixar.
       </p>
 
