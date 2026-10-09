@@ -2,6 +2,7 @@ import webpush from "web-push";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { messageForDay } from "@/lib/push/messages";
 import { sendDaily, type Store, type Sub } from "@/lib/push/send";
+import type { UserContext } from "@/lib/push/smart";
 
 export const maxDuration = 60;
 
@@ -61,6 +62,30 @@ export async function GET(req: Request) {
     },
     bumpFailures: async (subs) => {
       for (const s of subs) await admin.from("push_subscriptions").update({ failures: s.failures + 1 }).eq("id", s.id);
+    },
+    context: async (ids) => {
+      const out = new Map<string, UserContext>();
+      const now = Date.now();
+      const month = new Date(now - 30 * 86_400_000).toISOString();
+      for (let i = 0; i < ids.length; i += 150) {
+        const chunk = ids.slice(i, i + 150);
+        const [tools, last] = await Promise.all([
+          admin.from("tool_jobs").select("user_id,tool,status,expires_at,created_at").in("user_id", chunk).gte("created_at", month).order("created_at", { ascending: false }),
+          admin.from("credit_transactions").select("user_id,created_at").in("user_id", chunk).eq("type", "DOWNLOAD").gte("created_at", month).order("created_at", { ascending: false }),
+        ]);
+        for (const u of chunk) out.set(u, { daysSinceActive: null });
+        for (const r of last.data ?? []) {
+          const c = out.get(r.user_id as string)!;
+          if (c.daysSinceActive === null) c.daysSinceActive = Math.floor((now - new Date(r.created_at as string).getTime()) / 86_400_000);
+        }
+        for (const r of tools.data ?? []) {
+          const c = out.get(r.user_id as string)!;
+          if (!c.lastTool) c.lastTool = r.tool as string;
+          const left = new Date(r.expires_at as string).getTime() - now;
+          if (!c.expiringTool && r.status === "done" && left > 0 && left < 14 * 3600_000) c.expiringTool = r.tool as string;
+        }
+      }
+      return out;
     },
   };
   const result = await sendDaily(

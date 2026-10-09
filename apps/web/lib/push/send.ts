@@ -4,6 +4,7 @@
  * de push diz não existir mais (404/410) é apagada; muitas falhas seguidas também.
  */
 import type { PushMessage } from "./messages";
+import { smartMessage, type UserContext } from "./smart";
 
 export type Sub = { id: string; endpoint: string; p256dh: string; auth: string; user_id: string | null; failures: number };
 export type Sender = (sub: Sub, payload: string) => Promise<{ status: number }>;
@@ -13,6 +14,8 @@ export type Store = {
   markSent(ids: string[]): Promise<void>;
   remove(ids: string[]): Promise<void>;
   bumpFailures(subs: Sub[]): Promise<void>;
+  /** Sinais para o lembrete inteligente (opcional: sem ele, todos recebem a mensagem do dia). */
+  context?(userIds: string[]): Promise<Map<string, UserContext>>;
 };
 
 export const MAX_FAILURES = 5;
@@ -22,7 +25,8 @@ export async function sendDaily(store: Store, send: Sender, msg: PushMessage, op
   const users = [...new Set(subs.map((s) => s.user_id).filter((v): v is string => Boolean(v)))];
   const active = users.length ? await store.activeToday(users) : new Set<string>();
   const targets = subs.filter((s) => !s.user_id || !active.has(s.user_id));
-  const payload = JSON.stringify(msg);
+  const ctx = users.length && store.context ? await store.context(users.filter((u) => !active.has(u))).catch(() => new Map<string, UserContext>()) : new Map<string, UserContext>();
+  const payloadFor = (s: Sub) => JSON.stringify(s.user_id ? smartMessage(ctx.get(s.user_id), msg) : msg);
   const sent: string[] = [];
   const gone: string[] = [];
   const failed: Sub[] = [];
@@ -31,7 +35,7 @@ export async function sendDaily(store: Store, send: Sender, msg: PushMessage, op
     while (i < targets.length) {
       const s = targets[i++];
       try {
-        const r = await send(s, payload);
+        const r = await send(s, payloadFor(s));
         if (r.status >= 200 && r.status < 300) sent.push(s.id);
         else if (r.status === 404 || r.status === 410) gone.push(s.id);
         else failed.push(s);
