@@ -25,7 +25,8 @@ export class WifError extends Error {
 export type WifConfig = { provider: string; serviceAccount: string };
 
 export function wifConfigFromEnv(env: Record<string, string | undefined> = process.env): WifConfig | null {
-  const provider = env.GCP_WIF_PROVIDER ?? "";
+  // tolera o que costuma vir colado junto no painel: espaços, aspas e o próprio nome da variável
+  const provider = (env.GCP_WIF_PROVIDER ?? "").trim().replace(/^GCP_WIF_PROVIDER=/, "").replace(/^["']|["']$/g, "").trim();
   if (!/^\/\/iam\.googleapis\.com\/projects\/\d+\/locations\/global\/workloadIdentityPools\/[a-z0-9-]+\/providers\/[a-z0-9-]+$/.test(provider)) return null;
   const project = env.GCP_PROJECT_ID ?? "";
   const serviceAccount = env.EXPORT_ENQUEUER_EMAIL || (project ? `export-enqueuer@${project}.iam.gserviceaccount.com` : "");

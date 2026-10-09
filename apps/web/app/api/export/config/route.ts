@@ -18,7 +18,8 @@ function missing(): string[] {
   } catch {
     out.push("GCP_PROJECT_ID/GCP_REGION/EXPORT_TASKS_QUEUE/EXPORT_SERVICE_URL");
   }
-  if (!process.env.GCP_SERVICE_ACCOUNT_JSON && !wifConfigFromEnv()) out.push("GCP_WIF_PROVIDER (ou GCP_SERVICE_ACCOUNT_JSON)");
+  if (!process.env.GCP_SERVICE_ACCOUNT_JSON && !wifConfigFromEnv())
+    out.push(process.env.GCP_WIF_PROVIDER ? "GCP_WIF_PROVIDER existe, mas o valor não está no formato //iam.googleapis.com/projects/<número>/locations/global/workloadIdentityPools/<pool>/providers/<provider>" : "GCP_WIF_PROVIDER (ou GCP_SERVICE_ACCOUNT_JSON)");
   return out;
 }
 

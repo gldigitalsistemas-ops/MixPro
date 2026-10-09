@@ -39,3 +39,8 @@ test("sem o token da Vercel ou com recusa do Google: erro só com a etapa e o st
   const imp = (async (url: string) => (url.startsWith("https://sts") ? Response.json({ access_token: "f" }) : new Response("x", { status: 403 }))) as unknown as typeof fetch;
   await assert.rejects(wifTokenSource(cfg, () => "x", imp)(), (e: WifError) => e.step === "impersonate" && e.status === 403);
 });
+
+test("valor colado com espaços, aspas ou o nome da variável ainda funciona", () => {
+  for (const v of [` ${PROVIDER} 
+`, `"${PROVIDER}"`, `GCP_WIF_PROVIDER=${PROVIDER}`]) assert.deepEqual(wifConfigFromEnv({ GCP_WIF_PROVIDER: v, GCP_PROJECT_ID: "mixpro-export" }), cfg, v);
+});
