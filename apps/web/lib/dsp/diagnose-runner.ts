@@ -1,7 +1,7 @@
 "use client";
 
 import type { DiagnoseContext, Finding, Measurements } from "./diagnose";
-import type { DiagnoseRequest, DiagnoseResponse } from "./diagnose.worker";
+import type { DiagnoseRequest, DiagnoseResponse, Musical } from "./diagnose.worker";
 import type { Signal } from "./types";
 
 export type Diagnosis = {
@@ -10,6 +10,8 @@ export type Diagnosis = {
   /** Quanto do arquivo foi medido, em segundos (o trecho do meio quando o arquivo é longo). */
   analyzedS: number;
   totalS: number;
+  /** Tom e BPM (só música; null quando não identificados com segurança). */
+  musical: Musical | null;
 };
 
 /** Trecho máximo medido: o meio do arquivo. Mantém a análise rápida e leve no celular. */
@@ -36,7 +38,7 @@ export function runDiagnosis(channels: Signal, sampleRate: number, context: Diag
     signal?.addEventListener("abort", onAbort);
     worker.onmessage = (e: MessageEvent<DiagnoseResponse>) => {
       stop();
-      if (e.data.type === "done") resolve({ measurements: e.data.measurements, findings: e.data.findings, analyzedS: (to - from) / sampleRate, totalS: n / sampleRate });
+      if (e.data.type === "done") resolve({ measurements: e.data.measurements, findings: e.data.findings, musical: e.data.musical, analyzedS: (to - from) / sampleRate, totalS: n / sampleRate });
       else reject(new Error(e.data.message));
     };
     worker.onerror = (e) => {

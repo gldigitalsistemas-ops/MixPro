@@ -133,3 +133,22 @@ export async function runToolJob(tool: ToolId, params: Record<string, unknown>, 
     throw e;
   }
 }
+
+/** Formatos que o navegador não abre, mas o servidor converte (grátis): WMA/WMV/ASF e AIFF. */
+export const SERVER_CONVERTIBLE = /\.(wma|wmv|asf|aif|aiff|aifc)$/i;
+
+/**
+ * Converte no servidor um arquivo que o navegador não abre e devolve um FLAC pronto para abrir no Studio.
+ * A conversão não usa créditos; a duração real é conferida no servidor (declaramos o máximo).
+ */
+export async function convertOnServer(file: File, onPhase: ToolHooks["onPhase"], signal?: AbortSignal): Promise<File> {
+  const res = await runToolJob("convert", { format: "flac", durations: [(await fileDuration(file)) ?? 600] }, [file], { onPhase, signal });
+  const out = res.outputs[0];
+  if (!out) throw new ToolError("INTERNAL", GENERIC);
+  onPhase("Baixando o arquivo convertido…", 98);
+  const blob = await fetch(out.url, { signal }).then((r) => {
+    if (!r.ok) throw new ToolError("INTERNAL", GENERIC);
+    return r.blob();
+  });
+  return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".flac", { type: "audio/flac" });
+}

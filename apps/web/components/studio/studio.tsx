@@ -17,6 +17,7 @@ import { integratedLoudness, waveformPeaks } from "@/lib/dsp/loudness";
 import { DspAbortError, runDsp } from "@/lib/dsp/runner";
 import { pickExcerpt, toAudioBuffer, type Excerpt } from "@/lib/media/excerpt";
 import { loadMedia, MediaLoadError, type LoadedMedia } from "@/lib/media/load";
+import { convertOnServer, SERVER_CONVERTIBLE, ToolError } from "@/lib/tools/client";
 import { fetchPresets, type StudioCategory, type StudioPreset } from "@/lib/presets";
 import { DELIVERY_TARGETS, type DeliveryId, type Intensity } from "@mixpro/contracts";
 import { ExportPanel } from "./export-panel";
@@ -500,6 +501,21 @@ export function Studio() {
         }, 1500);
       }
     } catch (err) {
+      // WMA/AIFF: o navegador não abre, mas o servidor converte (sem créditos) e o Studio abre o resultado
+      if (!restore && err instanceof MediaLoadError && SERVER_CONVERTIBLE.test(file.name)) {
+        if (await requireLogin("Entre na sua conta para converter esse formato (é grátis) e abrir no Studio.")) {
+          try {
+            const converted = await convertOnServer(file, (_label, p) => setLoading(Math.min(99, p)));
+            toast.success("Arquivo convertido. Abrindo…");
+            endTask();
+            return await openFile(converted);
+          } catch (convErr) {
+            reportError("converter-arquivo", convErr, { severity: "aviso", context: { tipo: file.name.split(".").pop() } });
+            toast.error(convErr instanceof ToolError ? convErr.message : "Não foi possível converter esse arquivo agora. Tente de novo.");
+            return;
+          }
+        }
+      }
       const userProblem = (err instanceof MediaLoadError && err.code !== "decode") || isFileGone(err);
       reportError("abrir-arquivo", err, {
         severity: userProblem ? "aviso" : "erro",

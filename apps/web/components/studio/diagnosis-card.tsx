@@ -57,6 +57,24 @@ export function DiagnosisCard({ state }: { state: DiagnosisState }) {
               );
             })}
           </ul>
+          {state.diagnosis.musical && (state.diagnosis.musical.key || state.diagnosis.musical.bpm) && (
+            <p className="rounded-xl bg-white/5 px-3 py-2 text-sm">
+              {state.diagnosis.musical.key && (
+                <>
+                  Tom: <strong>{state.diagnosis.musical.key}</strong>
+                </>
+              )}
+              {state.diagnosis.musical.key && state.diagnosis.musical.bpm && " · "}
+              {state.diagnosis.musical.bpm && (
+                <>
+                  Andamento: <strong>{Math.round(state.diagnosis.musical.bpm)} BPM</strong>
+                </>
+              )}
+              <a href="/ferramentas?ferramenta=pitch_tempo" className="ml-2 text-xs text-violet-200 underline">
+                mudar tom ou andamento
+              </a>
+            </p>
+          )}
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-3">
             {[
               ["Loudness", num(m.lufs, 1, " LUFS")],
