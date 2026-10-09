@@ -5,6 +5,8 @@ import { CloudTasksQueue, cloudTasksConfigFromEnv, serviceAccountTokenSource, ty
 import type { QueueService } from "./queue";
 import { R2Client, r2ConfigFromEnv } from "./r2";
 import type { Deps, Fail } from "./server-jobs";
+import { parseToolCosts } from "@mixpro/contracts";
+import type { ToolDeps } from "@/lib/tools/server-tools";
 
 /** Token do Google em cache entre requisições da mesma instância (dura ~1 h). */
 let tokenCache: { json: string; source: TokenSource } | null = null;
@@ -37,7 +39,7 @@ function lazyQueue(req?: Request): QueueService {
   };
   return {
     mode: "push",
-    enqueue: (jobId) => get().enqueue(jobId),
+    enqueue: (jobId, opts) => get().enqueue(jobId, opts),
     dequeue: () => get().dequeue(),
     // fila por HTTP: o consumo é o próprio Cloud Tasks (estas lançam QueueModeError)
     ack: () => get().ack(),
@@ -80,6 +82,23 @@ export async function testGoogleAuth(req: Request): Promise<{ ok: true } | { ok:
     const x = e as { step?: string; status?: number; message?: string; detail?: string };
     return { ok: false, etapa: x.step ?? (x.message?.slice(0, 80) || "desconhecida"), status: x.status ?? 0, motivo: x.detail ?? "" };
   }
+}
+
+/** Dependências das rotas de ferramentas: as da exportação + preços (Admin) + Plano Pro. */
+export function toolDeps(req?: Request): ToolDeps {
+  const base = exportDeps(req);
+  const admin = supabaseAdmin();
+  return {
+    ...base,
+    costs: async () => {
+      const { data } = await admin.from("system_settings").select("value").eq("key", "tool_credit_costs").maybeSingle();
+      return parseToolCosts(data?.value);
+    },
+    isPro: async (userId) => {
+      const { data, error } = await admin.rpc("is_pro", { p_user: userId });
+      return !error && data === true;
+    },
+  };
 }
 
 /** O servidor está pronto para receber jobs novos (R2 e Google configurados)? */

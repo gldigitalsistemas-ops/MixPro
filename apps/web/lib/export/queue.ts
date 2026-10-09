@@ -9,10 +9,16 @@
  */
 export type QueueMessage = { id: string; jobId: string; attempts: number };
 
+/**
+ * Para onde vai o job: `kind` escolhe a rota do serviço (exportação → /run, ferramenta → /tool),
+ * `heavy` usa o serviço com mais CPU (separação de faixas) e `priority` a fila do Plano Pro.
+ */
+export type EnqueueOptions = { kind?: "export" | "tool"; heavy?: boolean; priority?: boolean };
+
 export interface QueueService {
   readonly mode: "push" | "pull";
   /** Enfileira o job. Chamar duas vezes com o mesmo jobId não duplica a tarefa. */
-  enqueue(jobId: string): Promise<{ id: string }>;
+  enqueue(jobId: string, opts?: EnqueueOptions): Promise<{ id: string }>;
   /** Pega a próxima mensagem disponível (só `pull`). */
   dequeue(): Promise<QueueMessage | null>;
   /** Terminou com sucesso: remove da fila. */

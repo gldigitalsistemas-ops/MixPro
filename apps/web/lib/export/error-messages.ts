@@ -37,6 +37,9 @@ export const EXPORT_ERRORS: Record<string, ExportErrorInfo> = {
   TIMEOUT: { message: "O processamento demorou mais do que o permitido. Você pode processar neste aparelho.", device: true, status: 504 },
   INTERNAL: { message: GENERIC_TRY_DEVICE, device: true, status: 500 },
   JOB_NOT_FOUND: { message: "Pedido não encontrado.", device: false, status: 404 },
+  NEEDS_PURCHASE: { message: "Você já usou a separação de faixas grátis. Compre créditos ou assine um plano para separar mais músicas.", device: false, status: 402 },
+  PRO_ONLY: { message: "WAV 24 bits e FLAC são do Plano Pro. Escolha MP3, WAV ou M4A, ou assine o Pro.", device: false, status: 403 },
+  TOOL_UNAVAILABLE: { message: "Este recurso está temporariamente indisponível. Tente de novo em alguns minutos.", device: false, status: 503 },
 };
 
 /** Código desconhecido vira INTERNAL: nunca mostra texto bruto. */

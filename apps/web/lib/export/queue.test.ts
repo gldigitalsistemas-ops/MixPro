@@ -107,3 +107,22 @@ test("token da conta de serviço: JWT RS256 válido, em cache e erro sem vazar a
   const broken = serviceAccountTokenSource('{"client_email":"x","private_key":"CHAVE-PRIVADA-SECRETA"}', fetchFn, () => t);
   await assert.rejects(broken(), (e: Error) => !e.message.includes("SECRETA"));
 });
+
+test("CloudTasksQueue: ferramenta vai para /tool, separação para o serviço pesado e o Pro para a fila prioritária", async () => {
+  const seen: { url: string; body: { task: { name: string; dispatchDeadline: string; httpRequest: { url: string; oidcToken: { audience: string } } } } }[] = [];
+  const fetchFn = (async (url: string, init: RequestInit) => {
+    seen.push({ url, body: JSON.parse(init.body as string) });
+    return new Response("{}", { status: 200 });
+  }) as unknown as typeof fetch;
+  const q = new CloudTasksQueue({ ...cfg, heavyServiceUrl: "https://stems.run.app", priorityQueue: "exports-pro" }, async () => "t", fetchFn);
+  await q.enqueue(JOB, { kind: "tool", heavy: true, priority: true });
+  const t = seen[0].body.task;
+  assert.ok(seen[0].url.includes("/queues/exports-pro/tasks"));
+  assert.ok(t.name.endsWith(`/tasks/tool-${JOB}`));
+  assert.equal(t.httpRequest.url, "https://stems.run.app/tool");
+  assert.equal(t.httpRequest.oidcToken.audience, "https://stems.run.app");
+  assert.equal(t.dispatchDeadline, "1800s");
+  await q.enqueue(JOB, { kind: "tool" });
+  assert.equal(seen[1].body.task.httpRequest.url, "https://svc.run.app/tool");
+  assert.ok(seen[1].url.includes("/queues/exports/tasks"));
+});

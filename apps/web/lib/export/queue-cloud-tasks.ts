@@ -11,7 +11,7 @@
  * Nada disso aparece em log ou resposta de erro.
  */
 import { createSign } from "node:crypto";
-import { QueueModeError, type QueueMessage, type QueueService } from "./queue";
+import { QueueModeError, type EnqueueOptions, type QueueMessage, type QueueService } from "./queue";
 
 export type TokenSource = () => Promise<string>;
 
@@ -21,6 +21,10 @@ export type CloudTasksConfig = {
   queue: string;
   /** URL do serviço (sem /run no final). */
   serviceUrl: string;
+  /** Serviço com mais CPU (separação de faixas); ausente = o mesmo serviço. */
+  heavyServiceUrl?: string;
+  /** Fila do Plano Pro (prioridade); ausente = a mesma fila. */
+  priorityQueue?: string;
   invokerEmail: string;
   /** Prazo de resposta do serviço por tentativa (s). O Cloud Tasks aceita até 1800. */
   dispatchDeadlineS?: number;
@@ -32,7 +36,9 @@ export function cloudTasksConfigFromEnv(env: Record<string, string | undefined> 
   const queue = env.EXPORT_TASKS_QUEUE ?? "";
   const serviceUrl = (env.EXPORT_SERVICE_URL ?? "").replace(/\/+$/, "");
   if (!projectId || !region || !queue || !serviceUrl) throw new Error("Cloud Tasks não configurado (GCP_PROJECT_ID, GCP_REGION, EXPORT_TASKS_QUEUE, EXPORT_SERVICE_URL)");
-  return { projectId, region, queue, serviceUrl, invokerEmail: env.EXPORT_INVOKER_EMAIL || `export-invoker@${projectId}.iam.gserviceaccount.com` };
+  const heavyServiceUrl = (env.EXPORT_STEMS_URL ?? "").replace(/\/+$/, "") || undefined;
+  const priorityQueue = env.EXPORT_TASKS_QUEUE_PRO || undefined;
+  return { projectId, region, queue, serviceUrl, heavyServiceUrl, priorityQueue, invokerEmail: env.EXPORT_INVOKER_EMAIL || `export-invoker@${projectId}.iam.gserviceaccount.com` };
 }
 
 const b64url = (v: Buffer | string) => Buffer.from(v).toString("base64url");
@@ -86,17 +92,21 @@ export class CloudTasksQueue implements QueueService {
    * O nome da tarefa leva o id do job: criar de novo (clique repetido, retentativa da rota) devolve
    * ALREADY_EXISTS e é tratado como sucesso, sem duplicar o processamento.
    */
-  async enqueue(jobId: string) {
-    const { projectId, region, queue, serviceUrl, invokerEmail } = this.cfg;
+  async enqueue(jobId: string, opts: EnqueueOptions = {}) {
+    const { projectId, region, invokerEmail } = this.cfg;
+    const queue = opts.priority && this.cfg.priorityQueue ? this.cfg.priorityQueue : this.cfg.queue;
+    const serviceUrl = opts.heavy && this.cfg.heavyServiceUrl ? this.cfg.heavyServiceUrl : this.cfg.serviceUrl;
+    const path = opts.kind === "tool" ? "/tool" : "/run";
     const parent = `projects/${projectId}/locations/${region}/queues/${queue}`;
-    const name = `${parent}/tasks/job-${jobId}`;
+    const name = `${parent}/tasks/${opts.kind === "tool" ? "tool" : "job"}-${jobId}`;
     const body = {
       task: {
         name,
-        dispatchDeadline: `${this.cfg.dispatchDeadlineS ?? 900}s`,
+        // separação de faixas pode levar mais (o Cloud Tasks aceita até 30 min)
+        dispatchDeadline: `${opts.heavy ? 1800 : (this.cfg.dispatchDeadlineS ?? 900)}s`,
         httpRequest: {
           httpMethod: "POST",
-          url: `${serviceUrl}/run`,
+          url: `${serviceUrl}${path}`,
           headers: { "Content-Type": "application/json" },
           body: Buffer.from(JSON.stringify({ job_id: jobId })).toString("base64"),
           oidcToken: { serviceAccountEmail: invokerEmail, audience: serviceUrl },
