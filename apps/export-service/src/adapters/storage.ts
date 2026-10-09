@@ -8,8 +8,9 @@ import { dirname, join } from "node:path";
 import type { Readable } from "node:stream";
 import { randomUUID } from "node:crypto";
 
-/** in/<uuid> (entrada) e out/<uuid>.<ext> (saída). */
-export const STORAGE_KEY = /^(in|out)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(\.(wav|mp3|m4a))?$/;
+/** in/<uuid> (entrada), out/<uuid>.<ext> (exportação) e out|cofre/<uuid>/<n>.<ext> (ferramentas; cofre = Plano Pro, 30 dias). */
+export const STORAGE_KEY =
+  /^((in|out)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(\.(wav|mp3|m4a))?|(out|cofre)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9]{1,2}\.(wav|mp3|m4a|flac|zip))$/;
 
 export interface Storage {
   /** Abre a leitura do início (pode ser chamada mais de uma vez). Erros chegam no próprio fluxo. */

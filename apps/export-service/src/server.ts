@@ -1,7 +1,8 @@
 (globalThis as Record<string, unknown>).WorkerGlobalScope ??= function WorkerGlobalScope() {}; // RNNoise: só carrega "na web" (window ou worker)
 /**
  * Serviço de exportação de áudio (Etapa 4). HTTP mínimo:
- *   POST /run   { "job_id": "<uuid>" }  → executa o job (lido do adaptador, nunca do corpo)
+ *   POST /run   { "job_id": "<uuid>" }  → executa o job de exportação (lido do adaptador, nunca do corpo)
+ *   POST /tool  { "job_id": "<uuid>" }  → executa o job de ferramenta (tool_jobs)
  *   GET  /health (e /healthz, fora do Cloud Run) → { ok, dsp_version }
  * Um job por vez por instância (no Cloud Run: concorrência 1). Respostas: 200 (done/failed —
  * falha definitiva, sem retentativa), 404, 409 (o mesmo job já está rodando), 429 (instância
@@ -24,6 +25,8 @@ import { LocalStorage } from "./adapters/storage";
 import { R2Storage } from "./adapters/r2-storage";
 import { logDiag, logService } from "./log";
 import { DEFAULT_LIMITS, runJob, type ServiceDeps } from "./pipeline";
+import { runTool } from "./tools";
+import { SupabaseToolStore } from "./adapters/tool-store";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -49,7 +52,8 @@ export function createService(deps: ServiceDeps, token?: string): Server {
     const send = (code: number, body: unknown) => res.writeHead(code, { "content-type": "application/json" }).end(JSON.stringify(body));
     // /health: o Cloud Run reserva caminhos terminados em "z" (o /healthz dá 404 lá; fica para uso local e no CI)
     if (req.method === "GET" && (req.url === "/health" || req.url === "/healthz")) return send(200, { ok: true, dsp_version: DSP_VERSION });
-    if (req.method !== "POST" || req.url !== "/run") return send(404, { error: "NOT_FOUND" });
+    const route = req.method === "POST" && (req.url === "/run" || req.url === "/tool") ? req.url : null;
+    if (!route || (route === "/tool" && !deps.tools)) return send(404, { error: "NOT_FOUND" });
     if (token && req.headers.authorization !== `Bearer ${token}`) return send(401, { error: "UNAUTHORIZED" });
     const body = await readBody(req, 1024);
     let jobId: unknown;
@@ -60,7 +64,10 @@ export function createService(deps: ServiceDeps, token?: string): Server {
     if (busy) return send(429, { error: "BUSY" });
     busy = true;
     try {
-      const r = await runJob(jobId, deps);
+      const r =
+        route === "/tool"
+          ? await runTool(jobId, { storage: deps.storage, tools: deps.tools!, ffmpeg: deps.ffmpeg, ffprobe: deps.ffprobe, limits: deps.limits })
+          : await runJob(jobId, deps);
       send(r.http, { status: r.status, error_code: r.error_code ?? null });
     } catch (e) {
       logDiag("run_falhou", { tipo: e instanceof Error ? e.name : "erro", codigo: (e as { code?: string }).code ?? null });
@@ -81,6 +88,7 @@ function depsFromEnv(): ServiceDeps {
         ? new SupabaseJobStore(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
         : new LocalJobStore(process.env.JOBS_FILE ?? ".dados/jobs.json"),
     catalog: url && key ? new RestCatalog(url, key) : new StaticCatalog(),
+    tools: process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY ? new SupabaseToolStore(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY) : undefined,
     ffmpeg: process.env.FFMPEG_PATH ?? "ffmpeg",
     ffprobe: process.env.FFPROBE_PATH ?? "ffprobe",
     assetStorageUrl: url,

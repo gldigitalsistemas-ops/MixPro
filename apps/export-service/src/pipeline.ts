@@ -39,6 +39,8 @@ export type ServiceDeps = {
   /** Cache de samples/IRs em memória (um por instância). */
   assetMemory: Map<string, Uint8Array>;
   limits: ServiceLimits;
+  /** Jobs das ferramentas (rota /tool); ausente = a rota responde 404. */
+  tools?: import("./adapters/tool-store").ToolStore;
 };
 
 export type ServiceLimits = {
