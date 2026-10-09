@@ -31,8 +31,9 @@ RUN apt-get update \
  && echo "555f511fb653348a1c9495ab6b6091767d1920798f3fba68629a1fe5b135a45f  models/htdemucs_fwd.onnx" > models.sha256 \
  && echo "23a7c68669c041363caaef94641e961dc8c4e16b9891cb87f58f0e199a5e8820  models/htdemucs_fwd.onnx.data" >> models.sha256 \
  && sha256sum -c models.sha256
+# só CPU: no Linux x64 o pacote baixaria os binários de GPU (CUDA) por padrão; "skip" usa os que já vêm nele
 RUN echo '{"name":"stems","private":true}' > package.json \
- && npm install --omit=dev --no-audit --no-fund onnxruntime-node@1.22.0 \
+ && ONNXRUNTIME_NODE_INSTALL=skip npm install --omit=dev --no-audit --no-fund onnxruntime-node@1.22.0 \
  && node -e "require('onnxruntime-node'); console.log('onnxruntime-node ok')"
 
 # ---------------------------------------------------------------- 3. execução
