@@ -12,7 +12,8 @@ Para o básico de Supabase e Vercel (projeto, login, domínio) veja [deploy.md](
 | `SUPABASE_SERVICE_ROLE_KEY` | Vercel (Production), Secret Manager | secreta; nunca no navegador |
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | Vercel (Production), Secret Manager | token do R2 só com acesso a `mixpro-exports` |
 | `GCP_PROJECT_ID`, `GCP_REGION`, `EXPORT_TASKS_QUEUE`, `EXPORT_SERVICE_URL` | Vercel (Production) | `deploy.sh` imprime os valores |
-| `GCP_SERVICE_ACCOUNT_JSON` | Vercel (Production) | chave da conta `export-enqueuer`; alternativa sem chave: Workload Identity Federation |
+| `GCP_WIF_PROVIDER` | Vercel (Production e Preview) | acesso **sem chave** (recomendado; obrigatório quando a organização bloqueia chaves): sai de `infra/gcp/wif-vercel.sh`, com o OIDC da Vercel ligado |
+| `GCP_SERVICE_ACCOUNT_JSON` | Vercel (Production) | alternativa com chave da conta `export-enqueuer` (só se a organização permitir) |
 | `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET` | Vercel | pagamentos (não relacionado a esta etapa) |
 
 Nunca coloque segredos no código nem em variáveis `NEXT_PUBLIC_*`. Modelo: `apps/web/.env.example`. Para testar localmente use `apps/web/.env.local` e `.env.export-test` (ambos ignorados pelo git).

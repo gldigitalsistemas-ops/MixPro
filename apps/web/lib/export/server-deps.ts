@@ -1,5 +1,6 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { wifConfigFromEnv, wifTokenSource } from "./gcp-wif";
 import { CloudTasksQueue, cloudTasksConfigFromEnv, serviceAccountTokenSource, type TokenSource } from "./queue-cloud-tasks";
 import type { QueueService } from "./queue";
 import { R2Client, r2ConfigFromEnv } from "./r2";
@@ -7,23 +8,31 @@ import type { Deps, Fail } from "./server-jobs";
 
 /** Token do Google em cache entre requisições da mesma instância (dura ~1 h). */
 let tokenCache: { json: string; source: TokenSource } | null = null;
-function tokenSource(json: string): TokenSource {
-  if (tokenCache?.json !== json) tokenCache = { json, source: serviceAccountTokenSource(json) };
-  return tokenCache.source;
+const wifCache: { v: { token: string; exp: number } | null } = { v: null };
+
+/**
+ * Como a Vercel se autentica no Google: chave JSON (GCP_SERVICE_ACCOUNT_JSON) se existir; senão,
+ * sem chave, pelo OIDC da Vercel (GCP_WIF_PROVIDER), com o token do cabeçalho desta requisição.
+ */
+function tokenSource(req?: Request): TokenSource {
+  const json = process.env.GCP_SERVICE_ACCOUNT_JSON;
+  if (json) {
+    if (tokenCache?.json !== json) tokenCache = { json, source: serviceAccountTokenSource(json) };
+    return tokenCache.source;
+  }
+  const wif = wifConfigFromEnv();
+  if (!wif) throw new Error("autenticação do Google não configurada");
+  return wifTokenSource(wif, () => req?.headers.get("x-vercel-oidc-token") ?? process.env.VERCEL_OIDC_TOKEN ?? null, fetch, Date.now, wifCache);
 }
 
 /**
  * A fila só é montada quando usada (criar a tarefa). Assim, status, cancelamento e download de jobs
  * existentes continuam funcionando mesmo se a configuração do Google estiver incompleta.
  */
-function lazyQueue(): QueueService {
+function lazyQueue(req?: Request): QueueService {
   let q: CloudTasksQueue | null = null;
   const get = () => {
-    if (!q) {
-      const sa = process.env.GCP_SERVICE_ACCOUNT_JSON;
-      if (!sa) throw new Error("GCP_SERVICE_ACCOUNT_JSON ausente");
-      q = new CloudTasksQueue(cloudTasksConfigFromEnv(), tokenSource(sa));
-    }
+    if (!q) q = new CloudTasksQueue(cloudTasksConfigFromEnv(), tokenSource(req));
     return q;
   };
   return {
@@ -41,7 +50,8 @@ function lazyQueue(): QueueService {
  * Dependências reais das rotas /api/export/jobs: banco (RPCs com service role, só aqui no servidor),
  * R2 e Cloud Tasks.
  */
-export function exportDeps(): Deps {
+/** `req`: a requisição atual (traz o token OIDC da Vercel, usado só para criar a tarefa na fila). */
+export function exportDeps(req?: Request): Deps {
   const r2 = new R2Client(r2ConfigFromEnv());
   const admin = supabaseAdmin();
   return {
@@ -54,7 +64,7 @@ export function exportDeps(): Deps {
       head: (key) => r2.head(key),
       delete: (key) => r2.delete(key),
     },
-    queue: lazyQueue(),
+    queue: lazyQueue(req),
   };
 }
 
@@ -63,7 +73,7 @@ export function exportServerConfigured(): boolean {
   try {
     r2ConfigFromEnv();
     cloudTasksConfigFromEnv();
-    return Boolean(process.env.GCP_SERVICE_ACCOUNT_JSON);
+    return Boolean(process.env.GCP_SERVICE_ACCOUNT_JSON) || wifConfigFromEnv() !== null;
   } catch {
     return false;
   }
