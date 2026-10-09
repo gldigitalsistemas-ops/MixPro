@@ -180,7 +180,7 @@ test("ponta a ponta: voz com ruído, guitarra com amp + caixa, bateria — mesmo
   }
 });
 
-test("três formatos de saída: duração, LUFS ±0,1 dB e pico", { skip }, async () => {
+test("três formatos de saída: duração, LUFS (±0,1 dB; AAC ±0,25 dB) e pico", { skip }, async () => {
   // sem conteúdo acima de ~20 kHz (ruído branco, saturação): o MP3 (LAME) corta ali e o LUFS cai
   // 0,17–0,23 dB nesses sinais sintéticos — medido; gravações reais em EXPORTJOB_FATIA3.md
   const ch = voice(8, 0);
@@ -199,7 +199,10 @@ test("três formatos de saída: duração, LUFS ±0,1 dB e pico", { skip }, asyn
     // os blocos de 400 ms da medição e, num sinal liga/desliga sintético, muda o LUFS em ~0,2 dB
     const g = gapless(file, d.sampleRate, d.channels.length);
     const lufs = integratedLoudness(g, d.sampleRate);
-    assert.ok(Math.abs(lufs - want.lufs) <= 0.1, `${target}: LUFS ${lufs} × ${want.lufs}`);
+    // o codificador AAC nativo do FFmpeg muda entre versões: medido 0,16 dB no FFmpeg 6.1 do Ubuntu
+    // (CI) e < 0,1 dB no 5.1 da imagem e no 7.x; inaudível, mas acima do limite dos outros formatos
+    const tol = target === "m4a" ? 0.25 : 0.1;
+    assert.ok(Math.abs(lufs - want.lufs) <= tol, `${target}: LUFS ${lufs} × ${want.lufs}`);
     const peakDb = 20 * Math.log10(samplePeak(g));
     assert.ok(Math.abs(peakDb - 20 * Math.log10(want.peak)) <= 1, `${target}: pico ${peakDb} dB`);
   }
