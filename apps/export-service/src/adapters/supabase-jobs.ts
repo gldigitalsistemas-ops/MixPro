@@ -81,6 +81,8 @@ export class SupabaseJobStore implements JobStore {
         body: JSON.stringify(args),
       });
     } catch {
+      process.stderr.write(JSON.stringify({ evento: "banco_sem_conexao", funcao: fn }) + "
+");
       throw new RpcError("INTERNAL");
     }
     const text = await res.text();
@@ -90,6 +92,9 @@ export class SupabaseJobStore implements JobStore {
         message = String((JSON.parse(text) as { message?: unknown }).message ?? "");
       } catch {}
       const code = (ERROR_CODES as readonly string[]).includes(message) ? (message as ErrorCode) : message === "INVALID_JOB" ? "INVALID_JOB" : "INTERNAL";
+      // diagnóstico sem conteúdo: só a função e o status (401 = chave errada; 404 = função/URL)
+      if (code === "INTERNAL") process.stderr.write(JSON.stringify({ evento: "banco_falhou", funcao: fn, http: res.status }) + "
+");
       throw new RpcError(code);
     }
     return (text ? JSON.parse(text) : null) as T;

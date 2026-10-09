@@ -62,7 +62,9 @@ export function createService(deps: ServiceDeps, token?: string): Server {
     try {
       const r = await runJob(jobId, deps);
       send(r.http, { status: r.status, error_code: r.error_code ?? null });
-    } catch {
+    } catch (e) {
+      process.stderr.write(JSON.stringify({ evento: "run_falhou", tipo: e instanceof Error ? e.name : "erro", codigo: (e as { code?: string }).code ?? null }) + "
+");
       send(500, { error: "INTERNAL" });
     } finally {
       busy = false;
