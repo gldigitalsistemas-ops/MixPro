@@ -166,7 +166,7 @@ export async function runServerExport(job: ExportJob, media: Pick<LoadedMedia, "
   const cancel = () => void fetchFn(`/api/export/jobs/${id}/cancel`, { method: "POST" }).catch(() => {});
 
   /** O serviço já recebeu o job (start aceito)? Antes disso, qualquer falha cancela e libera a reserva. */
-  let started = false;
+  let queued = false;
   try {
     if (created.upload) {
       const makeXhr = h.xhr ?? (() => new XMLHttpRequest());
@@ -181,7 +181,7 @@ export async function runServerExport(job: ExportJob, media: Pick<LoadedMedia, "
     }
     throwIfAborted();
     await api(fetchFn, `/api/export/jobs/${id}/start`, { method: "POST" });
-    started = true;
+    queued = true;
 
     const started = Date.now();
     const maxWait = h.maxWaitMs ?? 12 * 60_000;
@@ -207,7 +207,7 @@ export async function runServerExport(job: ExportJob, media: Pick<LoadedMedia, "
   } catch (e) {
     // cancelado pela pessoa ou falha no meio do caminho: libera a reserva e apaga o envio
     // e qualquer falha antes do serviço receber o job (envio bloqueado, fila indisponível): nada fica preso
-    if (!started || (e instanceof DOMException && e.name === "AbortError") || (e instanceof ServerExportError && e.code === "TIMEOUT")) cancel();
+    if (!queued || (e instanceof DOMException && e.name === "AbortError") || (e instanceof ServerExportError && e.code === "TIMEOUT")) cancel();
     throw e;
   }
 }
