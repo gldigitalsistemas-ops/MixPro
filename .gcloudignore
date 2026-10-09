@@ -1,0 +1,18 @@
+# O que o "gcloud builds submit" NÃO envia (segredos, mídia pessoal, artefatos locais)
+.git
+.gitignore
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+**/.next
+**/.cache
+**/.dados
+**/dist
+apps/web/fixtures-local
+*.mp4
+*.mov
+*.wav
+*.m4a
+*.mp3
+!apps/web/lib/export/fixtures/**

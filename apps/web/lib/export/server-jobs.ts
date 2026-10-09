@@ -19,7 +19,7 @@ export const DOWNLOAD_URL_TTL_S = 60;
 
 export type Rpc = (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
 export type Objects = {
-  presign(method: "GET" | "PUT", key: string, expiresS: number, opts?: { contentLength?: number }): string;
+  presign(method: "GET" | "PUT", key: string, expiresS: number, opts?: { contentLength?: number; downloadName?: string }): string;
   head(key: string): Promise<{ size: number } | null>;
   delete(key: string): Promise<void>;
 };
@@ -41,7 +41,7 @@ function rpcCode(error: { message: string }): string {
 
 const PLATFORM = /^(ios|android|desktop|outro)\/(safari|chrome|firefox|outro)$/;
 
-type JobRow = { id: string; user_id: string; status: string; progress: number; credit_state: string; input_key: string; output_key: string | null; error_code: string | null };
+type JobRow = { id: string; user_id: string; status: string; progress: number; credit_state: string; input_key: string; output_key: string | null; error_code: string | null; expires_at?: string };
 
 async function loadOwned(d: Deps, userId: string, jobId: string): Promise<JobRow | Fail> {
   if (!/^[0-9a-f-]{36}$/i.test(jobId)) return fail("JOB_NOT_FOUND");
@@ -127,7 +127,10 @@ export async function jobStatus(
     errorCode: row.error_code,
     message: info?.message ?? null,
     device: info?.device ?? false,
-    downloadUrl: row.status === "done" && row.output_key ? d.objects.presign("GET", row.output_key, DOWNLOAD_URL_TTL_S) : null,
+    downloadUrl:
+      row.status === "done" && row.output_key && (!row.expires_at || new Date(row.expires_at).getTime() > Date.now())
+        ? d.objects.presign("GET", row.output_key, DOWNLOAD_URL_TTL_S, { downloadName: `mixpro.${row.output_key.split(".").pop()}` })
+        : null,
   };
 }
 

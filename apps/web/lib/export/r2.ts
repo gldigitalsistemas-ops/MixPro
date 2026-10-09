@@ -72,7 +72,7 @@ export class R2Client {
    * URL pré-assinada (GET ou PUT). Em PUT, `contentLength` é assinado: o R2 recusa o envio se o
    * tamanho real for diferente do declarado (o teto de tamanho vale também no upload direto).
    */
-  presign(method: "GET" | "PUT", key: string, expiresS: number, opts: { contentLength?: number } = {}): string {
+  presign(method: "GET" | "PUT", key: string, expiresS: number, opts: { contentLength?: number; downloadName?: string } = {}): string {
     if (expiresS < 1 || expiresS > 3600) throw new Error("validade da URL deve ficar entre 1 e 3600 s");
     const { amz, date } = stamp(this.now());
     const scope = `${date}/auto/s3/aws4_request`;
@@ -84,6 +84,11 @@ export class R2Client {
       "X-Amz-Expires": String(Math.floor(expiresS)),
       "X-Amz-SignedHeaders": signed.join(";"),
     };
+    // GET: o navegador baixa como arquivo (em vez de tocar na aba), com um nome genérico
+    if (method === "GET" && opts.downloadName) {
+      if (!/^[a-zA-Z0-9._-]{1,80}$/.test(opts.downloadName)) throw new Error("nome de download inválido");
+      q["response-content-disposition"] = `attachment; filename="${opts.downloadName}"`;
+    }
     const qs = Object.keys(q)
       .sort()
       .map((k) => `${enc(k)}=${enc(q[k])}`)

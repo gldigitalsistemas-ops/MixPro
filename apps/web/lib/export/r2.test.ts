@@ -82,3 +82,17 @@ test("validade fora do intervalo é recusada antes de assinar", () => {
 test("a configuração incompleta falha com mensagem que não mostra valores", () => {
   assert.throws(() => r2ConfigFromEnv({ R2_ACCOUNT_ID: "abc" }), (e: Error) => !e.message.includes("abc"));
 });
+
+test("URL de download com nome de arquivo: o navegador baixa em vez de tocar", { skip }, async () => {
+  const r2 = new R2Client(r2ConfigFromEnv(env));
+  const k = key("c.wav");
+  await r2.put(k, new Uint8Array([1, 2, 3]));
+  try {
+    const res = await fetch(r2.presign("GET", k, 60, { downloadName: "mixpro.wav" }));
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("content-disposition"), 'attachment; filename="mixpro.wav"');
+    assert.throws(() => r2.presign("GET", k, 60, { downloadName: 'x"; evil' }));
+  } finally {
+    await r2.delete(k);
+  }
+});

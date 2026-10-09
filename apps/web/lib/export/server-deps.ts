@@ -1,18 +1,49 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { CloudTasksQueue, cloudTasksConfigFromEnv, serviceAccountTokenSource } from "./queue-cloud-tasks";
+import { CloudTasksQueue, cloudTasksConfigFromEnv, serviceAccountTokenSource, type TokenSource } from "./queue-cloud-tasks";
+import type { QueueService } from "./queue";
 import { R2Client, r2ConfigFromEnv } from "./r2";
 import type { Deps, Fail } from "./server-jobs";
 
+/** Token do Google em cache entre requisições da mesma instância (dura ~1 h). */
+let tokenCache: { json: string; source: TokenSource } | null = null;
+function tokenSource(json: string): TokenSource {
+  if (tokenCache?.json !== json) tokenCache = { json, source: serviceAccountTokenSource(json) };
+  return tokenCache.source;
+}
+
+/**
+ * A fila só é montada quando usada (criar a tarefa). Assim, status, cancelamento e download de jobs
+ * existentes continuam funcionando mesmo se a configuração do Google estiver incompleta.
+ */
+function lazyQueue(): QueueService {
+  let q: CloudTasksQueue | null = null;
+  const get = () => {
+    if (!q) {
+      const sa = process.env.GCP_SERVICE_ACCOUNT_JSON;
+      if (!sa) throw new Error("GCP_SERVICE_ACCOUNT_JSON ausente");
+      q = new CloudTasksQueue(cloudTasksConfigFromEnv(), tokenSource(sa));
+    }
+    return q;
+  };
+  return {
+    mode: "push",
+    enqueue: (jobId) => get().enqueue(jobId),
+    dequeue: () => get().dequeue(),
+    // fila por HTTP: o consumo é o próprio Cloud Tasks (estas lançam QueueModeError)
+    ack: () => get().ack(),
+    fail: () => get().fail(),
+    retry: () => get().retry(),
+  };
+}
+
 /**
  * Dependências reais das rotas /api/export/jobs: banco (RPCs com service role, só aqui no servidor),
- * R2 e Cloud Tasks. Criadas a cada pedido (leem as variáveis de ambiente quando usadas).
+ * R2 e Cloud Tasks.
  */
 export function exportDeps(): Deps {
   const r2 = new R2Client(r2ConfigFromEnv());
   const admin = supabaseAdmin();
-  const sa = process.env.GCP_SERVICE_ACCOUNT_JSON;
-  if (!sa) throw new Error("GCP_SERVICE_ACCOUNT_JSON ausente");
   return {
     rpc: async (fn, args) => {
       const { data, error } = await admin.rpc(fn, args);
@@ -23,8 +54,19 @@ export function exportDeps(): Deps {
       head: (key) => r2.head(key),
       delete: (key) => r2.delete(key),
     },
-    queue: new CloudTasksQueue(cloudTasksConfigFromEnv(), serviceAccountTokenSource(sa)),
+    queue: lazyQueue(),
   };
+}
+
+/** O servidor está pronto para receber jobs novos (R2 e Google configurados)? */
+export function exportServerConfigured(): boolean {
+  try {
+    r2ConfigFromEnv();
+    cloudTasksConfigFromEnv();
+    return Boolean(process.env.GCP_SERVICE_ACCOUNT_JSON);
+  } catch {
+    return false;
+  }
 }
 
 /** Falha de regra → resposta JSON com mensagem amigável, código fechado e se o aparelho pode assumir. */
@@ -32,7 +74,7 @@ export function failResponse(f: Fail) {
   return Response.json({ error: f.message, code: f.code, device: f.device }, { status: f.status });
 }
 
-/** Configuração incompleta (R2 ou GCP): o servidor de exportação não está disponível; o app usa o aparelho. */
+/** Configuração incompleta: o servidor de exportação não está disponível; o app usa o aparelho. */
 export function unavailableResponse() {
   return Response.json({ error: "O processamento no servidor não está disponível agora. Você pode processar neste aparelho.", code: "CAPACITY", device: true }, { status: 503 });
 }

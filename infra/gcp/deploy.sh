@@ -67,6 +67,13 @@ read -r -p "   R2_BUCKET [mixpro-exports]: " R2_BUCKET; R2_BUCKET="${R2_BUCKET:-
 [[ "$SUPABASE_URL" == https://*.supabase.co ]] || { echo "URL do Supabase inesperada"; exit 1; }
 
 echo "==> 4/8 Imagem (Cloud Build; o Dockerfile é o de apps/export-service)"
+# projetos novos usam a conta padrão do Compute no Cloud Build, às vezes sem permissão de gravar a
+# imagem e os logs: garante só o mínimo
+PROJECT_NUMBER="$(gcloud projects describe "$PROJECT" --format 'value(projectNumber)')"
+BUILD_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+for role in roles/artifactregistry.writer roles/logging.logWriter roles/storage.objectViewer; do
+  gcloud projects add-iam-policy-binding "$PROJECT" --member "serviceAccount:${BUILD_SA}" --role "$role" --condition=None >/dev/null
+done
 gcloud artifacts repositories describe "$REPO" --location "$REGION" >/dev/null 2>&1 \
   || gcloud artifacts repositories create "$REPO" --repository-format=docker --location "$REGION"
 cat > /tmp/cloudbuild-export.yaml <<EOF
@@ -104,6 +111,9 @@ gcloud tasks queues add-iam-policy-binding "$QUEUE" --location "$REGION" \
   --member "serviceAccount:${ENQUEUER}" --role roles/cloudtasks.enqueuer >/dev/null
 gcloud iam service-accounts add-iam-policy-binding "$INVOKER" \
   --member "serviceAccount:${ENQUEUER}" --role roles/iam.serviceAccountUser >/dev/null
+# o próprio Cloud Tasks gera o token OIDC "como" o invocador
+gcloud iam service-accounts add-iam-policy-binding "$INVOKER" \
+  --member "serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-cloudtasks.iam.gserviceaccount.com" --role roles/iam.serviceAccountTokenCreator >/dev/null
 
 echo "==> 8/8 Conferência"
 echo -n "   chamada sem autenticação (deve ser 403): "
