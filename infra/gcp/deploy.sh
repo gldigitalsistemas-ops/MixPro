@@ -15,15 +15,19 @@
 #   - APIs: Cloud Run, Cloud Tasks, Cloud Build, Artifact Registry, Secret Manager, IAM
 #   - Contas de serviço: export-runner (identidade do Cloud Run), export-invoker (token OIDC das
 #     tarefas) e export-enqueuer (a Vercel cria tarefas; só isso)
-#   - Cloud Run "mixpro-export": FECHADO ao público, 2 GiB, 1 CPU, 1 requisição por instância,
-#     no máximo 2 instâncias, 15 min por requisição
-#   - Fila do Cloud Tasks "mixpro-export": 2 em paralelo, 3 tentativas, espera crescente
+#   - Cloud Run "mixpro-export": FECHADO ao público, 4 GiB, 1 CPU, 1 requisição por instância,
+#     no máximo 3 instâncias, 15 min por requisição (exportação e ferramentas leves)
+#   - Cloud Run "mixpro-stems": a mesma imagem, 8 GiB, 8 CPU, até 60 min (separação de faixas e
+#     modo álbum); no máximo 2 instâncias; só cobra enquanto processa
+#   - Filas do Cloud Tasks "mixpro-export" (todos) e "mixpro-export-pro" (Plano Pro, passa na frente)
 set -euo pipefail
 
 PROJECT="${GCP_PROJECT_ID:?defina GCP_PROJECT_ID}"
 REGION="${GCP_REGION:-us-central1}"
 SERVICE="${EXPORT_SERVICE_NAME:-mixpro-export}"
 QUEUE="${EXPORT_TASKS_QUEUE:-mixpro-export}"
+QUEUE_PRO="${EXPORT_TASKS_QUEUE_PRO:-mixpro-export-pro}"
+STEMS_SERVICE="${EXPORT_STEMS_SERVICE_NAME:-mixpro-stems}"
 REPO="mixpro"
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/${SERVICE}"
 RUNNER="export-runner@${PROJECT}.iam.gserviceaccount.com"
@@ -85,30 +89,48 @@ EOF
 gcloud builds submit --config /tmp/cloudbuild-export.yaml .
 
 echo "==> 5/8 Cloud Run (fechado ao público)"
+ENV_VARS="SUPABASE_URL=${SUPABASE_URL},NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL},NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON},R2_ACCOUNT_ID=${R2_ACCOUNT_ID},R2_BUCKET=${R2_BUCKET}"
+SECRETS="SUPABASE_SERVICE_ROLE_KEY=export-supabase-service-role:latest,R2_ACCESS_KEY_ID=export-r2-access-key-id:latest,R2_SECRET_ACCESS_KEY=export-r2-secret-access-key:latest"
 gcloud run deploy "$SERVICE" \
   --image "${IMAGE}:latest" --region "$REGION" \
   --service-account "$RUNNER" \
   --no-allow-unauthenticated \
-  --memory 2Gi --cpu 1 --concurrency 1 --timeout 900 --min-instances 0 --max-instances 2 \
-  --set-env-vars "SUPABASE_URL=${SUPABASE_URL},NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL},NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON},R2_ACCOUNT_ID=${R2_ACCOUNT_ID},R2_BUCKET=${R2_BUCKET}" \
-  --set-secrets "SUPABASE_SERVICE_ROLE_KEY=export-supabase-service-role:latest,R2_ACCESS_KEY_ID=export-r2-access-key-id:latest,R2_SECRET_ACCESS_KEY=export-r2-secret-access-key:latest"
+  --memory 4Gi --cpu 1 --concurrency 1 --timeout 900 --min-instances 0 --max-instances 3 \
+  --set-env-vars "$ENV_VARS" --set-secrets "$SECRETS"
 SERVICE_URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)')"
+# serviço pesado: a mesma imagem com mais CPU e memória (a IA de separação usa ~3-4 GB por bloco)
+gcloud run deploy "$STEMS_SERVICE" \
+  --image "${IMAGE}:latest" --region "$REGION" \
+  --service-account "$RUNNER" \
+  --no-allow-unauthenticated \
+  --memory 8Gi --cpu 8 --concurrency 1 --timeout 3600 --min-instances 0 --max-instances 2 \
+  --set-env-vars "$ENV_VARS" --set-secrets "$SECRETS"
+STEMS_URL="$(gcloud run services describe "$STEMS_SERVICE" --region "$REGION" --format 'value(status.url)')"
 
-echo "==> 6/8 Fila do Cloud Tasks"
-QFLAGS=(--max-concurrent-dispatches=2 --max-dispatches-per-second=2 --max-attempts=3 --min-backoff=10s --max-backoff=120s --max-doublings=3)
-if gcloud tasks queues describe "$QUEUE" --location "$REGION" >/dev/null 2>&1; then
-  gcloud tasks queues update "$QUEUE" --location "$REGION" "${QFLAGS[@]}"
-else
-  gcloud tasks queues create "$QUEUE" --location "$REGION" "${QFLAGS[@]}"
-fi
+echo "==> 6/8 Filas do Cloud Tasks"
+make_queue() { # nome, paralelo
+  local q="$1" n="$2"
+  local flags=(--max-concurrent-dispatches="$n" --max-dispatches-per-second=2 --max-attempts=3 --min-backoff=10s --max-backoff=120s --max-doublings=3)
+  if gcloud tasks queues describe "$q" --location "$REGION" >/dev/null 2>&1; then
+    gcloud tasks queues update "$q" --location "$REGION" "${flags[@]}"
+  else
+    gcloud tasks queues create "$q" --location "$REGION" "${flags[@]}"
+  fi
+}
+make_queue "$QUEUE" 2
+make_queue "$QUEUE_PRO" 3
 
 echo "==> 7/8 Permissões (mínimas)"
-# só o invocador chama o Cloud Run
-gcloud run services add-iam-policy-binding "$SERVICE" --region "$REGION" \
-  --member "serviceAccount:${INVOKER}" --role roles/run.invoker >/dev/null
-# a Vercel (export-enqueuer) só cria tarefas nesta fila, e só "como" o invocador
-gcloud tasks queues add-iam-policy-binding "$QUEUE" --location "$REGION" \
-  --member "serviceAccount:${ENQUEUER}" --role roles/cloudtasks.enqueuer >/dev/null
+# só o invocador chama os serviços do Cloud Run
+for svc in "$SERVICE" "$STEMS_SERVICE"; do
+  gcloud run services add-iam-policy-binding "$svc" --region "$REGION" \
+    --member "serviceAccount:${INVOKER}" --role roles/run.invoker >/dev/null
+done
+# a Vercel (export-enqueuer) só cria tarefas nestas filas, e só "como" o invocador
+for q in "$QUEUE" "$QUEUE_PRO"; do
+  gcloud tasks queues add-iam-policy-binding "$q" --location "$REGION" \
+    --member "serviceAccount:${ENQUEUER}" --role roles/cloudtasks.enqueuer >/dev/null
+done
 gcloud iam service-accounts add-iam-policy-binding "$INVOKER" \
   --member "serviceAccount:${ENQUEUER}" --role roles/iam.serviceAccountUser >/dev/null
 # o próprio Cloud Tasks gera o token OIDC "como" o invocador
@@ -120,6 +142,8 @@ echo -n "   chamada sem autenticação (deve ser 403): "
 curl -s -o /dev/null -w '%{http_code}\n' "${SERVICE_URL}/health"
 echo -n "   chamada com a sua identidade (deve ser 200): "
 curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $(gcloud auth print-identity-token)" "${SERVICE_URL}/health"
+echo -n "   serviço pesado com a sua identidade (deve ser 200): "
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $(gcloud auth print-identity-token)" "${STEMS_URL}/health"
 
 cat <<EOF
 
@@ -128,6 +152,8 @@ PRONTO. Valores para a Vercel (somente Production):
   GCP_REGION=${REGION}
   EXPORT_TASKS_QUEUE=${QUEUE}
   EXPORT_SERVICE_URL=${SERVICE_URL}
+  EXPORT_STEMS_URL=${STEMS_URL}
+  EXPORT_TASKS_QUEUE_PRO=${QUEUE_PRO}
 
 Falta a chave da conta "export-enqueuer" (GCP_SERVICE_ACCOUNT_JSON). Ela é um segredo: crie, copie e apague.
   gcloud iam service-accounts keys create /tmp/enqueuer.json --iam-account ${ENQUEUER}

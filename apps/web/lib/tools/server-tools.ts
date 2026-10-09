@@ -13,6 +13,8 @@ import { MAX_INPUT_BYTES } from "@/lib/export/server-limits";
 export type ToolDeps = ExportDeps & {
   costs(): Promise<ToolCosts>;
   isPro(userId: string): Promise<boolean>;
+  /** O serviço pesado (separação de faixas) está implantado? Sem ele, a separação não é aceita. */
+  stemsAvailable?: () => boolean;
 };
 
 /** As ferramentas só rodam no servidor: a mensagem nunca sugere processar no aparelho. */
@@ -49,6 +51,7 @@ export async function createTool(
   const parsed = parseToolParams(req.tool, req.params);
   if (!parsed) return fail("INVALID_JOB");
   const { tool, params } = parsed;
+  if (tool === "stems" && d.stemsAvailable && !d.stemsAvailable()) return fail("TOOL_UNAVAILABLE");
   if (!Array.isArray(req.inputBytes) || req.inputBytes.length !== params.durations.length) return fail("INVALID_JOB");
   if (req.inputBytes.some((b) => !Number.isInteger(b) || b < 1 || b > MAX_INPUT_BYTES)) return fail("TOO_LARGE");
   const pro = await d.isPro(userId).catch(() => false);
@@ -86,7 +89,8 @@ export async function startTool(d: ToolDeps, userId: string, id: string): Promis
   }
   const pro = await d.isPro(userId).catch(() => false);
   try {
-    await d.queue.enqueue(id, { kind: "tool", heavy: row.tool === "stems", priority: pro });
+    // separação e álbum (até 12 faixas na memória) vão para o serviço com mais memória, quando existir
+    await d.queue.enqueue(id, { kind: "tool", heavy: row.tool === "stems" || (row.tool === "album" && Boolean(d.stemsAvailable?.())), priority: pro });
   } catch {
     return fail("CAPACITY");
   }

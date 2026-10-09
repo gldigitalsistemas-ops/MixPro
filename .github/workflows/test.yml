@@ -65,6 +65,12 @@ jobs:
       - name: Autoteste dentro da imagem
         run: docker run --rm mixpro-export node selftest.mjs
 
+      # ferramentas: o modelo de separação abre no onnxruntime-node e o FFmpeg tem o filtro rubberband
+      - name: Separação de faixas e tom/andamento dentro da imagem
+        run: |
+          docker run --rm mixpro-export node -e "require('/app/node_modules/onnxruntime-node').InferenceSession.create('/app/models/htdemucs_fwd.onnx').then((s) => { console.log('modelo ok', s.inputNames.join(',')); process.exit(0); }, (e) => { console.error(e); process.exit(1); })"
+          docker run --rm mixpro-export sh -c "ffmpeg -hide_banner -f lavfi -i sine=440:d=2 -af rubberband=pitch=1.122 -f null - 2>&1 | tail -2"
+
       - name: Serviço responde (healthz) e roda como usuário sem privilégios
         run: |
           docker run -d --name svc -p 8080:8080 mixpro-export

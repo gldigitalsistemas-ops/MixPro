@@ -94,6 +94,7 @@ export function toolDeps(req?: Request): ToolDeps {
       const { data } = await admin.from("system_settings").select("value").eq("key", "tool_credit_costs").maybeSingle();
       return parseToolCosts(data?.value);
     },
+    stemsAvailable: () => Boolean(process.env.EXPORT_STEMS_URL),
     isPro: async (userId) => {
       const { data, error } = await admin.rpc("is_pro", { p_user: userId });
       return !error && data === true;

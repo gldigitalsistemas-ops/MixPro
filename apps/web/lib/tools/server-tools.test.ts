@@ -152,3 +152,13 @@ test("cancelar: libera e apaga os arquivos enviados", async () => {
   assert.ok((await cancelTool(h.d, ALICE, c.jobId)).ok);
   assert.equal(h.deleted.length, 2);
 });
+
+test("criar: sem o serviço pesado implantado, a separação é recusada sem reservar crédito", async () => {
+  const h = harness();
+  h.d.stemsAvailable = () => false;
+  const s = await createTool(h.d, ALICE, { tool: "stems", params: { format: "wav", durations: [100] }, inputBytes: [10] });
+  assert.ok(!s.ok && s.code === "TOOL_UNAVAILABLE");
+  assert.equal(h.calls.length, 0);
+  const p = await createTool(h.d, ALICE, { tool: "pitch_tempo", params: { semitones: 2, tempo: 1, format: "mp3", durations: [100] }, inputBytes: [10] });
+  assert.ok(p.ok);
+});
