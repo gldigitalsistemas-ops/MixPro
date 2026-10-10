@@ -162,3 +162,11 @@ test("criar: sem o serviço pesado implantado, a separação é recusada sem res
   const p = await createTool(h.d, ALICE, { tool: "pitch_tempo", params: { semitones: 2, tempo: 1, format: "mp3", durations: [100] }, inputBytes: [10] });
   assert.ok(p.ok);
 });
+
+test("criar: conversão para FLAC é grátis e liberada sem o Plano Pro (WMA/AIFF no Studio)", async () => {
+  const h = harness();
+  const r = await createTool(h.d, ALICE, { tool: "convert", params: { format: "flac", durations: [600] }, inputBytes: [10] });
+  assert.ok(r.ok && r.credits === 0, JSON.stringify(r));
+  const p = await createTool(h.d, ALICE, { tool: "pitch_tempo", params: { semitones: 2, tempo: 1, format: "flac", durations: [100] }, inputBytes: [10] });
+  assert.ok(!p.ok && p.code === "PRO_ONLY");
+});

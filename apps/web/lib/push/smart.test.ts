@@ -5,7 +5,9 @@ import { sendDaily, type Store, type Sub } from "./send";
 
 const daily = { title: "d", body: "d", url: "/estudio" };
 
-test("prioridade: expirando > próxima etapa > saudade > mensagem do dia", () => {
+test("prioridade: fim do plano concedido > expirando > próxima etapa > saudade > mensagem do dia", () => {
+  assert.equal(smartMessage({ grantEnded: "pro", expiringTool: "stems" }, daily).url, "/creditos");
+  assert.match(smartMessage({ grantEnding: "pro" }, daily).title, /termina amanhã/);
   assert.equal(smartMessage({ expiringTool: "stems", lastTool: "stems", daysSinceActive: 30 }, daily).url, "/projetos");
   assert.equal(smartMessage({ lastTool: "stems", daysSinceActive: 30 }, daily).url, "/vs");
   assert.match(smartMessage({ daysSinceActive: 8 }, daily).title, /Faz tempo/);

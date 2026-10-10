@@ -55,7 +55,8 @@ export async function createTool(
   if (!Array.isArray(req.inputBytes) || req.inputBytes.length !== params.durations.length) return fail("INVALID_JOB");
   if (req.inputBytes.some((b) => !Number.isInteger(b) || b < 1 || b > MAX_INPUT_BYTES)) return fail("TOO_LARGE");
   const pro = await d.isPro(userId).catch(() => false);
-  if (PRO_FORMATS.includes(params.format) && !pro) return fail("PRO_ONLY");
+  // a conversão (WMA/AIFF → FLAC) é grátis para todos; nas outras ferramentas, WAV 24/FLAC é do Plano Pro
+  if (tool !== "convert" && PRO_FORMATS.includes(params.format) && !pro) return fail("PRO_ONLY");
   const credits = toolCredits(tool, params, await d.costs());
   const retentionDays = pro ? 30 : 1;
   const keys = params.durations.map(() => `in/${randomUUID()}`);

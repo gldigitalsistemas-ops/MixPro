@@ -1,11 +1,15 @@
 /**
  * Lembretes inteligentes: a notificação do dia muda conforme o que a pessoa usou.
- * Prioridade: arquivo prestes a expirar > sugestão a partir da última ferramenta > saudade (7+ dias
+ * Prioridade: fim do plano concedido > arquivo prestes a expirar > sugestão a partir da última ferramenta > saudade (7+ dias
  * sem usar) > mensagem do dia. Só usa sinais do próprio app (nada de conteúdo dos arquivos).
  */
 import type { PushMessage } from "./messages";
 
 export type UserContext = {
+  /** Plano concedido pelo admin que termina nas próximas 24 h. */
+  grantEnding?: string | null;
+  /** Plano concedido que terminou nas últimas 48 h (convite para assinar). */
+  grantEnded?: string | null;
   /** Ferramenta com arquivos prontos que expiram nas próximas horas. */
   expiringTool?: string | null;
   /** Última ferramenta usada nos últimos 30 dias. */
@@ -34,7 +38,15 @@ const NEXT_STEP: Record<string, PushMessage> = {
 
 const MISS_YOU: PushMessage = { title: "Faz tempo que você não aparece 👋", body: "Tem gravação parada no celular? Envie e ouça o antes e depois em minutos.", url: "/estudio" };
 
+const PLAN_NAMES: Record<string, string> = { pro: "Pro", criador: "Criador" };
+
 export function smartMessage(ctx: UserContext | undefined, daily: PushMessage): PushMessage {
+  if (ctx?.grantEnded) {
+    return { title: `Seu Plano ${PLAN_NAMES[ctx.grantEnded] ?? ""} de cortesia terminou 👑`, body: "Gostou? Assine e continue com todos os recursos do Mix Pro.", url: "/creditos" };
+  }
+  if (ctx?.grantEnding) {
+    return { title: `Seu Plano ${PLAN_NAMES[ctx.grantEnding] ?? ""} termina amanhã ⏳`, body: "Aproveite hoje e assine para não perder os recursos.", url: "/creditos" };
+  }
   if (ctx?.expiringTool) {
     const name = TOOL_NAMES[ctx.expiringTool] ?? "ferramentas";
     return { title: "Seus arquivos expiram em breve ⏳", body: `Os arquivos de ${name} saem do ar nas próximas horas. Baixe em Meus projetos.`, url: "/projetos" };

@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { cn, formatDate } from "@/lib/cn";
+import { useMyPlan } from "@/components/plans/use-my-plan";
 
 type Plan = { id: string; name: string; credits: number; price: number; perks?: string[] };
 type Sub = { plan_id: string; status: string; credits_per_cycle: number; amount_brl: number; last_payment_at: string | null };
@@ -25,6 +26,7 @@ export function PlanCard({ unitPrice }: { unitPrice: number }) {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [sub, setSub] = useState<Sub | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const myPlan = useMyPlan(user?.id);
 
   useEffect(() => {
     supabaseBrowser()
@@ -100,6 +102,31 @@ export function PlanCard({ unitPrice }: { unitPrice: number }) {
 
   if (!plans.length) return null;
 
+  // admin: sempre no melhor plano
+  if (myPlan?.source === "admin")
+    return (
+      <Card className="flex flex-col gap-2 border-amber-400/50 p-5">
+        <p className="flex items-center gap-2 font-display text-lg font-semibold">
+          <Crown className="size-5 text-amber-300" /> Plano Pro (admin)
+        </p>
+        <p className="text-sm text-muted">Como administrador, você tem sempre todos os recursos do Plano Pro, sem cobrança.</p>
+      </Card>
+    );
+
+  // plano concedido pelo admin: mostra até quando vale e, abaixo, os planos para continuar depois
+  const granted =
+    myPlan?.source === "grant" && myPlan.expires_at ? (
+      <Card className="flex flex-col gap-2 border-violet-400/50 p-5">
+        <p className="flex items-center gap-2 font-display text-lg font-semibold">
+          <Crown className="size-5 text-amber-300" /> Plano {plans.find((x) => x.id === myPlan.plan)?.name ?? myPlan.plan} de cortesia
+        </p>
+        <p className="text-sm text-muted">
+          Ativo até {formatDate(myPlan.expires_at)}. Depois dessa data a sua conta volta ao plano anterior; para continuar com os recursos, assine
+          abaixo.
+        </p>
+      </Card>
+    ) : null;
+
   if (sub?.status === "authorized") {
     const plan = plans.find((p) => p.id === sub.plan_id);
     return (
@@ -130,6 +157,7 @@ export function PlanCard({ unitPrice }: { unitPrice: number }) {
 
   return (
     <div className={cn("grid gap-4", plans.length > 1 && "md:grid-cols-2")}>
+      {granted && <div className="md:col-span-2">{granted}</div>}
       {plans.map((plan) => {
         const savings = Math.round((1 - plan.price / (plan.credits * unitPrice)) * 100);
         const pro = plan.id === "pro";

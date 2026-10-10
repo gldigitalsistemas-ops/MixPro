@@ -8,6 +8,8 @@ import { useAccountCtx } from "@/components/account/account-provider";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/misc";
 import { cn } from "@/lib/cn";
+import { PlanEndedBanner } from "@/components/plans/plan-ended-banner";
+import { useMyPlan } from "@/components/plans/use-my-plan";
 
 const NAV = [
   { href: "/estudio", label: "Estúdio", icon: SlidersHorizontal },
@@ -26,6 +28,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const { user, account, isAdmin, requireLogin } = useAccountCtx();
   const install = useInstallApp();
+  const myPlan = useMyPlan(user?.id);
 
   return (
     <div className="flex min-h-dvh flex-col pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">
@@ -90,7 +93,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:px-8">{children}</main>
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:px-8">
+        <PlanEndedBanner plan={myPlan} />
+        {children}
+      </main>
 
       <footer className="hidden border-t border-border px-4 py-6 text-center text-xs text-subtle md:block">
         Mix Pro · <Link href="/termos" className="hover:text-text">Termos</Link> ·{" "}

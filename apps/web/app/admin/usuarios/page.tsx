@@ -4,8 +4,12 @@ import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/cn";
 import { AdjustCredits } from "./adjust";
 import { BlockButton } from "./block-button";
+import { PlanEditor } from "./plan-editor";
 
 export const metadata = { title: "Usuários" };
+
+/** Hora da requisição (a página é renderizada a cada acesso). */
+const requestTime = () => Date.now();
 
 export default async function AdminUsers(props: PageProps<"/admin/usuarios">) {
   await requireAdmin();
@@ -22,12 +26,31 @@ export default async function AdminUsers(props: PageProps<"/admin/usuarios">) {
     const ids = [...emails.entries()].filter(([, v]) => v.email.toLowerCase().includes(q.toLowerCase())).map(([id]) => id);
     query = ids.length ? query.or(`display_name.ilike.%${q.replace(/[%,()]/g, "")}%,id.in.(${ids.join(",")})`) : query.ilike("display_name", `%${q.replace(/[%,()]/g, "")}%`);
   }
-  const [{ data: profiles }, { data: balances }, { data: exportsRows }, { data: referred }] = await Promise.all([
+  const [{ data: profiles }, { data: balances }, { data: exportsRows }, { data: referred }, { data: grants }, { data: subs }] = await Promise.all([
     query,
     admin.from("credit_balances").select("user_id,balance").eq("kind", "download"),
     admin.from("credit_transactions").select("user_id").eq("type", "DOWNLOAD").limit(50000),
     admin.from("profiles").select("referred_by").not("referred_by", "is", null).limit(50000),
+    admin.from("plan_grants").select("user_id,plan_id,expires_at"),
+    admin.from("subscriptions").select("user_id,plan_id,last_payment_at").eq("status", "authorized"),
   ]);
+  // plano em vigor (mesma regra de public.current_plan): admin > concessão ativa > assinatura > grátis
+  const now = requestTime();
+  const grantOf = new Map((grants ?? []).map((g) => [g.user_id as string, g as { plan_id: string; expires_at: string }]));
+  const subOf = new Map<string, string>();
+  for (const s of subs ?? []) {
+    if (s.last_payment_at && now - new Date(s.last_payment_at as string).getTime() < 35 * 86_400_000 && subOf.get(s.user_id as string) !== "pro") subOf.set(s.user_id as string, s.plan_id as string);
+  }
+  const PLAN: Record<string, string> = { pro: "Pro", criador: "Criador" };
+  const planOf = (id: string, role: string) => {
+    if (role === "admin") return { label: "Pro", detail: "admin", tone: "warning" as const };
+    const g = grantOf.get(id);
+    if (g && new Date(g.expires_at).getTime() > now) return { label: PLAN[g.plan_id] ?? g.plan_id, detail: `concedido até ${formatDate(g.expires_at)}`, tone: "primary" as const };
+    const sub = subOf.get(id);
+    if (sub) return { label: PLAN[sub] ?? sub, detail: "assinatura", tone: "success" as const };
+    return { label: "Grátis", detail: g ? `concessão terminou em ${formatDate(g.expires_at)}` : "", tone: "neutral" as const };
+  };
+  const brtDay = (iso: string) => new Date(new Date(iso).getTime() - 3 * 3600_000).toISOString().slice(0, 10);
   const balanceOf = new Map((balances ?? []).map((b) => [b.user_id, b.balance]));
   const countBy = (rows: Record<string, unknown>[] | null, key: string) => {
     const m = new Map<string, number>();
@@ -51,12 +74,14 @@ export default async function AdminUsers(props: PageProps<"/admin/usuarios">) {
         </form>
       </div>
       <Card className="overflow-x-auto">
-        <table className="w-full min-w-[860px] text-sm">
+        <table className="w-full min-w-[1180px] text-sm">
           <thead className="text-left text-xs text-subtle">
             <tr className="border-b border-border">
               <th className="px-4 py-3 font-normal">Usuário</th>
               <th className="px-4 py-3 font-normal">Cadastro</th>
               <th className="px-4 py-3 font-normal">Código</th>
+              <th className="px-4 py-3 font-normal">Plano</th>
+              <th className="px-4 py-3 font-normal">Conceder plano até</th>
               <th className="px-4 py-3 font-normal">Créditos</th>
               <th className="px-4 py-3 font-normal">Exportações</th>
               <th className="px-4 py-3 font-normal">Indicou</th>
@@ -67,6 +92,9 @@ export default async function AdminUsers(props: PageProps<"/admin/usuarios">) {
           <tbody className="divide-y divide-border">
             {(profiles ?? []).map((p) => {
               const e = emails.get(p.id);
+              const pl = planOf(p.id, p.role);
+              const g = grantOf.get(p.id);
+              const activeGrant = g && new Date(g.expires_at).getTime() > now ? { plan: g.plan_id, until: brtDay(g.expires_at) } : null;
               return (
                 <tr key={p.id} className={p.blocked_at ? "opacity-50" : ""}>
                   <td className="px-4 py-3">
@@ -81,6 +109,11 @@ export default async function AdminUsers(props: PageProps<"/admin/usuarios">) {
                   </td>
                   <td className="px-4 py-3 text-xs text-muted">{formatDate(p.created_at)}</td>
                   <td className="px-4 py-3 font-mono text-xs">{p.referral_code}</td>
+                  <td className="px-4 py-3">
+                    <Badge tone={pl.tone}>{pl.label}</Badge>
+                    {pl.detail && <p className="mt-1 text-[11px] text-muted">{pl.detail}</p>}
+                  </td>
+                  <td className="px-4 py-3">{p.role === "admin" ? <span className="text-xs text-subtle">sempre Pro</span> : <PlanEditor userId={p.id} grant={activeGrant} />}</td>
                   <td className="px-4 py-3 tabular-nums">{balanceOf.get(p.id) ?? 0}</td>
                   <td className="px-4 py-3 tabular-nums">{exportsOf.get(p.id) ?? 0}</td>
                   <td className="px-4 py-3 tabular-nums">{referredOf.get(p.id) ?? 0}</td>

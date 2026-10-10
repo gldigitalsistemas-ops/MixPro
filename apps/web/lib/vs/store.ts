@@ -18,6 +18,8 @@ export type SavedVS = {
   savedAt: number;
   sampleRate: number;
   beats: Beats;
+  /** Separado no servidor (créditos já cobrados): baixar as pistas não cobra de novo. */
+  paid?: boolean;
   /** [instrumento][canal] em 16 bits; o clique é gerado de novo a partir das batidas. */
   stems: Int16Array[][];
 };

@@ -216,3 +216,40 @@ test("(h) relatório PDF: 1 crédito por relatório (repetir não cobra); sem sa
   const anon = await rpc("spend_report_credit", { p_ref: ref }, { key: ANON });
   assert.equal(anon.ok, false);
 });
+
+test("(i) planos: admin é sempre Pro; concessão com data vale até a data, depois volta e convida; só admin concede", { skip }, async () => {
+  const adm = await newUser(0);
+  const u = await newUser(0);
+  await call(`/rest/v1/profiles?id=eq.${adm.id}`, { method: "PATCH", body: JSON.stringify({ role: "admin" }) });
+  assert.equal((await rpc("is_pro", { p_user: adm.id })).body, true, "admin é Pro");
+  assert.equal((await rpc("my_plan", {}, { key: ANON, token: adm.token })).body.source, "admin");
+  assert.equal((await rpc("is_pro", { p_user: u.id })).body, false);
+
+  // usuário comum não concede
+  const self = await rpc("admin_set_plan", { p_user: u.id, p_plan: "pro", p_until: new Date(Date.now() + 86_400_000).toISOString() }, { key: ANON, token: u.token });
+  assert.equal(self.ok, false);
+
+  const until = new Date(Date.now() + 7 * 86_400_000).toISOString();
+  const g = await rpc("admin_set_plan", { p_user: u.id, p_plan: "pro", p_until: until, p_note: "cortesia" }, { key: ANON, token: adm.token });
+  assert.ok(g.ok, JSON.stringify(g.body));
+  assert.equal((await rpc("is_pro", { p_user: u.id })).body, true);
+  const mine = (await rpc("my_plan", {}, { key: ANON, token: u.token })).body;
+  assert.equal(mine.source, "grant");
+  assert.equal(mine.plan, "pro");
+
+  // data no passado é recusada
+  const past = await rpc("admin_set_plan", { p_user: u.id, p_plan: "pro", p_until: new Date(Date.now() - 1000).toISOString() }, { key: ANON, token: adm.token });
+  assert.match(String(past.body?.message), /INVALID/);
+
+  // a data passou: volta ao grátis e o app recebe o convite
+  await call(`/rest/v1/plan_grants?user_id=eq.${u.id}`, { method: "PATCH", body: JSON.stringify({ expires_at: new Date(Date.now() - 3600_000).toISOString() }) });
+  assert.equal((await rpc("is_pro", { p_user: u.id })).body, false);
+  const after = (await rpc("my_plan", {}, { key: ANON, token: u.token })).body;
+  assert.equal(after.plan, "free");
+  assert.equal(after.ended_plan, "pro");
+
+  // remover a concessão
+  await rpc("admin_set_plan", { p_user: u.id, p_plan: "pro", p_until: until }, { key: ANON, token: adm.token });
+  await rpc("admin_set_plan", { p_user: u.id, p_plan: null, p_until: null }, { key: ANON, token: adm.token });
+  assert.equal((await rpc("is_pro", { p_user: u.id })).body, false);
+});

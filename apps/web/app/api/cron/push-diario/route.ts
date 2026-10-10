@@ -69,14 +69,21 @@ export async function GET(req: Request) {
       const month = new Date(now - 30 * 86_400_000).toISOString();
       for (let i = 0; i < ids.length; i += 150) {
         const chunk = ids.slice(i, i + 150);
-        const [tools, last] = await Promise.all([
+        const [tools, last, grants] = await Promise.all([
           admin.from("tool_jobs").select("user_id,tool,status,expires_at,created_at").in("user_id", chunk).gte("created_at", month).order("created_at", { ascending: false }),
           admin.from("credit_transactions").select("user_id,created_at").in("user_id", chunk).eq("type", "DOWNLOAD").gte("created_at", month).order("created_at", { ascending: false }),
+          admin.from("plan_grants").select("user_id,plan_id,expires_at").in("user_id", chunk),
         ]);
         for (const u of chunk) out.set(u, { daysSinceActive: null });
         for (const r of last.data ?? []) {
           const c = out.get(r.user_id as string)!;
           if (c.daysSinceActive === null) c.daysSinceActive = Math.floor((now - new Date(r.created_at as string).getTime()) / 86_400_000);
+        }
+        for (const g of grants.data ?? []) {
+          const c = out.get(g.user_id as string)!;
+          const left = new Date(g.expires_at as string).getTime() - now;
+          if (left > 0 && left < 24 * 3600_000) c.grantEnding = g.plan_id as string;
+          else if (left <= 0 && left > -48 * 3600_000) c.grantEnded = g.plan_id as string;
         }
         for (const r of tools.data ?? []) {
           const c = out.get(r.user_id as string)!;
