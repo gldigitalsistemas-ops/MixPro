@@ -5,7 +5,8 @@ import { CloudTasksQueue, cloudTasksConfigFromEnv, serviceAccountTokenSource, ty
 import type { QueueService } from "./queue";
 import { R2Client, r2ConfigFromEnv } from "./r2";
 import type { Deps, Fail } from "./server-jobs";
-import { parseToolCosts } from "@mixpro/contracts";
+import { parsePremium, parseToolCosts } from "@mixpro/contracts";
+import { createHash } from "node:crypto";
 import type { ToolDeps } from "@/lib/tools/server-tools";
 
 /** Token do Google em cache entre requisições da mesma instância (dura ~1 h). */
@@ -121,4 +122,71 @@ export function failResponse(f: Fail) {
 /** Configuração incompleta: o servidor de exportação não está disponível; o app usa o aparelho. */
 export function unavailableResponse() {
   return Response.json({ error: "O processamento no servidor não está disponível agora. Você pode processar neste aparelho.", code: "CAPACITY", device: true }, { status: 503 });
+}
+
+/** Dependências do fluxo premium: as da exportação + banco (projetos, pedidos), catálogo e pagamento. */
+export function premiumDeps(req?: Request): import("@/lib/premium/server").PremiumDeps {
+  const base = exportDeps(req);
+  const admin = supabaseAdmin();
+  const r2 = new R2Client(r2ConfigFromEnv());
+  return {
+    rpc: base.rpc,
+    queue: base.queue,
+    objects: {
+      ...base.objects,
+      copy: async (from, to) => {
+        const chunks: Buffer[] = [];
+        for await (const c of r2.read(from)) chunks.push(c as Buffer);
+        await r2.put(to, new Uint8Array(Buffer.concat(chunks)));
+      },
+    },
+    catalog: async () => {
+      const { data } = await admin.from("system_settings").select("value").eq("key", "premium_products").maybeSingle();
+      return parsePremium(data?.value);
+    },
+    isPro: async (userId) => {
+      const { data, error } = await admin.rpc("is_pro", { p_user: userId });
+      return !error && data === true;
+    },
+    projects: {
+      get: async (id) => {
+        const { data } = await admin.from("premium_projects").select("*").eq("id", id).maybeSingle();
+        return (data as import("@/lib/premium/server").Project | null) ?? null;
+      },
+      insert: async (p) => {
+        const { error } = await admin.from("premium_projects").insert(p);
+        if (error) throw new Error("premium_projects insert");
+      },
+      update: async (id, patch) => {
+        await admin.from("premium_projects").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
+      },
+    },
+    orders: {
+      get: async (id) => {
+        const { data } = await admin.from("premium_orders").select("id,product,status,price_brl,list_price_brl,intro,method,paid_at").eq("id", id).maybeSingle();
+        return (data as import("@/lib/premium/server").Order | null) ?? null;
+      },
+    },
+    previewsToday: async (userId) => {
+      const since = new Date(Date.now() - 24 * 3600_000).toISOString();
+      const { count } = await admin.from("tool_jobs").select("id", { count: "exact", head: true }).eq("user_id", userId).not("project_id", "is", null).eq("params->>preview", "true").gte("created_at", since);
+      return count ?? 0;
+    },
+    previewLimit: async () => {
+      const { data } = await admin.from("system_settings").select("value").eq("key", "premium_preview_per_day").maybeSingle();
+      const n = Number(data?.value);
+      return Number.isInteger(n) && n >= 0 ? n : 6;
+    },
+    introUsed: async (userId, product) => {
+      const { count } = await admin.from("intro_claims").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("product", product).neq("status", "released");
+      return (count ?? 0) > 0;
+    },
+    checkout: async (o) => {
+      const { createCheckout } = await import("@/lib/payments");
+      const c = await createCheckout({ userId: o.userId, email: o.email, packId: `prem:${o.orderId}`, title: o.title, quantity: 1, unitPrice: o.price, credits: 0, returnPath: o.returnPath, payerCpf: o.cpf });
+      return { initPoint: c.initPoint };
+    },
+    introSecret: () => process.env.INTRO_HASH_SECRET || createHash("sha256").update(`intro|${process.env.SUPABASE_SERVICE_ROLE_KEY ?? ""}`).digest("hex"),
+    heavyAvailable: () => Boolean(process.env.EXPORT_STEMS_URL),
+  };
 }

@@ -40,6 +40,20 @@ export const EXPORT_ERRORS: Record<string, ExportErrorInfo> = {
   NEEDS_PURCHASE: { message: "Você já usou a separação de faixas grátis. Compre créditos ou assine um plano para separar mais músicas.", device: false, status: 402 },
   PRO_ONLY: { message: "WAV 24 bits e FLAC são do Plano Pro. Escolha MP3, WAV ou M4A, ou assine o Pro.", device: false, status: 403 },
   TOOL_UNAVAILABLE: { message: "Este recurso está temporariamente indisponível. Tente de novo em alguns minutos.", device: false, status: 503 },
+  // módulos premium
+  PAYMENT_REQUIRED: { message: "Finalize o pagamento para liberar o trabalho completo.", device: false, status: 402 },
+  REVISION_CLOSED: { message: "O prazo de revisões deste projeto terminou.", device: false, status: 409 },
+  ALREADY_PAID: { message: "Este projeto já está pago.", device: false, status: 409 },
+  CHECKOUT_FAILED: { message: "Não foi possível abrir o pagamento agora. Tente de novo em instantes.", device: false, status: 502 },
+  INTRO_USED: { message: "A primeira experiência deste recurso já foi usada. O preço normal continua disponível.", device: false, status: 409 },
+  INTRO_UNAVAILABLE: { message: "Este recurso não tem preço de primeira experiência.", device: false, status: 409 },
+  INTRO_EMAIL_UNCONFIRMED: { message: "Confirme o seu e-mail para usar o preço da primeira experiência.", device: false, status: 403 },
+  INTRO_EMAIL_DISPOSABLE: { message: "O preço da primeira experiência não vale para e-mails temporários.", device: false, status: 403 },
+  INTRO_CPF_INVALID: { message: "Informe um CPF válido.", device: false, status: 400 },
+  INTRO_DEVICE_MISSING: { message: "Não conseguimos identificar este aparelho. Recarregue a página e tente de novo.", device: false, status: 400 },
+  INVALID: { message: "Pedido inválido.", device: false, status: 400 },
+  NOT_FOUND: { message: "Não encontrado.", device: false, status: 404 },
+  EXTERNAL_FAILED: { message: "O serviço de separação não respondeu. Tente de novo em alguns minutos; nada foi cobrado.", device: false, status: 502 },
 };
 
 /** Código desconhecido vira INTERNAL: nunca mostra texto bruto. */

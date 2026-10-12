@@ -41,6 +41,8 @@ export async function createCheckout(opts: {
   unitPrice: number;
   credits: number;
   returnPath: string;
+  /** CPF do comprador (só dígitos), quando a pessoa informou (oferta de 1ª experiência). */
+  payerCpf?: string | null;
 }): Promise<Checkout> {
   const admin = supabaseAdmin();
   const amount = Math.round(opts.quantity * opts.unitPrice * 100) / 100;
@@ -67,7 +69,9 @@ export async function createCheckout(opts: {
             currency_id: "BRL",
           },
         ],
-        payer: opts.email ? { email: opts.email } : undefined,
+        payer: opts.email || opts.payerCpf
+          ? { ...(opts.email ? { email: opts.email } : {}), ...(opts.payerCpf ? { identification: { type: "CPF", number: opts.payerCpf } } : {}) }
+          : undefined,
         external_reference: order.mp_external_ref,
         notification_url: `${base}/api/payments/webhook`,
         back_urls: { success: back("sucesso"), pending: back("pendente"), failure: back("erro") },
