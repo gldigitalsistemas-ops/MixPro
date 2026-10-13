@@ -22,7 +22,10 @@
 #   - Filas do Cloud Tasks "mixpro-export" (todos) e "mixpro-export-pro" (Plano Pro, passa na frente)
 set -euo pipefail
 
-PROJECT="${GCP_PROJECT_ID:?defina GCP_PROJECT_ID}"
+# projeto: a variável, ou o que já está ativo no Cloud Shell (o Cloud Shell reinicia e perde as variáveis)
+PROJECT="${GCP_PROJECT_ID:-$(gcloud config get-value project 2>/dev/null)}"
+[[ -n "$PROJECT" ]] || { echo "defina GCP_PROJECT_ID (export GCP_PROJECT_ID=mixpro-export)"; exit 1; }
+echo "Projeto: $PROJECT"
 REGION="${GCP_REGION:-us-central1}"
 SERVICE="${EXPORT_SERVICE_NAME:-mixpro-export}"
 QUEUE="${EXPORT_TASKS_QUEUE:-mixpro-export}"
