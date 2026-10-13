@@ -78,10 +78,19 @@ class Lyrics:
 
 
 @app.local_entrypoint()
-def main(arquivo: str, idioma: str = "", saida: str = ""):
+def main(arquivo: str = "", idioma: str = "", saida: str = "", pasta: str = ""):
     import json
     import pathlib
 
+    if pasta:
+        # vários arquivos de uma vez (ex.: conferir o idioma cantado das versões geradas)
+        files = sorted(pathlib.Path(pasta).glob("*.mp3"))
+        res = dict(zip([f.name for f in files], Lyrics().from_bytes.map([f.read_bytes() for f in files], [idioma or None] * len(files))))
+        text = json.dumps(res, ensure_ascii=False, indent=1)
+        if saida:
+            pathlib.Path(saida).write_text(text, encoding="utf-8")
+        print(text)
+        return
     r = Lyrics().from_bytes.remote(pathlib.Path(arquivo).read_bytes(), idioma or None)
     text = json.dumps(r, ensure_ascii=False, indent=1)
     if saida:
