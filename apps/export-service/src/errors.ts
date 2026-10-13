@@ -42,6 +42,8 @@ export const ERROR_CODES = [
   "NEEDS_PURCHASE",
   "PRO_ONLY",
   "TOOL_UNAVAILABLE",
+  // recursos premium
+  "EXTERNAL_FAILED",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

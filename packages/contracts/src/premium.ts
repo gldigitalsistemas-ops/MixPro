@@ -138,7 +138,7 @@ const uuid = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-
 /** Papel de cada pista na mixagem (o motor aplica o tratamento de cada um). */
 export const TRACK_ROLES = [
   "lead_vocal", "backing_vocal", "kick", "snare", "hihat", "toms", "overheads", "room", "drums", "percussion",
-  "bass", "electric_guitar", "acoustic_guitar", "piano", "keys", "synth", "pad", "strings", "brass", "fx", "loop", "other",
+  "bass", "electric_guitar", "acoustic_guitar", "piano", "keys", "synth", "pad", "strings", "brass", "fx", "loop", "playback", "other",
 ] as const;
 export type TrackRole = (typeof TRACK_ROLES)[number];
 

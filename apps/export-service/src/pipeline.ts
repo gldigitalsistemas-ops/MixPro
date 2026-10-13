@@ -41,6 +41,8 @@ export type ServiceDeps = {
   limits: ServiceLimits;
   /** Jobs das ferramentas (rota /tool); ausente = a rota responde 404. */
   tools?: import("./adapters/tool-store").ToolStore;
+  /** Recursos premium (separação externa e gerador de bases). */
+  premium?: { musicai?: import("./adapters/musicai").StemSeparator | null; composer?: import("./adapters/composer").Composer | null };
 };
 
 export type ServiceLimits = {

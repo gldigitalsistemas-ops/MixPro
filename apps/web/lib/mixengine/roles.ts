@@ -34,6 +34,7 @@ export function guessRole(fileName: string): TrackRole {
   if (has(/(string|cordas|violin|violino|cello|\borq)/)) return "strings";
   if (has(/(brass|metais|\bsax|trumpet|trompete|trombone|horn)/)) return "brass";
   if (has(/(\bfx\b|efeito|riser|sweep|impact|uplifter|downlifter|\bnoise\b)/)) return "fx";
+  if (has(/(playback|\bbase\b|instrumental|\bpb\b)/)) return "playback";
   return "other";
 }
 
@@ -81,6 +82,8 @@ export const ROLE: Record<TrackRole, RoleCfg> = {
   brass: { group: "other", hpf: 120, level: -9, comp: { ratio: 2, above: 4, attack: 15, release: 120 }, eq: [{ f: 300, g: -1.5, q: 1 }], reverb: 0.6, carve: true, gate: false, resonances: false },
   fx: { group: "other", hpf: 150, level: -15, comp: null, eq: [], reverb: 0.4, carve: false, gate: false, resonances: false },
   loop: { group: "drums", hpf: 40, level: -8, comp: { ratio: 2, above: 4, attack: 20, release: 120 }, eq: [], reverb: 0.1, carve: false, gate: false, resonances: false },
+  /** Base pronta (playback/instrumental): pouco tratamento, só espaço para a voz e volume. */
+  playback: { group: "other", hpf: 30, level: -2.5, comp: null, eq: [], reverb: 0, carve: true, gate: false, resonances: false },
   other: { group: "other", hpf: 60, level: -9, comp: { ratio: 2, above: 4, attack: 20, release: 150 }, eq: [], reverb: 0.4, carve: true, gate: false, resonances: false },
 };
 

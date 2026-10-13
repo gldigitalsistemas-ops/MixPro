@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 
 /** in/<uuid> (entrada), out/<uuid>.<ext> (exportação) e out|cofre/<uuid>/<n>.<ext> (ferramentas; cofre = Plano Pro, 30 dias). */
 export const STORAGE_KEY =
-  /^((in|out)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(\.(wav|mp3|m4a))?|(out|cofre)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9]{1,2}\.(wav|mp3|m4a|flac|zip))$/;
+  /^((in|out)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(\.(wav|mp3|m4a))?|(out|cofre)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9]{1,3}\.(wav|mp3|m4a|flac|zip|json|pdf)|cofre\/proj\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9]{2})$/;
 
 export interface Storage {
   /** Abre a leitura do início (pode ser chamada mais de uma vez). Erros chegam no próprio fluxo. */
@@ -20,6 +20,8 @@ export interface Storage {
   /** Grava (substitui) de forma atômica. */
   put(key: string, data: Uint8Array): Promise<void>;
   delete(key: string): Promise<void>;
+  /** URL temporária (só no R2): serviços externos leem/gravam sem passar pelo serviço. */
+  presign?(method: "GET" | "PUT", key: string, expiresS: number): string;
 }
 
 export class StorageKeyError extends Error {}

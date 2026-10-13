@@ -27,6 +27,8 @@ import { logDiag, logService } from "./log";
 import { DEFAULT_LIMITS, runJob, type ServiceDeps } from "./pipeline";
 import { runTool } from "./tools";
 import { SupabaseToolStore } from "./adapters/tool-store";
+import { musicAiFromEnv } from "./adapters/musicai";
+import { composerFromEnv } from "./adapters/composer";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -66,7 +68,7 @@ export function createService(deps: ServiceDeps, token?: string): Server {
     try {
       const r =
         route === "/tool"
-          ? await runTool(jobId, { storage: deps.storage, tools: deps.tools!, ffmpeg: deps.ffmpeg, ffprobe: deps.ffprobe, limits: deps.limits })
+          ? await runTool(jobId, { storage: deps.storage, tools: deps.tools!, ffmpeg: deps.ffmpeg, ffprobe: deps.ffprobe, limits: deps.limits, premium: deps.premium })
           : await runJob(jobId, deps);
       send(r.http, { status: r.status, error_code: r.error_code ?? null });
     } catch (e) {
@@ -94,6 +96,7 @@ function depsFromEnv(): ServiceDeps {
     assetStorageUrl: url,
     assetMemory: new Map(),
     limits: DEFAULT_LIMITS,
+    premium: { musicai: musicAiFromEnv(), composer: composerFromEnv() },
   };
 }
 

@@ -12,7 +12,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pipeline as pipe } from "node:stream/promises";
-import { DELIVERY_TARGETS, parseToolParams, type DeliveryId, type ToolId } from "@mixpro/contracts";
+import { DELIVERY_TARGETS, parsePremiumParams, parseToolParams, type DeliveryId, type ToolId } from "@mixpro/contracts";
 import { limiter } from "@/lib/dsp/dynamics";
 import { integratedLoudness, samplePeak } from "@/lib/dsp/loudness";
 import type { Signal } from "@/lib/dsp/types";
@@ -27,6 +27,9 @@ import type { ToolOutput, ToolRecord, ToolStore } from "./adapters/tool-store";
 import { fromDecode, JobError, RETRYABLE, type ErrorCode } from "./errors";
 import { logJob } from "./log";
 import { separateStems, StemsUnavailable } from "./stems";
+import type { Composer } from "./adapters/composer";
+import type { StemSeparator } from "./adapters/musicai";
+import { runPremiumAudio, type OutFile } from "./premium";
 
 export type ToolDeps = {
   storage: Storage;
@@ -34,6 +37,8 @@ export type ToolDeps = {
   ffmpeg: string;
   ffprobe: string;
   limits: { maxInputBytes: number; staleMs: number; maxAttempts: number; processTimeoutS: number };
+  /** Recursos premium: separação externa (Music.AI) e gerador de bases (GPU). */
+  premium?: { musicai?: StemSeparator | null; composer?: Composer | null };
 };
 
 /** Mais formatos que a exportação: as ferramentas recebem o arquivo como o usuário tem (WMA, AIFF, ALAC…). */
@@ -71,7 +76,7 @@ function safety(x: Signal, sr: number): Signal {
   return samplePeak(x) > 10 ** (-1 / 20) ? limiter(x, sr, { ceiling_db: -1, input_gain_db: 0, release_ms: 60, lookahead_ms: 5 }) : x;
 }
 
-type Produced = { name: string; channels: Signal; sampleRate: number }[];
+type Produced = OutFile[];
 
 async function runToolAudio(tool: ToolId, p: Record<string, unknown>, media: DecodedMedia[], deps: ToolDeps, onProgress: (v: number) => void): Promise<{ files: Produced; measures: Record<string, unknown>; zip?: string }> {
   const fmt = p.format as string;
@@ -180,9 +185,10 @@ export async function runTool(jobId: string, deps: ToolDeps): Promise<ToolRunRes
       return { http: 200, status: st.outcome === "done" ? "done" : "failed" };
     }
     rec = st.record!;
-    const parsed = parseToolParams(rec.tool, rec.params);
+    const premium = parsePremiumParams(rec.tool, rec.params);
+    const parsed = premium ?? parseToolParams(rec.tool, rec.params);
     if (!parsed || parsed.params.durations.length !== rec.inputs.length) throw new JobError("INVALID_JOB");
-    const { tool, params } = parsed;
+    const { params } = parsed;
     const report = (v: number) => void deps.tools.progress(jobId, Math.round(v * 100)).catch(() => {});
 
     dir = await mkdtemp(join(tmpdir(), "mixpro-tool-"));
@@ -195,8 +201,27 @@ export async function runTool(jobId: string, deps: ToolDeps): Promise<ToolRunRes
       report(0.15 * ((i + 1) / rec.inputs.length));
     }
 
-    const result = await runToolAudio(tool, params, media, deps, (v) => report(0.15 + v * 0.7));
+    const onProg = (v: number) => report(0.15 + v * 0.7);
+    const result: { files: Produced; measures: Record<string, unknown>; zip?: string; apiUsd?: number } = premium
+      ? await runPremiumAudio(premium.tool, premium.params, media, {
+          ffmpeg: deps.ffmpeg,
+          ffprobe: deps.ffprobe,
+          timeoutS: deps.limits.processTimeoutS,
+          musicai: deps.premium?.musicai ?? null,
+          composer: deps.premium?.composer ?? null,
+          presign: deps.storage.presign ? (m, k, t) => deps.storage.presign!(m, k, t) : undefined,
+          readKey: async (k) => {
+            const chunks: Buffer[] = [];
+            for await (const c of deps.storage.read(k)) chunks.push(c as Buffer);
+            return new Uint8Array(Buffer.concat(chunks));
+          },
+          putKey: (k, d) => (d.byteLength ? deps.storage.put(k, d) : deps.storage.delete(k)),
+          jobId,
+        }, onProg)
+      : await runToolAudio(parsed.tool as ToolId, params, media, deps, onProg);
     media.length = 0;
+    const first = result.files.find((f) => f.channels && f.sampleRate);
+    const lufs = first ? integratedLoudness(first.channels!, first.sampleRate!) : null;
 
     // gravação: Cofre (Plano Pro, 30 dias) ou saída comum (24 h)
     const prefix = new Date(rec.expires_at).getTime() - Date.now() > 2 * 86_400_000 ? "cofre" : "out";
@@ -205,18 +230,24 @@ export async function runTool(jobId: string, deps: ToolDeps): Promise<ToolRunRes
     for (let i = 0; i < result.files.length; i++) {
       const f = result.files[i];
       let bytes: Uint8Array;
-      try {
-        bytes = await encodeWithFfmpeg(deps.ffmpeg, f.channels, f.sampleRate, params.format as "wav" | "wav24" | "mp3" | "m4a" | "flac", deps.limits.processTimeoutS);
-      } catch (e) {
-        throw new JobError(e instanceof EncodeError && e.code === "timeout" ? "TIMEOUT" : "ENCODE_FAILED");
+      const fmt = (f.format ?? params.format) as "wav" | "wav24" | "mp3" | "m4a" | "flac";
+      if (f.bytes) bytes = f.bytes;
+      else {
+        try {
+          bytes = await encodeWithFfmpeg(deps.ffmpeg, f.channels!, f.sampleRate!, fmt, deps.limits.processTimeoutS);
+        } catch (e) {
+          throw new JobError(e instanceof EncodeError && e.code === "timeout" ? "TIMEOUT" : "ENCODE_FAILED");
+        }
+        // libera o áudio já gravado (a entrega premium tem muitos arquivos)
+        f.channels = undefined;
       }
-      const key = `${prefix}/${jobId}/${i}.${EXT[params.format] ?? "wav"}`;
+      const key = `${prefix}/${jobId}/${i}.${f.ext ?? EXT[fmt] ?? "wav"}`;
       await deps.storage.put(key, bytes).catch(() => {
         throw new JobError("STORAGE_FAILED");
       });
       written.push(key);
       outputs.push({ key, name: f.name, bytes: bytes.byteLength });
-      if (result.zip) zipFiles.push({ name: f.name, data: bytes });
+      if (result.zip && f.zip !== false && (f.zip || !premium)) zipFiles.push({ name: f.name, data: bytes });
       report(0.85 + 0.1 * ((i + 1) / result.files.length));
     }
     if (result.zip && zipFiles.length > 1) {
@@ -229,7 +260,7 @@ export async function runTool(jobId: string, deps: ToolDeps): Promise<ToolRunRes
       outputs.push({ key, name: result.zip, bytes: zip.byteLength });
     }
 
-    const c = await deps.tools.commit(jobId, outputs, { ...result.measures, lufs: result.files[0] ? integratedLoudness(result.files[0].channels, result.files[0].sampleRate) : null }, cost());
+    const c = await deps.tools.commit(jobId, outputs, { ...result.measures, lufs: Number.isFinite(lufs) ? lufs : null }, { ...cost(), api_usd: result.apiUsd ?? 0 });
     if (c.status !== "done") throw new JobError(c.error_code ?? "INTERNAL");
     log("done", null);
     return { http: 200, status: "done" };

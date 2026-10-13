@@ -20,7 +20,7 @@ export type ToolRecord = {
 };
 
 export type ToolOutput = { key: string; name: string; bytes: number };
-export type ToolCost = { cpu_ms: number; rss_mb: number; wall_ms: number };
+export type ToolCost = { cpu_ms: number; rss_mb: number; wall_ms: number; api_usd?: number };
 
 export interface ToolStore {
   start(id: string, staleMs: number): Promise<{ outcome: "started" | "busy" | "done" | "failed" | "missing"; record: ToolRecord | null }>;

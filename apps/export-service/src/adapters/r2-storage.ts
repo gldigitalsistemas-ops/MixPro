@@ -32,4 +32,8 @@ export class R2Storage implements Storage {
   delete(key: string) {
     return this.client.delete(checked(key));
   }
+
+  presign(method: "GET" | "PUT", key: string, expiresS: number) {
+    return this.client.presign(method, checked(key), expiresS);
+  }
 }
