@@ -24,7 +24,11 @@ import { VSPlayer } from "@/lib/vs/player";
 import { SeparateAbort, separateStems, type SeparateProgress } from "@/lib/vs/separate";
 import { clearVS, loadVS, peekVS, saveVS } from "@/lib/vs/store";
 import { clickTrack, trackBeats, type Beats } from "@/lib/vs/tempo";
-import { separateOnServer } from "@/lib/vs/server";
+import { loadPremiumStems, PREMIUM_IDS, separateOnServer } from "@/lib/vs/server";
+import { createProject, projectState, startPreview } from "@/lib/premium/client";
+import { Price, usePublicCatalog } from "@/components/premium/hub";
+import { DevBadge } from "@/components/premium/explainer";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ToolError } from "@/lib/tools/client";
 import { DEFAULT_TOOL_COSTS, parseToolCosts, type ToolCosts } from "@mixpro/contracts";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -45,8 +49,24 @@ const canSeparateHere = () => {
 };
 const ISOLATION_FLAG = "mixpro.vs-isolation";
 
-const LABELS: Record<string, string> = { vocals: "Voz", drums: "Bateria", bass: "Baixo", other: "Instrumentos", click: "Clique" };
-const ORDER = ["vocals", "drums", "bass", "other", "click"];
+const LABELS: Record<string, string> = {
+  vocals: "Voz",
+  drums: "Bateria",
+  bass: "Baixo",
+  other: "Instrumentos",
+  click: "Clique",
+  voz: "Voz",
+  bateria: "Bateria",
+  baixo: "Baixo",
+  guitarra: "Guitarra",
+  violao: "Violão",
+  teclado: "Teclado",
+  outros: "Outros",
+};
+/** Ordem na tela: VS básico (4 faixas) ou VS Premium (7 faixas), sempre com o clique no fim. */
+const orderOf = (ids: readonly string[]) =>
+  ids.includes("voz") ? [...PREMIUM_IDS.filter((x) => ids.includes(x)), "click"] : ["vocals", "drums", "bass", "other", "click"];
+const freshMix = (ids: readonly string[]) => Object.fromEntries(orderOf(ids).map((id) => [id, { ...DEFAULT_MIX }]));
 const DEFAULT_MIX: TrackMix = { volume: 1, pan: 0, mute: false, solo: false };
 
 type Phase =
@@ -80,8 +100,9 @@ export function VSStudio() {
   const [name, setName] = useState("");
   const [fileKey, setFileKey] = useState("");
   const [stems, setStems] = useState<Int16Array[][] | null>(null);
+  const [ids, setIds] = useState<string[]>([...STEMS]);
   const [beats, setBeats] = useState<Beats | null>(null);
-  const [mix, setMix] = useState<Record<string, TrackMix>>(() => Object.fromEntries(ORDER.map((id) => [id, { ...DEFAULT_MIX }])));
+  const [mix, setMix] = useState<Record<string, TrackMix>>(() => freshMix(STEMS));
   const [from, setFrom] = useState(0);
   const [paid, setPaid] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -112,6 +133,58 @@ export function VSStudio() {
     void peekVS().then(setSaved);
   }, []);
 
+  // VS Premium pago: abre as 7 faixas do projeto (/vs?projeto=<id>)
+  const search = useSearchParams();
+  const router = useRouter();
+  const catalog = usePublicCatalog();
+  const projectParam = search.get("projeto");
+  useEffect(() => {
+    if (!projectParam || !/^[0-9a-f-]{36}$/.test(projectParam)) return;
+    let alive = true;
+    (async () => {
+      try {
+        const st = await projectState(projectParam);
+        if (!st.final || st.final.status !== "done") {
+          router.replace(`/premium/${projectParam}`);
+          return;
+        }
+        if (!alive) return;
+        setPhase({ kind: "server", label: "Abrindo as 7 faixas…", progress: 0 });
+        const r = await loadPremiumStems(st.final.outputs, (v) => alive && setPhase({ kind: "server", label: "Abrindo as 7 faixas…", progress: v * 100 }));
+        if (!alive) return;
+        await finish({ name: st.project.title || "VS Premium", size: 0, lastModified: Date.parse(st.project.expiresAt) }, r.stems, "premium", 0, r.ids);
+      } catch (e) {
+        if (alive) {
+          toast.error((e as Error).message);
+          setPhase({ kind: "idle" });
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [projectParam]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** VS Premium: cria o projeto e a prévia grátis das 7 faixas (30 s); o pagamento libera a música inteira. */
+  const premiumInput = useRef<HTMLInputElement>(null);
+  const [premiumBusy, setPremiumBusy] = useState<number | null>(null);
+  async function openPremium(file: File) {
+    if (!(await requireLogin("Entre na sua conta para criar o VS Premium. A prévia é grátis."))) return;
+    setPremiumBusy(0);
+    try {
+      const { fileDuration, toolUpload } = await import("@/lib/tools/client");
+      const d = await fileDuration(file);
+      if (!d) throw new Error("Não conseguimos ler esse arquivo. Envie em MP3, WAV, M4A ou vídeo.");
+      const blob = await toolUpload(file);
+      const id = await createProject("vs_premium", [{ file: blob, name: file.name }], (v) => setPremiumBusy(v * 100), { title: file.name.replace(/\.[^.]+$/, "") });
+      await startPreview(id, { format: "wav", durations: [Math.ceil(d * 100) / 100] });
+      router.push(`/premium/${id}`);
+    } catch (e) {
+      toast.error((e as Error).message);
+      setPremiumBusy(null);
+    }
+  }
+
   const player = useMemo(() => new VSPlayer(), []);
   useEffect(() => () => player.dispose(), [player]);
   const playing = useSyncExternalStore(
@@ -137,11 +210,11 @@ export function VSStudio() {
   const tracks = useMemo<TrackData[]>(() => {
     if (!stems || !click) return [];
     const byId: Record<string, TrackData> = Object.fromEntries(
-      STEMS.map((s, i) => [s, { id: s, label: LABELS[s], left: stems[i][0], right: stems[i][1] }]),
+      ids.map((s, i) => [s, { id: s, label: LABELS[s] ?? s, left: stems[i][0], right: stems[i][1] }]),
     );
     byId.click = { id: "click", label: `${LABELS.click} (${beats?.bpm} BPM)`, left: click, right: click };
-    return ORDER.map((id) => byId[id]);
-  }, [stems, click, beats?.bpm]);
+    return orderOf(ids).filter((id) => byId[id]).map((id) => byId[id]);
+  }, [stems, click, beats?.bpm, ids]);
 
   // prévia: recarrega o trecho quando muda a música, o trecho ou o clique
   useEffect(() => {
@@ -155,12 +228,13 @@ export function VSStudio() {
   const setTrack = (id: string, patch: Partial<TrackMix>) => setMix((m) => ({ ...m, [id]: { ...m[id], ...patch } }));
   const applyPreset = (p: "palco" | "playback" | "so-clique" | "tudo") =>
     setMix(() => {
-      const m: Record<string, TrackMix> = Object.fromEntries(ORDER.map((id) => [id, { ...DEFAULT_MIX }]));
+      const m: Record<string, TrackMix> = freshMix(ids);
+      const voice = ids.includes("voz") ? "voz" : "vocals";
       if (p === "palco") {
         m.click.pan = -1;
-        for (const id of ["vocals", "drums", "bass", "other"]) m[id].pan = 1;
+        for (const id of ids) m[id].pan = 1;
       } else if (p === "playback") {
-        m.vocals.mute = true;
+        m[voice].mute = true;
       } else if (p === "so-clique") {
         m.click.solo = true;
       }
@@ -169,10 +243,10 @@ export function VSStudio() {
     });
 
   /** Pistas prontas (do servidor ou do aparelho): detecta as batidas, mostra e guarda no aparelho. */
-  async function finish(file: File, separated: Int16Array[][], via: "servidor" | "aparelho", threads: number) {
+  async function finish(file: { name: string; size: number; lastModified: number }, separated: Int16Array[][], via: "servidor" | "aparelho" | "premium", threads: number, stemIds: string[] = [...STEMS]) {
     const seconds = separated[0][0].length / SR;
     // batidas: pela bateria separada (mais limpa); sem bateria, pela soma das pistas (= a música)
-    const drums = separated[STEMS.indexOf("drums")];
+    const drums = separated[Math.max(0, stemIds.indexOf(stemIds.includes("bateria") ? "bateria" : "drums"))];
     const dm = new Float32Array(drums[0].length);
     let energy = 0;
     for (let i = 0; i < dm.length; i++) {
@@ -190,14 +264,16 @@ export function VSStudio() {
     const key = fnv36(`${file.name}|${file.size}|${file.lastModified}`);
     setName(file.name);
     setFileKey(key);
+    setIds(stemIds);
+    setMix(freshMix(stemIds));
     setStems(separated);
     setBeats(b);
     // no servidor os créditos já foram cobrados na entrega: baixar as pistas não cobra de novo
-    if (via === "servidor") setPaid(key);
+    if (via !== "aparelho") setPaid(key);
     setFrom(Math.max(0, Math.min(seconds - PREVIEW_S, seconds * 0.3)));
     setPhase({ kind: "ready" });
     trackEvent("vs_separated", { seconds: Math.round(seconds), threads, bpm: b.bpm, via });
-    const err = await saveVS({ name: file.name, key, savedAt: Date.now(), sampleRate: SR, beats: b, stems: separated, paid: via === "servidor" });
+    const err = await saveVS({ name: file.name, key, savedAt: Date.now(), sampleRate: SR, beats: b, stems: separated, paid: via !== "aparelho", ids: stemIds });
     if (err) reportError("vs-salvar", err, { severity: "aviso", context: { segundos: Math.round(seconds) } });
     else setSaved({ name: file.name, savedAt: Date.now() });
   }
@@ -302,6 +378,9 @@ export function VSStudio() {
     if (!v) return toast.error("A separação salva não está mais no aparelho.");
     setName(v.name);
     setFileKey(v.key);
+    const restoredIds = v.ids ?? [...STEMS];
+    setIds(restoredIds);
+    setMix(freshMix(restoredIds));
     setStems(v.stems);
     setBeats(v.beats);
     if (v.paid) setPaid(v.key);
@@ -477,6 +556,34 @@ export function VSStudio() {
           <span className="font-semibold">Escolher música ou áudio</span>
           <span className="text-xs text-muted">MP3, WAV, M4A ou vídeo · até {MAX_MINUTES} minutos</span>
         </button>
+        <div id="premium" className={cn("flex flex-col gap-3 rounded-3xl border p-5", search.get("premium") ? "border-amber-400/60 bg-amber-400/5" : "border-border")}>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-display text-lg font-semibold">VS Premium 7 faixas</p>
+            <DevBadge />
+          </div>
+          <p className="text-sm text-muted">
+            Separação de estúdio com a melhor precisão do mercado: <strong className="text-text">voz, bateria, baixo, guitarra, violão, teclado e outros</strong>{" "}
+            (efeitos, loops, cordas…) em faixas separadas, mais o clique. Ouça 30 segundos das 7 faixas grátis antes de pagar.
+          </p>
+          <Price cat={catalog} id="vs_premium" />
+          <input
+            ref={premiumInput}
+            type="file"
+            accept={accept}
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void openPremium(f);
+            }}
+          />
+          {premiumBusy !== null ? (
+            <ProgressBar value={premiumBusy} label="Enviando a música" />
+          ) : (
+            <Button className="self-start" onClick={() => premiumInput.current?.click()}>
+              Ouvir a prévia grátis das 7 faixas
+            </Button>
+          )}
+        </div>
         <ul className="grid gap-2 text-sm text-muted sm:grid-cols-2">
           <li>🎤 Voz, 🥁 bateria, 🎸 baixo e 🎹 instrumentos em pistas separadas</li>
           <li>⏱️ Clique gerado no andamento real da música</li>

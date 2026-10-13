@@ -62,3 +62,31 @@ export async function separateOnServer(file: File, maxSeconds: number, onPhase: 
   );
   return { stems: even, credits: res.credits };
 }
+
+/** Ordem e nomes das 7 faixas do VS Premium (saídas "play-<id>.m4a" do serviço). */
+export const PREMIUM_IDS = ["voz", "bateria", "baixo", "guitarra", "violao", "teclado", "outros"] as const;
+
+/** Carrega as 7 faixas de um VS Premium entregue (M4A) em 44,1 kHz para o VS. */
+export async function loadPremiumStems(outputs: { name: string; url: string }[], onProgress: (v: number) => void, signal?: AbortSignal): Promise<{ ids: string[]; stems: Int16Array[][] }> {
+  const ids: string[] = [];
+  const stems: Int16Array[][] = [];
+  const found = PREMIUM_IDS.map((id) => ({ id, o: outputs.find((x) => x.name === `play-${id}.m4a`) })).filter((x) => x.o);
+  if (!found.length) throw new ToolError("INTERNAL", "As faixas deste projeto não estão mais disponíveis.");
+  for (const [i, f] of found.entries()) {
+    onProgress(i / found.length);
+    ids.push(f.id);
+    stems.push(await decode(f.o!.url, signal));
+  }
+  const n = Math.max(...stems.map((s) => s[0].length));
+  return {
+    ids,
+    stems: stems.map((s) =>
+      s.map((ch) => {
+        if (ch.length === n) return ch;
+        const p = new Int16Array(n);
+        p.set(ch);
+        return p;
+      }),
+    ),
+  };
+}

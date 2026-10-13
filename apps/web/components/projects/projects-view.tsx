@@ -13,6 +13,7 @@ import { exportErrorInfo } from "@/lib/export/error-messages";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { formatDateTime, formatDuration } from "@/lib/cn";
 import { ToolJobsList } from "./tool-jobs";
+import { PremiumProjectsList } from "./premium-projects";
 
 type Row = {
   id: string;
@@ -174,6 +175,7 @@ export function ProjectsView() {
         <p className="text-sm text-muted">Seus áudios e vídeos tratados. Os processados no servidor ficam disponíveis para baixar de novo por 24 horas (30 dias no Plano Pro).</p>
       </div>
 
+      <PremiumProjectsList />
       <ToolJobsList />
 
       {rows === null ? (

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { VSStudio } from "@/components/vs/vs-studio";
 
 export const metadata: Metadata = {
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function VSPage() {
-  return <VSStudio />;
+  return (
+    <Suspense>
+      <VSStudio />
+    </Suspense>
+  );
 }

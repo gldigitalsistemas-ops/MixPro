@@ -20,6 +20,8 @@ export type SavedVS = {
   beats: Beats;
   /** Separado no servidor (créditos já cobrados): baixar as pistas não cobra de novo. */
   paid?: boolean;
+  /** Nomes das faixas (VS Premium: 7). Sem isso, as 4 do VS básico. */
+  ids?: string[];
   /** [instrumento][canal] em 16 bits; o clique é gerado de novo a partir das batidas. */
   stems: Int16Array[][];
 };

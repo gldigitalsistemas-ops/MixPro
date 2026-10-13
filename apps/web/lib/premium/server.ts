@@ -110,7 +110,6 @@ function fileLimits(product: ProjectProduct, cat: PremiumCatalog): [number, numb
   }
 }
 
-const SAFE_NAME = /^[A-Za-z0-9 ._()+-]{1,60}$/;
 export const safeFileName = (n: string) =>
   (n.split(/[\\/]/).pop() ?? "")
     .normalize("NFD")
@@ -205,7 +204,9 @@ async function enqueueJob(d: PremiumDeps, userId: string, p: Project, rawParams:
     return fail("CAPACITY");
   }
   // guarda as escolhas (sem o "preview") para o trabalho final e as revisões
-  const { preview: _p, project_id: _id, ...keep } = parsed.params;
+  const keep: Record<string, unknown> = { ...parsed.params };
+  delete keep.preview;
+  delete keep.project_id;
   await d.projects.update(p.id, {
     params: keep,
     minutes: Math.round(minutes * 100) / 100,
@@ -384,6 +385,8 @@ export async function projectStatus(d: PremiumDeps, userId: string, projectId: s
   }
   const [preview, final] = await Promise.all([jobView(d, p.user_id, project.preview_job), jobView(d, p.user_id, project.final_job)]);
   if (final?.status === "done" && project.status !== "delivered") await d.projects.update(project.id, { status: "delivered" });
+  else if (!final && preview?.status === "done" && project.status === "preview") await d.projects.update(project.id, { status: "preview_ready" });
+  else if ((final ?? preview)?.status === "failed" && ["preview", "processing"].includes(project.status)) await d.projects.update(project.id, { status: "failed" });
   const pendingOrder = !order && project.order_id ? await d.orders.get(project.order_id) : null;
   return {
     ok: true as const,
