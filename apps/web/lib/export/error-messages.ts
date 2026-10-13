@@ -53,7 +53,7 @@ export const EXPORT_ERRORS: Record<string, ExportErrorInfo> = {
   INTRO_DEVICE_MISSING: { message: "Não conseguimos identificar este aparelho. Recarregue a página e tente de novo.", device: false, status: 400 },
   INVALID: { message: "Pedido inválido.", device: false, status: 400 },
   NOT_FOUND: { message: "Não encontrado.", device: false, status: 404 },
-  EXTERNAL_FAILED: { message: "O serviço de separação não respondeu. Tente de novo em alguns minutos; nada foi cobrado.", device: false, status: 502 },
+  EXTERNAL_FAILED: { message: "O serviço de IA não respondeu ou não gerou uma versão boa o bastante. Tente de novo em alguns minutos; nada foi cobrado.", device: false, status: 502 },
 };
 
 /** Código desconhecido vira INTERNAL: nunca mostra texto bruto. */

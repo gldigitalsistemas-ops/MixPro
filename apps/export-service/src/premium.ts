@@ -327,6 +327,7 @@ async function compose(p: Record<string, unknown>, media: DecodedMedia[], ctx: P
   const seed0 = Number(p.seed ?? 1);
   const durationS = guide.duration;
   let runs = 0;
+  const tempoRefs = [bpm, detectBpm(guide.channels, sr)?.bpm].filter((v): v is number => typeof v === "number" && v > 0);
   const accepted: { audio: Signal; score: number; bpm: number; chords: number; seed: number }[] = [];
   // gera, confere e refaz o que não passar (até 2 rodadas extras); fica com as melhores
   for (let round = 0; round < 3 && accepted.length < versions; round++) {
@@ -359,8 +360,8 @@ async function compose(p: Record<string, unknown>, media: DecodedMedia[], ctx: P
       }
       // controle de qualidade: andamento, harmonia e não parecer cópia da referência
       const gb = detectBpm(audio, sr)?.bpm ?? 0;
-      const ratio = gb / bpm;
-      const tempoOk = [0.5, 1, 2].some((m) => Math.abs(ratio / m - 1) < 0.04);
+      // o detector lê 155 BPM como ~116 (3/4) tanto na guia quanto na base: compara com o andamento pedido e com a leitura da guia
+      const tempoOk = tempoRefs.some((r) => [0.5, 0.75, 1, 4 / 3, 2].some((m) => Math.abs(gb / r / m - 1) < 0.04));
       const agree = chordAgreement(guideChords, detectChords(audio, sr));
       let copy = false;
       if (refKey && media[1]) copy = chordAgreement(detectChords(media[1].channels, media[1].sampleRate), detectChords(audio, sr)) > 0.85;
