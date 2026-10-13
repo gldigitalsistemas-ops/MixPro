@@ -70,6 +70,18 @@ read -r -p "   R2_ACCOUNT_ID: " R2_ACCOUNT_ID
 read -r -p "   R2_BUCKET [mixpro-exports]: " R2_BUCKET; R2_BUCKET="${R2_BUCKET:-mixpro-exports}"
 [[ "$SUPABASE_URL" == https://*.supabase.co ]] || { echo "URL do Supabase inesperada"; exit 1; }
 
+# Recursos premium (opcionais: sem eles, VS Premium e Produção ficam "indisponíveis" e o resto funciona)
+read -r -p "   Configurar a Music.AI (VS Premium 7 faixas)? [s/N] " ans_music
+if [[ "${ans_music:-n}" =~ ^[sS]$ ]]; then
+  put_secret export-musicai-key "Music.AI API key"
+  read -r -p "   MUSICAI_WORKFLOW (slug do workflow criado no painel da Music.AI): " MUSICAI_WORKFLOW
+fi
+read -r -p "   Configurar o gerador de bases (Modal)? [s/N] " ans_compose
+if [[ "${ans_compose:-n}" =~ ^[sS]$ ]]; then
+  put_secret export-compose-token "COMPOSE_TOKEN (o mesmo do segredo mixpro-compose no Modal)"
+  read -r -p "   COMPOSE_URL (URL que o 'modal deploy' imprimiu): " COMPOSE_URL
+fi
+
 echo "==> 4/8 Imagem (Cloud Build; o Dockerfile é o de apps/export-service)"
 # projetos novos usam a conta padrão do Compute no Cloud Build, às vezes sem permissão de gravar a
 # imagem e os logs: garante só o mínimo
@@ -91,6 +103,17 @@ gcloud builds submit --config /tmp/cloudbuild-export.yaml .
 echo "==> 5/8 Cloud Run (fechado ao público)"
 ENV_VARS="SUPABASE_URL=${SUPABASE_URL},NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL},NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON},R2_ACCOUNT_ID=${R2_ACCOUNT_ID},R2_BUCKET=${R2_BUCKET}"
 SECRETS="SUPABASE_SERVICE_ROLE_KEY=export-supabase-service-role:latest,R2_ACCESS_KEY_ID=export-r2-access-key-id:latest,R2_SECRET_ACCESS_KEY=export-r2-secret-access-key:latest"
+# segredos e variáveis premium só entram se existirem (rodar de novo sem configurar mantém os anteriores)
+if gcloud secrets describe export-musicai-key >/dev/null 2>&1; then
+  SECRETS="${SECRETS},MUSICAI_API_KEY=export-musicai-key:latest"
+  MUSICAI_WORKFLOW="${MUSICAI_WORKFLOW:-$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(spec.template.spec.containers[0].env)' 2>/dev/null | tr ';' '\n' | sed -n "s/.*'name': 'MUSICAI_WORKFLOW', 'value': '\([^']*\)'.*/\1/p")}"
+  [[ -n "${MUSICAI_WORKFLOW:-}" ]] && ENV_VARS="${ENV_VARS},MUSICAI_WORKFLOW=${MUSICAI_WORKFLOW}"
+fi
+if gcloud secrets describe export-compose-token >/dev/null 2>&1; then
+  SECRETS="${SECRETS},COMPOSE_TOKEN=export-compose-token:latest"
+  COMPOSE_URL="${COMPOSE_URL:-$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(spec.template.spec.containers[0].env)' 2>/dev/null | tr ';' '\n' | sed -n "s/.*'name': 'COMPOSE_URL', 'value': '\([^']*\)'.*/\1/p")}"
+  [[ -n "${COMPOSE_URL:-}" ]] && ENV_VARS="${ENV_VARS},COMPOSE_URL=${COMPOSE_URL}"
+fi
 gcloud run deploy "$SERVICE" \
   --image "${IMAGE}:latest" --region "$REGION" \
   --service-account "$RUNNER" \
