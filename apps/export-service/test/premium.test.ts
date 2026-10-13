@@ -19,6 +19,7 @@ import type { Composer, ComposeRequest } from "../src/adapters/composer";
 import { runTool, type ToolDeps } from "../src/tools";
 import { DEFAULT_LIMITS } from "../src/pipeline";
 
+const LYRICS = ["Santo santo santo", "É o Senhor"].join("\n");
 const FFMPEG = process.env.FFMPEG_PATH ?? "ffmpeg";
 const FFPROBE = process.env.FFPROBE_PATH ?? "ffprobe";
 const available = spawnSync(FFMPEG, ["-version"]).status === 0 && spawnSync(FFPROBE, ["-version"]).status === 0;
@@ -161,7 +162,7 @@ test("Mix & Master IA: entrega completa (master no alvo, pré-master, instrument
 
 test("Produção (prévia e final): 3 versões conferidas, folha de cifra, clique e melodia da guia", { skip }, async () => {
   const { pid, keys } = await projectInputs([song()]);
-  const base = { project_id: pid, format: "mp3", durations: [40], has_reference: false, genre: "worship", style: "Worship moderno", bpm: null, key: null, versions: 3, seed: 7 };
+  const base = { project_id: pid, format: "mp3", durations: [40], has_reference: false, genre: "worship", style: "Worship moderno", lyrics: LYRICS, bpm: null, key: null, versions: 3, seed: 7 };
   const prev = job("compose", { ...base, preview: true }, keys, 1);
   assert.equal((await runTool(prev, deps)).status, "done");
   assert.equal(outs(prev).filter((x) => /^previa-versao-\d\.m4a$/.test(x.name)).length, 3);
@@ -174,7 +175,8 @@ test("Produção (prévia e final): 3 versões conferidas, folha de cifra, cliqu
   for (const n of ["versao-1.mp3", "versao-2.mp3", "versao-3.mp3", "versao-1-folha.pdf", "producao-versoes.zip"]) assert.ok(names.includes(n), n);
   assert.ok(names.some((n) => /^clique-\d+bpm\.wav$/.test(n)));
   const pdf = readFileSync(join(dir, "armazenamento", outs(fin).find((x) => x.name === "versao-1-folha.pdf")!.key)).toString("latin1");
-  assert.ok(pdf.startsWith("%PDF") && /BPM/.test(pdf));
+  assert.ok(pdf.startsWith("%PDF") && /BPM/.test(pdf) && /Letra/.test(pdf) && /Santo santo santo/.test(pdf), "folha com a letra");
+  assert.equal(generations[generations.length - 1].lyrics, LYRICS, "a letra chegou ao gerador");
   const m = store.jobs.get(fin)!.measures as { bpm: number; versoes: unknown[]; melodia: unknown[]; acordes_guia: string[] };
   assert.equal(m.versoes.length, 3);
   assert.ok(Math.abs(m.bpm - 120) < 3 || Math.abs(m.bpm - 60) < 2, `BPM ${m.bpm}`);

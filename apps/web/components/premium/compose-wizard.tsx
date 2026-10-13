@@ -33,6 +33,7 @@ export function ComposeWizard() {
   const [ref, setRef] = useState<{ file: File; duration: number | null } | null>(null);
   const [genre, setGenre] = useState("worship");
   const [style, setStyle] = useState("");
+  const [lyrics, setLyrics] = useState("");
   const [busy, setBusy] = useState<number | null>(null);
   const gIn = useRef<HTMLInputElement>(null);
   const rIn = useRef<HTMLInputElement>(null);
@@ -51,6 +52,7 @@ export function ComposeWizard() {
         has_reference: Boolean(ref),
         genre,
         style: style.replace(/[^\p{L}\p{N} ,.;:()&/+'-]/gu, " ").slice(0, 200),
+        lyrics: lyrics.replace(/[^\p{L}\p{N} ,.;:()&/+'!?"\-\n]/gu, " ").slice(0, 2000),
         bpm: null,
         key: null,
         versions: 3,
@@ -117,6 +119,17 @@ export function ComposeWizard() {
         <label className="flex flex-col gap-1.5 text-sm">
           Descreva o som (opcional)
           <input value={style} maxLength={200} onChange={(e) => setStyle(e.target.value)} placeholder="Ex.: worship moderno com piano, pads e guitarras com delay" className="h-11 rounded-xl border border-border-strong bg-black/20 px-3" />
+        </label>
+        <label className="flex flex-col gap-1.5 text-sm">
+          Letra da música (opcional)
+          <textarea
+            value={lyrics}
+            maxLength={2000}
+            rows={5}
+            onChange={(e) => setLyrics(e.target.value)}
+            placeholder={"Cole a letra: ela ajuda a IA a seguir as frases e sai impressa na folha da base."}
+            className="rounded-xl border border-border-strong bg-black/20 p-3 outline-none focus:border-violet-400"
+          />
         </label>
         <div className="flex flex-col gap-2 rounded-2xl border border-border p-3 text-sm">
           <span className="font-medium">Música de referência (opcional)</span>

@@ -43,6 +43,7 @@ export type ServiceDeps = {
   tools?: import("./adapters/tool-store").ToolStore;
   /** Recursos premium (separação externa e gerador de bases). */
   premium?: { musicai?: import("./adapters/musicai").StemSeparator | null; composer?: import("./adapters/composer").Composer | null };
+  notify?: (jobId: string) => Promise<void>;
 };
 
 export type ServiceLimits = {

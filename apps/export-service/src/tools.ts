@@ -39,6 +39,8 @@ export type ToolDeps = {
   limits: { maxInputBytes: number; staleMs: number; maxAttempts: number; processTimeoutS: number };
   /** Recursos premium: separação externa (Music.AI) e gerador de bases (GPU). */
   premium?: { musicai?: StemSeparator | null; composer?: Composer | null };
+  /** Avisa o site que o job terminou (notificação "ficou pronto"). */
+  notify?: (jobId: string) => Promise<void>;
 };
 
 /** Mais formatos que a exportação: as ferramentas recebem o arquivo como o usuário tem (WMA, AIFF, ALAC…). */
@@ -263,6 +265,7 @@ export async function runTool(jobId: string, deps: ToolDeps): Promise<ToolRunRes
     const c = await deps.tools.commit(jobId, outputs, { ...result.measures, lufs: Number.isFinite(lufs) ? lufs : null }, { ...cost(), api_usd: result.apiUsd ?? 0 });
     if (c.status !== "done") throw new JobError(c.error_code ?? "INTERNAL");
     log("done", null);
+    await deps.notify?.(jobId);
     return { http: 200, status: "done" };
   } catch (e) {
     const code: ErrorCode = e instanceof JobError ? e.code : "INTERNAL";
@@ -275,6 +278,7 @@ export async function runTool(jobId: string, deps: ToolDeps): Promise<ToolRunRes
     }
     if (rec) await deps.tools.release(jobId, code, cost()).catch(() => {});
     log("failed", code);
+    if (rec) await deps.notify?.(jobId);
     return { http: 200, status: "failed", error_code: code };
   } finally {
     clearInterval(sampler);

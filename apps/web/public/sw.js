@@ -44,7 +44,7 @@ self.addEventListener("push", (event) => {
       body: data.body,
       icon: "/icons/icon-192.png",
       badge: "/icons/icon-192.png",
-      tag: "mixpro-diario",
+      tag: typeof data.tag === "string" ? data.tag.slice(0, 60) : "mixpro-diario",
       data: { url: typeof data.url === "string" && data.url.startsWith("/") ? data.url : "/estudio" },
     }),
   );

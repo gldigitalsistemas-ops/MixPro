@@ -15,6 +15,7 @@ export type ComposeRequest = {
   seeds: number[];
   genre: string;
   style: string;
+  lyrics?: string;
   bpm: number;
   key: string | null;
   durationS: number;
@@ -56,6 +57,7 @@ export class HttpComposer implements Composer {
           seeds: req.seeds,
           genre: req.genre,
           style: req.style,
+          lyrics: req.lyrics ?? "",
           bpm: req.bpm,
           key: req.key,
           duration_s: req.durationS,

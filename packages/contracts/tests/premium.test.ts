@@ -44,3 +44,12 @@ test("pacote do compositor libera produção e voz; parâmetros premium validado
   assert.ok(parsePremiumParams("compose", compose));
   assert.equal(parsePremiumParams("compose", { ...compose, style: "<script>" }), null);
 });
+
+test("compose: a letra é opcional, aceita quebras de linha e recusa símbolos estranhos", () => {
+  const pid = "11111111-2222-3333-4444-555555555555";
+  const base = { project_id: pid, preview: true, format: "mp3", durations: [180], has_reference: false, genre: "worship", style: "", bpm: null, key: null, versions: 3, seed: 1 };
+  assert.ok(parsePremiumParams("compose", base));
+  assert.ok(parsePremiumParams("compose", { ...base, lyrics: "Santo, santo, santo\nÉ o Senhor!" }));
+  assert.equal(parsePremiumParams("compose", { ...base, lyrics: "<script>alert(1)</script>" }), null);
+  assert.equal(parsePremiumParams("compose", { ...base, lyrics: "a".repeat(2001) }), null);
+});

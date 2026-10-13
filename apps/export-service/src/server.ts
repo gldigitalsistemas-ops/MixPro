@@ -29,6 +29,7 @@ import { runTool } from "./tools";
 import { SupabaseToolStore } from "./adapters/tool-store";
 import { musicAiFromEnv } from "./adapters/musicai";
 import { composerFromEnv } from "./adapters/composer";
+import { makeNotifier } from "./notify";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -68,7 +69,7 @@ export function createService(deps: ServiceDeps, token?: string): Server {
     try {
       const r =
         route === "/tool"
-          ? await runTool(jobId, { storage: deps.storage, tools: deps.tools!, ffmpeg: deps.ffmpeg, ffprobe: deps.ffprobe, limits: deps.limits, premium: deps.premium })
+          ? await runTool(jobId, { storage: deps.storage, tools: deps.tools!, ffmpeg: deps.ffmpeg, ffprobe: deps.ffprobe, limits: deps.limits, premium: deps.premium, notify: deps.notify })
           : await runJob(jobId, deps);
       send(r.http, { status: r.status, error_code: r.error_code ?? null });
     } catch (e) {
@@ -97,6 +98,10 @@ function depsFromEnv(): ServiceDeps {
     assetMemory: new Map(),
     limits: DEFAULT_LIMITS,
     premium: { musicai: musicAiFromEnv(), composer: composerFromEnv() },
+    notify:
+      process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY && key
+        ? makeNotifier({ supabaseUrl: process.env.SUPABASE_URL, anonKey: key, serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY, appUrl: process.env.APP_URL })
+        : undefined,
   };
 }
 

@@ -240,7 +240,7 @@ function melodyOf(voice: Signal, sr: number): [number, number, number][] {
 }
 
 /** Folha da base: tom, BPM e a progressão de acordes por trecho (PDF de uma página ou mais). */
-function chordSheet(title: string, bpm: number, keyLabel: string | null, segs: ReturnType<typeof detectChords>): Uint8Array {
+function chordSheet(title: string, bpm: number, keyLabel: string | null, segs: ReturnType<typeof detectChords>, lyrics = ""): Uint8Array {
   const pdf = new PdfDoc();
   pdf.rect(0, 0, pdf.width, 80, [109, 40, 217]);
   pdf.text(48, 40, "Mix Pro — Folha da base", { size: 18, bold: true, color: [255, 255, 255] });
@@ -268,6 +268,21 @@ function chordSheet(title: string, bpm: number, keyLabel: string | null, segs: R
   }
   y += 30;
   pdf.text(48, Math.min(y, pdf.height - 50), `Progressão: ${progression(segs).slice(0, 16).map(chordPt).join(" → ")}`, { size: 9, color: [110, 110, 125] });
+  if (lyrics.trim()) {
+    y = Math.min(y, pdf.height - 50) + 28;
+    pdf.text(48, y, "Letra", { size: 11, bold: true, color: [109, 40, 217] });
+    y += 18;
+    for (const raw of lyrics.split("\n")) {
+      for (const line of raw.trim() ? pdf.wrap(raw, 10, pdf.width - 96) : [""]) {
+        if (y > pdf.height - 60) {
+          pdf.addPage();
+          y = 60;
+        }
+        if (line) pdf.text(48, y, line, { size: 10 });
+        y += 14;
+      }
+    }
+  }
   pdf.text(48, pdf.height - 30, "Acordes detectados automaticamente na base gerada; confira de ouvido antes de tocar.", { size: 8, color: [110, 110, 125] });
   return pdf.bytes();
 }
@@ -322,6 +337,7 @@ async function compose(p: Record<string, unknown>, media: DecodedMedia[], ctx: P
         seeds,
         genre: asGenre(p.genre),
         style: String(p.style ?? ""),
+        lyrics: String(p.lyrics ?? ""),
         bpm,
         key: keyLabel,
         durationS,
@@ -362,7 +378,7 @@ async function compose(p: Record<string, unknown>, media: DecodedMedia[], ctx: P
       files.push({ name: `previa-versao-${i + 1}.m4a`, channels: cut(out, sr, s, CLIP_SECONDS), sampleRate: sr, format: "m4a" });
     } else {
       files.push({ name: `versao-${i + 1}.${EXT[fmt]}`, channels: out, sampleRate: sr, format: fmt, zip: true });
-      files.push({ name: `versao-${i + 1}-folha.pdf`, bytes: chordSheet(`${title} — versão ${i + 1}`, bpm, keyLabel, detectChords(out, sr)), ext: "pdf", zip: true });
+      files.push({ name: `versao-${i + 1}-folha.pdf`, bytes: chordSheet(`${title} — versão ${i + 1}`, bpm, keyLabel, detectChords(out, sr), String(p.lyrics ?? "")), ext: "pdf", zip: true });
     }
   });
   if (!preview) {

@@ -199,6 +199,8 @@ export const premiumParamsSchemas = {
       genre: z.enum(MIX_GENRES),
       /** Descrição curta do som desejado (só letras, números e pontuação simples). */
       style: z.string().regex(/^[\p{L}\p{N} ,.;:()&/+'-]{0,200}$/u),
+      /** Letra da música (opcional): vai ao gerador e sai impressa na folha da base. */
+      lyrics: z.string().regex(/^[\p{L}\p{N} ,.;:()&/+'!?"\-\n]{0,2000}$/u).optional(),
       bpm: z.number().min(40).max(240).nullable(),
       key: z.string().regex(/^[A-G](#|b)? (maior|menor)$/).nullable(),
       versions: z.number().int().min(1).max(5),

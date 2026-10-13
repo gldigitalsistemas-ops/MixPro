@@ -132,6 +132,7 @@ class Composer:
                     data = {
                         "task_type": ACESTEP_TASK,
                         "prompt": prompt,
+                        "lyrics": str(body.get("lyrics") or "")[:2000],
                         "bpm": str(int(round(float(body.get("bpm") or 90)))),
                         "key_scale": key_to_acestep(body.get("key")),
                         "audio_duration": str(min(600, max(10, float(body.get("duration_s") or 180)))),
