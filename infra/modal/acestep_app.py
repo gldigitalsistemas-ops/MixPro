@@ -170,7 +170,7 @@ def key_to_acestep(key):
     names = {"Dó": "C", "Ré": "D", "Mi": "E", "Fá": "F", "Sol": "G", "Lá": "A", "Si": "B"}
     parts = str(key).split()
     root = parts[0]
-    sharp = root.endswith("#")
-    base = names.get(root.rstrip("#b"), root.rstrip("#b"))
+    acc = "#" if root.endswith("#") else ("b" if len(root) > 1 and root.endswith("b") and root[:-1] in names else "")
+    base = names.get(root.rstrip("#b") if acc else root, root.rstrip("#b") if acc else root)
     mode = "Minor" if len(parts) > 1 and parts[-1].startswith("menor") else "Major"
-    return f"{base}{'#' if sharp else ''} {mode}"
+    return f"{base}{acc} {mode}"

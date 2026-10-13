@@ -34,6 +34,8 @@ export function ComposeWizard() {
   const [genre, setGenre] = useState("worship");
   const [style, setStyle] = useState("");
   const [lyrics, setLyrics] = useState("");
+  const [bpm, setBpm] = useState("");
+  const [tonic, setTonic] = useState("");
   const [busy, setBusy] = useState<number | null>(null);
   const gIn = useRef<HTMLInputElement>(null);
   const rIn = useRef<HTMLInputElement>(null);
@@ -42,6 +44,8 @@ export function ComposeWizard() {
   async function go() {
     if (!(await requireLogin("Entre na sua conta para produzir a sua música. A prévia é grátis."))) return;
     if (!guide?.duration) return toast.error("Envie a guia (voz, voz e violão ou a guia com banda).");
+    const bpmValue = bpm.trim() ? Number(bpm.replace(",", ".")) : null;
+    if (bpmValue !== null && !(bpmValue >= 40 && bpmValue <= 240)) return toast.error("O andamento deve ficar entre 40 e 240 BPM (ou deixe em branco).");
     setBusy(0);
     try {
       const files = [{ file: guide.file, name: guide.file.name }, ...(ref ? [{ file: ref.file, name: ref.file.name }] : [])];
@@ -53,8 +57,8 @@ export function ComposeWizard() {
         genre,
         style: style.replace(/[^\p{L}\p{N} ,.;:()&/+'-]/gu, " ").slice(0, 200),
         lyrics: lyrics.replace(/[^\p{L}\p{N} ,.;:()&/+'!?"\-\n]/gu, " ").slice(0, 2000),
-        bpm: null,
-        key: null,
+        bpm: bpmValue,
+        key: tonic || null,
         versions: 3,
         seed: Math.floor(Math.random() * 1_000_000),
       });
@@ -93,7 +97,13 @@ export function ComposeWizard() {
         </div>
         <input ref={gIn} type="file" accept="audio/*,video/*,.wav,.mp3,.m4a,.aif,.aiff,.flac,.mp4,.mov" className="hidden" onChange={async (e) => {
           const f = e.target.files?.[0];
-          if (f) setGuide({ file: f, duration: await fileDuration(f) });
+          if (f) {
+            setGuide({ file: f, duration: await fileDuration(f) });
+            // “bpm 155” ou “155 bpm” no nome do arquivo já preenche o andamento
+            const m = /(?:bpm\s*(\d{2,3})|(\d{2,3})\s*bpm)/i.exec(f.name);
+            const v = Number(m?.[1] ?? m?.[2]);
+            if (v >= 40 && v <= 240) setBpm(String(v));
+          }
         }} />
         <button type="button" onClick={() => gIn.current?.click()} className="flex flex-col items-center gap-2 rounded-3xl border-2 border-dashed border-violet-400/50 p-6 text-center hover:bg-primary/10">
           <Upload className="size-6" aria-hidden />
@@ -120,6 +130,24 @@ export function ComposeWizard() {
           Descreva o som (opcional)
           <input value={style} maxLength={200} onChange={(e) => setStyle(e.target.value)} placeholder="Ex.: worship moderno com piano, pads e guitarras com delay" className="h-11 rounded-xl border border-border-strong bg-black/20 px-3" />
         </label>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1.5 text-sm">
+            Andamento da guia em BPM (recomendado)
+            <input value={bpm} inputMode="decimal" onChange={(e) => setBpm(e.target.value.replace(/[^\d.,]/g, "").slice(0, 6))} placeholder="Ex.: 155" className="h-11 rounded-xl border border-border-strong bg-black/20 px-3" />
+            <span className="text-xs text-muted">Se você sabe o andamento, informe: o app não precisa adivinhar e a base sai no tempo certo.</span>
+          </label>
+          <label className="flex flex-col gap-1.5 text-sm">
+            Tom da guia (opcional)
+            <select value={tonic} onChange={(e) => setTonic(e.target.value)} className="h-11 rounded-xl border border-border-strong bg-black/20 px-3">
+              <option value="">Descobrir sozinho</option>
+              {["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"].flatMap((n) => [`${n} maior`, `${n} menor`]).map((k) => (
+                <option key={k} value={k}>
+                  {k}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         <label className="flex flex-col gap-1.5 text-sm">
           Letra da música (opcional)
           <textarea

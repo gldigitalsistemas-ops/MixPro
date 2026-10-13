@@ -365,7 +365,8 @@ async function compose(p: Record<string, unknown>, media: DecodedMedia[], ctx: P
       let copy = false;
       if (refKey && media[1]) copy = chordAgreement(detectChords(media[1].channels, media[1].sampleRate), detectChords(audio, sr)) > 0.85;
       const score = (tempoOk ? 0.5 : 0) + agree * 0.5;
-      if (!copy && (score >= 0.6 || round === 2)) accepted.push({ audio, score, bpm: gb, chords: Math.round(agree * 100) / 100, seed: seeds[i] });
+      // só passa quem está no andamento certo: uma base fora do tempo da guia não serve para gravar a voz
+      if (!copy && tempoOk && (score >= 0.6 || round === 2)) accepted.push({ audio, score, bpm: gb, chords: Math.round(agree * 100) / 100, seed: seeds[i] });
     }
     onProgress(0.2 + 0.5 * ((round + 1) / 3));
   }
