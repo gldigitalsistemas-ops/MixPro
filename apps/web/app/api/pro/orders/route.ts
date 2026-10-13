@@ -45,6 +45,12 @@ export async function POST(req: Request) {
     if (error || !order) return jsonError(500, "Erro ao criar o pedido.");
 
     const session = await getSession();
+    // admin: pedido de teste já pago (sem cobrança)
+    if ((session?.profile as { role?: string } | undefined)?.role === "admin") {
+      const due = new Date(Date.now() + Number(svc.delivery_days) * 86_400_000).toISOString().slice(0, 10);
+      await admin.from("pro_orders").update({ status: "paid", due_date: due }).eq("id", order.id);
+      return Response.json({ order_id: order.id, init_point: null });
+    }
     try {
       const checkout = await createCheckout({
         userId,

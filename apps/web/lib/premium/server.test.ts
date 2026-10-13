@@ -191,3 +191,17 @@ test("revisões da mix: só pagas, dentro do prazo; pacote do compositor libera 
   const vf = await startFinal(h.d, ALICE, v.projectId, { format: "wav", durations: [100, 100], has_reference: false, ref_amount: 0.5, genre: "worship", tune: 40, melody: null, vocal_level_db: 0, reverb: 30, master_chain: null, master_name: null, target_lufs: -11 });
   assert.ok(vf.ok, JSON.stringify(vf));
 });
+
+test("admin: libera na hora sem Mercado Pago, sem CPF e sem limite de prévias", async () => {
+  const h = harness({ previews: 99 });
+  h.d.isAdmin = async () => true;
+  const id = await uploaded(h, "mix_ia", [{ name: "Voz.wav", bytes: 100 }, { name: "Baixo.wav", bytes: 200 }, { name: "Ref.mp3", bytes: 50 }]);
+  assert.ok((await startPreview(h.d, ALICE, id, mixParams)).ok, "sem limite diário");
+  const r = await checkout(h.d, ALICE, id, { method: "brl", useIntro: false, ip: null, email: null, emailConfirmed: false });
+  assert.ok(r.ok && r.paid && !r.initPoint, JSON.stringify(r));
+  const args = h.calls.find((x) => x.fn === "create_premium_order")!.args;
+  assert.equal(args.p_price, 0);
+  assert.equal(args.p_method, "credits");
+  assert.equal(h.checkouts.length, 0, "não abre o Mercado Pago");
+  assert.ok(h.projects.get(id)!.final_job, "trabalho final começou");
+});

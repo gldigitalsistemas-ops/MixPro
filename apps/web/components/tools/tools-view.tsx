@@ -376,7 +376,7 @@ function ToolForm(props: {
               {credits !== null && credits > 0 && ` · ${credits} crédito${credits > 1 ? "s" : ""}`}
             </Button>
             <p className="text-center text-xs text-subtle">
-              {credits ? `Cobrado só quando o resultado fica pronto${balance !== null ? ` · você tem ${balance} créditos` : ""}.` : "Grátis."} {pro ? "Arquivos no Cofre por 30 dias." : "Arquivos disponíveis por 24 horas."}
+              {credits ? `Cobrado só quando o resultado fica pronto${balance !== null ? ` · você tem ${balance >= 999999 ? "créditos ilimitados (admin)" : `${balance} créditos`}` : ""}.` : "Grátis."} {pro ? "Arquivos no Cofre por 30 dias." : "Arquivos disponíveis por 24 horas."}
             </p>
           </div>
         )}

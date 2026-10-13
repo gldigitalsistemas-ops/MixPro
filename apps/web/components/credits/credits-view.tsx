@@ -18,7 +18,7 @@ type Config = { price: number; sizes: number[]; min: number; max: number };
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 export function CreditsView() {
-  const { user, account, refresh, requireLogin } = useAccountCtx();
+  const { user, account, refresh, requireLogin, isAdmin } = useAccountCtx();
   const toast = useToast();
   const params = useSearchParams();
   const status = params.get("pagamento");
@@ -114,7 +114,7 @@ export function CreditsView() {
           <Coins className="size-7 text-amber-300" />
         </span>
         <div>
-          <p className="font-display text-3xl font-bold tabular-nums">{user ? (account?.balance ?? "…") : "—"}</p>
+          <p className="font-display text-3xl font-bold tabular-nums">{user ? (isAdmin ? "Ilimitado (admin)" : (account?.balance ?? "…")) : "—"}</p>
           <p className="text-sm text-muted">{user ? "créditos disponíveis · 1 crédito = 1 download" : "Entre para ver seu saldo"}</p>
         </div>
       </Card>

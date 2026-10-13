@@ -218,7 +218,8 @@ async function enqueueJob(d: PremiumDeps, userId: string, p: Project, rawParams:
 export async function startPreview(d: PremiumDeps, userId: string, projectId: string, params: unknown): Promise<Ok<{ jobId: string }> | Fail> {
   const p = await owned(d, userId, projectId);
   if (isFail(p)) return p;
-  if ((await d.previewsToday(userId)) >= (await d.previewLimit())) return fail("RATE_LIMITED", "Você chegou ao limite de prévias grátis de hoje. Amanhã libera de novo, ou finalize um projeto.");
+  const staff = await d.isAdmin?.(userId).catch(() => false);
+  if (!staff && (await d.previewsToday(userId)) >= (await d.previewLimit())) return fail("RATE_LIMITED", "Você chegou ao limite de prévias grátis de hoje. Amanhã libera de novo, ou finalize um projeto.");
   return enqueueJob(d, userId, p, params, true);
 }
 
@@ -304,6 +305,30 @@ export async function checkout(
   const cat = await d.catalog();
   const isPro = await d.isPro(userId).catch(() => false);
   const minutes = p.minutes || 0;
+
+  // admin: tudo grátis — pedido pago na hora (o banco ignora o débito da conta da equipe)
+  if (await d.isAdmin?.(userId).catch(() => false)) {
+    const list = quotePremium(cat, product, { introEligible: false, isPro: false, minutes });
+    if (!list) return fail("TOOL_UNAVAILABLE", "Este recurso não está disponível para essa duração agora.");
+    const { data, error } = await d.rpc("create_premium_order", {
+      p_user: userId,
+      p_project: p.id,
+      p_product: product,
+      p_method: "credits",
+      p_price: 0,
+      p_list_price: list.list_price_brl,
+      p_credits: 1,
+      p_intro: false,
+      p_pro_discount: false,
+      p_device_hash: null,
+      p_cpf_hash: null,
+      p_net_hash: null,
+    });
+    if (error) return fail(rpcCode(error));
+    const o = data as { id: string };
+    if (product !== "eng_finaliza") await startFinal(d, userId, p.id).catch(() => null);
+    return { ok: true, orderId: o.id, paid: true, initPoint: null, quote: { ...list, price_brl: 0, credits: 0, intro: false, pro_discount: false } };
+  }
 
   let ids: { deviceHash: string; cpfHash: string; netHash: string | null } | null = null;
   let cpfDigits: string | null = null;

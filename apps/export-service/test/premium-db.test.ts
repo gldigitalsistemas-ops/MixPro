@@ -226,3 +226,32 @@ test("(h) esteira: jobs premium só com entradas do Cofre do próprio projeto; s
   assert.ok(c.ok, JSON.stringify(c.body));
   await call(`/rest/v1/tool_jobs?id=eq.${jobId}`, { method: "DELETE" });
 });
+
+test("(i) admin usa tudo grátis: saldo ilimitado, nenhum débito gravado, pedido premium pago na hora; usuário comum continua pagando", { skip }, async () => {
+  const adm = await newUser(0);
+  const u = await newUser(3);
+  await call(`/rest/v1/profiles?id=eq.${adm.id}`, { method: "PATCH", body: JSON.stringify({ role: "admin" }) });
+  assert.equal(await balance(adm.id), 999999);
+  // download (exportação no aparelho) com o token do admin
+  const s = await rpc("spend_export_credit", { p_ref: `adm${randomUUID().slice(0, 8)}`, p_kind: "audio" }, { key: ANON, token: adm.token });
+  assert.ok(s.ok, JSON.stringify(s.body));
+  // ferramenta: reserva e entrega sem débito
+  const j = await rpc("create_tool_job", { p_user: adm.id, p_tool: "pitch_tempo", p_params: { a: 1 }, p_inputs: [`in/${randomUUID()}`], p_credits: 5, p_retention_days: 1 });
+  assert.ok(j.ok, JSON.stringify(j.body));
+  await rpc("start_tool_job", { p_job_id: j.body.job_id, p_stale_seconds: 900 });
+  const c = await rpc("commit_tool_job", { p_job_id: j.body.job_id, p_outputs: [{ key: `out/${j.body.job_id}/0.mp3`, name: "a.mp3", bytes: 1 }], p_measures: {}, p_cost: { cpu_ms: 1, rss_mb: 1, wall_ms: 1 } });
+  assert.equal(c.body.status, "done");
+  const debits = (await call(`/rest/v1/credit_transactions?user_id=eq.${adm.id}&amount=lt.0&idempotency_key=not.like.prem-setup*&select=id`)).body;
+  assert.equal(debits.length, 0, "nenhum débito do admin");
+  // pedido premium do admin: pago na hora com valor zero
+  const p = await project(adm, "mix_ia");
+  const o = await order(adm, p, { method: "credits", price: 0, list: 249, credits: 1 });
+  assert.ok(o.ok, JSON.stringify(o.body));
+  assert.equal(o.body.status, "paid");
+  assert.equal(Number(o.body.price_brl), 0);
+  // usuário comum continua pagando
+  const j2 = await rpc("create_tool_job", { p_user: u.id, p_tool: "pitch_tempo", p_params: { a: 1 }, p_inputs: [`in/${randomUUID()}`], p_credits: 5, p_retention_days: 1 });
+  assert.match(String(j2.body?.message), /INSUFFICIENT_CREDITS/);
+  assert.equal(await balance(u.id), 3);
+  await call(`/rest/v1/tool_jobs?id=eq.${j.body.job_id}`, { method: "DELETE" });
+});

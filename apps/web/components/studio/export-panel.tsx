@@ -355,7 +355,7 @@ export function ExportPanel(props: Props) {
           </div>
           <p className="text-center text-xs text-subtle">
             {signedIn
-              ? `Usa 1 crédito${balance !== null ? ` · você tem ${balance}` : ""}. Baixar de novo o mesmo resultado não gasta crédito.`
+              ? `Usa 1 crédito${balance !== null ? ` · você tem ${balance >= 999999 ? "ilimitado (admin)" : balance}` : ""}. Baixar de novo o mesmo resultado não gasta crédito.`
               : "Para baixar, entre ou crie sua conta grátis. Ouvir e testar não precisa de conta."}
           </p>
         </div>

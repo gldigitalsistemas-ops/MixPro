@@ -66,7 +66,7 @@ const maskCpf = (v: string) =>
  */
 export function CheckoutDialog(p: { open: boolean; onClose: () => void; projectId: string; product: PremiumId; minutes: number; title: string; onPaid: () => void }) {
   const toast = useToast();
-  const { account, refresh, showNoCredits } = useAccountCtx();
+  const { account, refresh, showNoCredits, isAdmin } = useAccountCtx();
   const q = useQuote(p.product, p.minutes, p.open);
   const [useIntro, setUseIntro] = useState(true);
   const [cpf, setCpf] = useState("");
@@ -101,7 +101,32 @@ export function CheckoutDialog(p: { open: boolean; onClose: () => void; projectI
   return (
     <Modal open={p.open} onClose={p.onClose} title={`Finalizar — ${p.title}`}>
       <div className="flex flex-col gap-4">
-        {!q ? (
+        {isAdmin ? (
+          <>
+            <p className="rounded-2xl bg-emerald-400/10 p-3 text-sm text-emerald-100">
+              Como administrador, você usa todos os recursos sem pagar. O pedido fica registrado com valor zero.
+            </p>
+            <Button
+              size="lg"
+              loading={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await checkout(p.projectId, { product: p.product, method: "credits", useIntro: false });
+                  toast.success("Liberado. O trabalho completo já começou.");
+                  p.onPaid();
+                  p.onClose();
+                } catch (e) {
+                  toast.error((e as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Liberar grátis (admin)
+            </Button>
+          </>
+        ) : !q ? (
           <p className="text-sm text-muted">Calculando o preço…</p>
         ) : (
           <>

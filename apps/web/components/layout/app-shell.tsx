@@ -73,7 +73,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className="flex h-9 items-center gap-2 rounded-full border border-border-strong px-3.5 text-sm transition hover:bg-white/5"
               >
                 <Coins className="size-4 text-amber-300" aria-hidden />
-                <strong className="tabular-nums">{account?.balance ?? "…"}</strong>
+                <strong className="tabular-nums">{isAdmin ? "∞" : (account?.balance ?? "…")}</strong>
                 <span className="hidden text-muted sm:inline">créditos</span>
               </Link>
             )}
