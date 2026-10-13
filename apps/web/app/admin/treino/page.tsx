@@ -37,6 +37,15 @@ export default async function AdminTreino() {
         </p>
       </div>
 
+      <Card className="border-amber-400/40 bg-amber-400/5 p-5 text-sm">
+        <p className="font-semibold text-amber-100">Só material com direito de treinar IA</p>
+        <p className="mt-1 text-muted">
+          Não envie multitracks baixados de bibliotecas públicas (Cambridge-MT, MedleyDB, MUSDB, MoisesDB…): as licenças são para estudo e pesquisa não comercial e
+          proíbem treinar IA de um produto pago. Use só as suas produções ou as de parceiros que autorizaram <strong>por escrito</strong> o treino. Para um estilo
+          novo, uma LoRA já aprende com algumas dezenas de músicas boas.
+        </p>
+      </Card>
+
       <Card className="flex flex-col gap-3 p-5">
         <h2 className="font-display text-lg font-semibold">Para cada música</h2>
         <ol className="grid gap-2 md:grid-cols-5">
