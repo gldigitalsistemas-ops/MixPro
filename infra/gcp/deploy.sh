@@ -187,11 +187,12 @@ PRONTO. Valores para a Vercel (somente Production):
   EXPORT_STEMS_URL=${STEMS_URL}
   EXPORT_TASKS_QUEUE_PRO=${QUEUE_PRO}
 
-Falta a chave da conta "export-enqueuer" (GCP_SERVICE_ACCOUNT_JSON). Ela é um segredo: crie, copie e apague.
+Acesso da Vercel ao Google: sem chave, pelo Workload Identity (GCP_WIF_PROVIDER, ver infra/gcp/wif-vercel.sh).
+Se já estiver configurado, não precisa fazer nada. Só se a sua organização permitir chaves e você não usar o WIF:
   gcloud iam service-accounts keys create /tmp/enqueuer.json --iam-account ${ENQUEUER}
-  cat /tmp/enqueuer.json | tr -d '\n'     # copie esta linha para a Vercel
+  cat /tmp/enqueuer.json | tr -d '
+'     # copie esta linha para GCP_SERVICE_ACCOUNT_JSON na Vercel
   rm /tmp/enqueuer.json
-Se a sua organização bloquear chaves de conta de serviço, use Workload Identity Federation (docs/DEPLOYMENT.md).
 
-O interruptor continua DESLIGADO (export_server_enabled = false). Ligue só depois dos testes.
+O interruptor do servidor fica no banco (system_settings.export_server_enabled).
 EOF
