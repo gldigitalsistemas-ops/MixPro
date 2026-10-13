@@ -79,7 +79,22 @@ export function ShowcaseStrip({ product, title = "Ouça o antes e depois de quem
  * Autorização da vitrine na entrega (caixa desmarcada; não é condição para baixar). Com a aprovação,
  * a pessoa ganha créditos de presente. Dá para retirar a qualquer momento.
  */
-export function ShowcaseConsent({ projectId, reward, defaultGenre, existing, onChange }: { projectId: string; reward: number; defaultGenre?: string; existing?: { id: string; status: string } | null; onChange?: () => void }) {
+export function ShowcaseConsent({
+  projectId,
+  reward,
+  defaultGenre,
+  existing,
+  onChange,
+  share,
+}: {
+  projectId: string;
+  reward: number;
+  defaultGenre?: string;
+  existing?: { id: string; status: string } | null;
+  onChange?: () => void;
+  /** Outro jeito de autorizar (ex.: Estúdio, a partir do link de antes e depois). */
+  share?: (o: { genre: string; anonymous: boolean; artist_name?: string }) => Promise<{ item_id: string }>;
+}) {
   const toast = useToast();
   const [agree, setAgree] = useState(false);
   const [anonymous, setAnonymous] = useState(true);
@@ -171,7 +186,8 @@ export function ShowcaseConsent({ projectId, reward, defaultGenre, existing, onC
         onClick={async () => {
           setBusy(true);
           try {
-            const r = await shareToShowcase(projectId, { genre, anonymous, artist_name: anonymous ? undefined : artist });
+            const o = { genre, anonymous, artist_name: anonymous ? undefined : artist };
+            const r = share ? await share(o) : await shareToShowcase(projectId, o);
             setItem({ id: r.item_id, status: "pending" });
             toast.success("Obrigado! Vamos ouvir e publicar em breve.");
             onChange?.();

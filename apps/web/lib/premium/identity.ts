@@ -7,7 +7,7 @@
  *     pessoa em aba anônima ou com o armazenamento limpo, sem bloquear quem só divide o Wi-Fi.
  * Além disso: e-mail confirmado e domínio de e-mail descartável recusado.
  */
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 
 export function hmac(secret: string, kind: string, value: string): string {
   return createHmac("sha256", secret).update(`${kind}:${value}`).digest("hex");
@@ -96,3 +96,9 @@ export const INTRO_REASON_MESSAGE: Record<string, string> = {
   DEVICE_MISSING: "Não conseguimos identificar este aparelho. Recarregue a página e tente de novo.",
   INTRO_USED: "A primeira experiência deste recurso já foi usada por esta pessoa ou neste aparelho. O preço normal continua disponível.",
 };
+
+/** UUID estável a partir do link de antes e depois (um item de vitrine por link; repetir o pedido devolve o mesmo). */
+export function idFromToken(token: string): string {
+  const h = createHash("sha256").update(`showcase:${token}`).digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}

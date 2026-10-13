@@ -16,6 +16,7 @@ import { downloadBlob } from "@/lib/download";
 import { reportError } from "@/lib/error-log";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { track } from "@/lib/track";
+import { ShowcaseConsent } from "@/components/premium/showcase";
 
 type Props = {
   media: LoadedMedia;
@@ -50,6 +51,8 @@ export function ShareReport(p: Props) {
   const toast = useToast();
   const [busy, setBusy] = useState<"share" | "report" | null>(null);
   const [progress, setProgress] = useState(0);
+  const [shared, setShared] = useState<string | null>(null);
+  const [reward, setReward] = useState(10);
 
   async function share() {
     if (!(await p.requireLogin("Entre na sua conta para criar o link de antes e depois."))) return;
@@ -69,6 +72,13 @@ export function ShareReport(p: Props) {
         setProgress,
       );
       track("share_page");
+      setShared(url.split("/").pop() ?? null);
+      void supabaseBrowser()
+        .from("system_settings")
+        .select("value")
+        .eq("key", "showcase_reward_credits")
+        .maybeSingle()
+        .then(({ data }) => Number.isFinite(Number(data?.value)) && setReward(Number(data?.value)));
       const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
       if (nav.share) {
         await nav.share({ title: "Ouça o antes e depois", text: "Olha a diferença no meu áudio com o Mix Pro:", url }).catch(() => {});
@@ -129,6 +139,20 @@ export function ShareReport(p: Props) {
       <Button size="sm" variant="secondary" onClick={() => void report()} loading={busy === "report"} disabled={busy !== null}>
         <FileText className="size-4" aria-hidden /> Relatório PDF
       </Button>
+      {shared && (
+        <div className="w-full">
+          <ShowcaseConsent
+            projectId="estudio"
+            reward={reward}
+            share={async (o) => {
+              const res = await fetch("/api/showcase/estudio", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ consent: true, token: shared, ...o }) });
+              const body = (await res.json().catch(() => null)) as { item_id?: string; error?: string } | null;
+              if (!res.ok || !body?.item_id) throw new Error(body?.error ?? "Não foi possível registrar agora.");
+              return { item_id: body.item_id };
+            }}
+          />
+        </div>
+      )}
       <p className="w-full text-xs text-subtle">O link é grátis. O relatório usa 1 crédito (grátis no Plano Pro); baixar de novo o mesmo não cobra.</p>
     </div>
   );

@@ -1,5 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
+import { idFromToken } from "./identity";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { R2Client, r2ConfigFromEnv } from "@/lib/export/r2";
 import { MIX_GENRES } from "@mixpro/contracts";
@@ -144,4 +145,42 @@ export async function adminCreate(adminId: string, input: { product?: unknown; g
     id,
     uploads: { after: c.presign("PUT", afterKey, 3600, { contentLength: aBytes }), before: beforeKey ? c.presign("PUT", beforeKey, 3600, { contentLength: bBytes }) : null },
   };
+}
+
+/** Estúdio: a pessoa autoriza na vitrine o antes e depois que acabou de compartilhar (link de 24 h). */
+export async function shareStudio(userId: string, input: ShareInput & { token?: unknown }): Promise<{ ok: true; id: string } | { ok: false; status: number; error: string }> {
+  if (input.consent !== true) return { ok: false, status: 400, error: "É preciso marcar a autorização." };
+  const token = typeof input.token === "string" && /^[A-Za-z0-9_-]{16,32}$/.test(input.token) ? input.token : null;
+  if (!token) return { ok: false, status: 400, error: "Link inválido." };
+  const admin = supabaseAdmin();
+  const { data: link } = await admin.from("share_links").select("user_id,ext,expires_at,preset").eq("token", token).maybeSingle();
+  if (!link || link.user_id !== userId || new Date(link.expires_at as string).getTime() < Date.now()) return { ok: false, status: 404, error: "O link de antes e depois já expirou. Crie outro e autorize em seguida." };
+  const id = idFromToken(token);
+  const { data: existing } = await admin.from("showcase_items").select("id,status").eq("id", id).maybeSingle();
+  if (existing && existing.status !== "revoked") return { ok: true, id };
+  const ext = link.ext as string;
+  await copy(`out/share/${token}/a.${ext}`, `vitrine/${id}/antes.${ext}`);
+  await copy(`out/share/${token}/b.${ext}`, `vitrine/${id}/depois.${ext}`);
+  const genre = (MIX_GENRES as readonly string[]).includes(String(input.genre)) ? String(input.genre) : "";
+  const anonymous = input.anonymous !== false;
+  const row = {
+    id,
+    user_id: userId,
+    project_id: null,
+    product: "estudio",
+    genre,
+    title: cleanText(input.title, 80) || (link.preset as string) || "Tratamento no Estúdio",
+    artist_name: anonymous ? null : cleanText(input.artist_name, 60) || null,
+    anonymous,
+    before_key: `vitrine/${id}/antes.${ext}`,
+    after_key: `vitrine/${id}/depois.${ext}`,
+    status: "pending",
+    consent_version: CONSENT_VERSION,
+    consent_at: new Date().toISOString(),
+    rewarded_at: null,
+    revoked_at: null,
+  };
+  const { error } = existing ? await admin.from("showcase_items").update(row).eq("id", id) : await admin.from("showcase_items").insert(row);
+  if (error) return { ok: false, status: 500, error: "Não foi possível registrar agora." };
+  return { ok: true, id };
 }

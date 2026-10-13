@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { disposableEmail, introIdentity, netPrefix, validCpf } from "./identity";
+import { disposableEmail, idFromToken, introIdentity, netPrefix, validCpf } from "./identity";
 
 test("CPF: dígitos verificadores, máscara e sequências repetidas", () => {
   assert.equal(validCpf("529.982.247-25"), "52998224725");
@@ -34,4 +34,11 @@ test("identidade: só hashes; motivo claro quando falta algo; mesmo CPF com más
   assert.deepEqual(introIdentity("s", { ...base, deviceId: "x" }), { ok: false, reason: "DEVICE_MISSING" });
   const noFp = introIdentity("s", { ...base, fingerprint: null });
   assert.ok(noFp.ok && noFp.id.netHash === null, "sem assinatura do navegador não bloqueia pela rede");
+});
+
+test("vitrine do Estúdio: o mesmo link sempre gera o mesmo UUID válido; links diferentes, UUIDs diferentes", () => {
+  const a = idFromToken("abcdefghijklmnopqrstuvwx");
+  assert.match(a, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.equal(a, idFromToken("abcdefghijklmnopqrstuvwx"));
+  assert.notEqual(a, idFromToken("abcdefghijklmnopqrstuvwy"));
 });
