@@ -109,7 +109,7 @@ export default async function AdminPayments() {
                 <tr key={o.id as string}>
                   <td className="px-4 py-3 text-xs text-muted">{formatDateTime(o.created_at as string)}</td>
                   <td className="px-4 py-3 text-xs">{emails.get(o.user_id as string)}</td>
-                  <td className="px-4 py-3">{pro ? "Mixagem profissional" : `${o.credits_amount} créditos`}</td>
+                  <td className="px-4 py-3">{pro ? "Mixagem profissional" : (o.pack_id as string).startsWith("prem:") ? "Produção (premium)" : `${o.credits_amount} créditos`}</td>
                   <td className="px-4 py-3 tabular-nums">{brl(o.amount_brl as number)}</td>
                   <td className="px-4 py-3">
                     <Badge tone={s.tone}>{s.label}</Badge>
