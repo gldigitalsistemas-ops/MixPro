@@ -75,6 +75,8 @@ export type PremiumDeps = {
   checkout: (o: { userId: string; email: string | null; orderId: string; title: string; price: number; returnPath: string; cpf: string | null }) => Promise<{ initPoint: string }>;
   introSecret: () => string;
   heavyAvailable: () => boolean;
+  /** Admin vê qualquer projeto (o engenheiro abre o projeto da IA no "Engenheiro finaliza"). */
+  isAdmin?: (userId: string) => Promise<boolean>;
   newId?: () => string;
 };
 
@@ -119,7 +121,8 @@ export const safeFileName = (n: string) =>
 async function owned(d: PremiumDeps, userId: string, id: string): Promise<Project | Fail> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return fail("JOB_NOT_FOUND");
   const p = await d.projects.get(id);
-  if (!p || p.user_id !== userId) return fail("JOB_NOT_FOUND");
+  if (!p) return fail("JOB_NOT_FOUND");
+  if (p.user_id !== userId && !(await d.isAdmin?.(userId).catch(() => false))) return fail("JOB_NOT_FOUND");
   return p;
 }
 
@@ -288,8 +291,14 @@ export async function checkout(
 ): Promise<Ok<{ orderId: string; paid: boolean; initPoint: string | null; quote: PremiumQuote }> | Fail> {
   const p = await owned(d, userId, projectId);
   if (isFail(p)) return p;
-  // a produção pode ser paga como Pacote compositor (produção + voz finalizada)
-  const product = (req.product === "pacote_compositor" && p.product === "producao" ? "pacote_compositor" : p.product) as PremiumId;
+  if (p.user_id !== userId) return fail("JOB_NOT_FOUND");
+  // a produção pode ser paga como Pacote compositor (produção + voz finalizada); a mix paga pode pedir o engenheiro
+  let product = p.product as PremiumId;
+  if (req.product === "pacote_compositor" && p.product === "producao") product = "pacote_compositor";
+  if (req.product === "eng_finaliza") {
+    if (p.product !== "mix_ia" || !(await unlocked(d, p))) return fail("PAYMENT_REQUIRED", "O engenheiro finaliza a partir de uma mix da IA já paga.");
+    product = "eng_finaliza";
+  }
   if (!(PREMIUM_IDS as readonly string[]).includes(product)) return fail("INVALID_JOB");
   const cat = await d.catalog();
   const isPro = await d.isPro(userId).catch(() => false);
@@ -369,17 +378,18 @@ export async function projectStatus(d: PremiumDeps, userId: string, projectId: s
   let project = p;
   const order = await unlocked(d, p);
   // pago pelo Mercado Pago (webhook) e ainda sem o trabalho final: começa agora
-  if (order && !p.final_job) {
+  if (order && !p.final_job && p.user_id === userId) {
     const r = await startFinal(d, userId, p.id);
     if (r.ok) project = { ...p, final_job: r.jobId, status: "processing" };
   }
-  const [preview, final] = await Promise.all([jobView(d, userId, project.preview_job), jobView(d, userId, project.final_job)]);
+  const [preview, final] = await Promise.all([jobView(d, p.user_id, project.preview_job), jobView(d, p.user_id, project.final_job)]);
   if (final?.status === "done" && project.status !== "delivered") await d.projects.update(project.id, { status: "delivered" });
   const pendingOrder = !order && project.order_id ? await d.orders.get(project.order_id) : null;
   return {
     ok: true as const,
     project: { id: project.id, product: project.product, title: project.title, status: final?.status === "done" ? "delivered" : project.status, minutes: project.minutes, revisions: project.revisions, params: project.params, inputMeta: project.input_meta, parentId: project.parent_id, expiresAt: project.expires_at },
     paid: Boolean(order),
+    owner: p.user_id === userId,
     order: order ?? pendingOrder,
     preview,
     final,

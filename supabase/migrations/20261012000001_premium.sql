@@ -248,15 +248,15 @@ begin
   end if;
   perform pg_advisory_xact_lock(hashtext('premium:' || p_user::text));
 
-  -- projeto já pago: não cria outro pedido
-  if p_project is not null and exists (select 1 from public.premium_orders where project_id = p_project and status = 'paid') then
+  -- projeto já pago (no mesmo produto): não cria outro pedido
+  if p_project is not null and exists (select 1 from public.premium_orders where project_id = p_project and product = p_product and status = 'paid') then
     raise exception 'ALREADY_PAID' using errcode = 'P0001';
   end if;
-  -- pedido pendente do mesmo projeto: reaproveita (evita vários checkouts)
+  -- pedido pendente do mesmo projeto e produto: cancela o anterior (evita vários checkouts)
   if p_project is not null then
-    update public.premium_orders set status = 'cancelled' where project_id = p_project and status = 'pending_payment';
     update public.intro_claims set status = 'released'
-     where status = 'reserved' and order_id in (select id from public.premium_orders where project_id = p_project and status = 'cancelled');
+     where status = 'reserved' and order_id in (select id from public.premium_orders where project_id = p_project and product = p_product and status = 'pending_payment');
+    update public.premium_orders set status = 'cancelled' where project_id = p_project and product = p_product and status = 'pending_payment';
   end if;
 
   if p_intro then
@@ -299,7 +299,7 @@ begin
     perform public.mark_premium_order_paid(v.id, null);
     select * into v from public.premium_orders where id = v.id;
   end if;
-  if p_project is not null then
+  if p_project is not null and p_product <> 'eng_finaliza' then
     update public.premium_projects set order_id = v.id, updated_at = now(),
            status = case when v.status = 'paid' then 'paid' else 'awaiting_payment' end
      where id = p_project;
@@ -307,14 +307,36 @@ begin
   return to_jsonb(v);
 end $$;
 
-/** Marca pago (Mercado Pago ou créditos). Idempotente; pagamento atrasado de pedido cancelado também vale. */
+/**
+ * Marca pago (Mercado Pago ou créditos). Idempotente; pagamento atrasado de pedido cancelado também vale.
+ * "Engenheiro finaliza": abre um pedido na fila da Mixagem Profissional ligado ao projeto da IA.
+ */
 create or replace function public.mark_premium_order_paid(p_order uuid, p_payment_order uuid)
 returns void language plpgsql security definer set search_path = public as $$
+declare
+  v public.premium_orders;
+  v_svc public.pro_services;
+  v_title text;
 begin
   update public.premium_orders set status = 'paid', paid_at = coalesce(paid_at, now()),
          payment_order_id = coalesce(p_payment_order, payment_order_id)
-   where id = p_order and status in ('pending_payment', 'cancelled');
+   where id = p_order and status in ('pending_payment', 'cancelled')
+  returning * into v;
   update public.intro_claims set status = 'used' where order_id = p_order;
+  if v.id is null then
+    return;
+  end if;
+  if v.product = 'eng_finaliza' then
+    select * into v_svc from public.pro_services where name = 'Engenheiro finaliza' order by created_at limit 1;
+    select title into v_title from public.premium_projects where id = v.project_id;
+    if v_svc.id is not null then
+      insert into public.pro_orders (user_id, service_id, status, project_name, notes, files_url, payment_order_id, due_date)
+      values (v.user_id, v_svc.id, 'paid', coalesce(nullif(v_title, ''), 'Mix & Master IA'),
+              'Finalização da mixagem feita pela IA. Arquivos e decisões do motor no projeto.',
+              '/premium/' || v.project_id::text, p_payment_order, (now() + make_interval(days => v_svc.delivery_days))::date);
+    end if;
+    return;
+  end if;
   update public.premium_projects set status = 'paid', updated_at = now()
    where order_id = p_order and status in ('draft', 'uploaded', 'preview_ready', 'awaiting_payment', 'preview', 'failed');
 end $$;
@@ -613,6 +635,10 @@ end $$;
 -- Mixagem humana a preço de mercado (metade do valor médio de estúdio)
 -- -----------------------------------------------------------------------------
 update public.pro_services set price_brl = 397 where name = 'Mixagem Profissional' and price_brl = 149.90;
+-- serviço interno (não aparece na lista da Mixagem Profissional): o engenheiro parte da mix da IA
+insert into public.pro_services (name, description, price_brl, max_stems, delivery_days, max_revisions, active, position)
+select 'Engenheiro finaliza', 'Um engenheiro de áudio revisa e finaliza a mixagem feita pela IA, com os ajustes que você pedir.', 197, 40, 3, 2, false, 99
+ where not exists (select 1 from public.pro_services where name = 'Engenheiro finaliza');
 
 -- -----------------------------------------------------------------------------
 -- Presets de master novos (categoria Masterização)

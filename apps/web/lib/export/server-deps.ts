@@ -188,5 +188,9 @@ export function premiumDeps(req?: Request): import("@/lib/premium/server").Premi
     },
     introSecret: () => process.env.INTRO_HASH_SECRET || createHash("sha256").update(`intro|${process.env.SUPABASE_SERVICE_ROLE_KEY ?? ""}`).digest("hex"),
     heavyAvailable: () => Boolean(process.env.EXPORT_STEMS_URL),
+    isAdmin: async (userId) => {
+      const { data } = await admin.from("profiles").select("role").eq("id", userId).maybeSingle();
+      return data?.role === "admin";
+    },
   };
 }
