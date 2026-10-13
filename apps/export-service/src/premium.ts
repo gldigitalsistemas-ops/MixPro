@@ -20,6 +20,7 @@ import { integratedLoudness } from "@/lib/dsp/loudness";
 import type { Signal } from "@/lib/dsp/types";
 import { decodeMedia, type DecodedMedia } from "@/lib/export/ffmpeg-decode";
 import { encodeWithFfmpeg } from "@/lib/export/ffmpeg-encode";
+import { fft } from "@/lib/dsp/convolve";
 import { chordAgreement, chordPt, detectChords, progression } from "@/lib/mixengine/chords";
 import { CLIP_SECONDS, cut, loudestWindow, matchLoudness, roughMix } from "@/lib/mixengine/clips";
 import { mixSession, type EngineTrack, type ReferenceStems } from "@/lib/mixengine/engine";
@@ -287,6 +288,67 @@ function chordSheet(title: string, bpm: number, keyLabel: string | null, segs: R
   return pdf.bytes();
 }
 
+/**
+ * Andamento usado na geração: o medido na guia, na oitava mais próxima do que a pessoa informou.
+ * O gerador segue a gravação de qualquer jeito; mandar um BPM que contradiz a guia (ex.: 155 numa voz cantada a 116)
+ * só piora o resultado. Se a medição falhar, vale o informado.
+ */
+export function resolveBpm(informed: number | null, measured: { bpm: number; confidence: number } | null): number {
+  if (!measured || measured.confidence < 0.3) return informed ?? measured?.bpm ?? 90;
+  if (!informed) return measured.bpm;
+  const options = [0.5, 1, 2].map((m) => measured.bpm * m);
+  const best = options.reduce((a, b) => (Math.abs(b / informed - 1) < Math.abs(a / informed - 1) ? b : a));
+  return Math.abs(best / informed - 1) < 0.06 ? informed : best;
+}
+
+/** Frequência abaixo da qual fica 99,5% da energia (média de trechos de ~93 ms): mede se a base tem agudos. */
+export function brightness(x: Signal, sr: number): number {
+  const n = 4096;
+  const mono = x[0].length;
+  const frames = 24;
+  const acc = new Float64Array(n / 2);
+  for (let f = 0; f < frames; f++) {
+    const start = Math.floor(((f + 0.5) / frames) * Math.max(0, mono - n));
+    const re = new Float64Array(n);
+    const im = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      let v = 0;
+      for (const c of x) v += c[start + i] ?? 0;
+      re[i] = (v / x.length) * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1)));
+    }
+    fft(re, im);
+    for (let k = 0; k < n / 2; k++) acc[k] += re[k] * re[k] + im[k] * im[k];
+  }
+  let total = 0;
+  for (let k = 1; k < n / 2; k++) total += acc[k];
+  if (total <= 0) return 0;
+  let run = 0;
+  for (let k = 1; k < n / 2; k++) {
+    run += acc[k];
+    if (run >= total * 0.995) return (k * sr) / n;
+  }
+  return sr / 2;
+}
+
+/** Tira a voz com o HT-Demucs (bateria + baixo + resto); sem o modelo, devolve como veio. */
+async function instrumental(x: Signal, sr: number): Promise<Signal> {
+  try {
+    const s = await separateStems(x, sr);
+    const n = x[0].length;
+    return [0, 1].map((ch) => {
+      const o = new Float32Array(n);
+      for (const k of ["drums", "bass", "other"] as const) {
+        const c = s[k][ch] ?? s[k][0];
+        for (let i = 0; i < n; i++) o[i] += c[i] ?? 0;
+      }
+      return o;
+    }) as Signal;
+  } catch (e) {
+    if (e instanceof StemsUnavailable) return x;
+    throw e;
+  }
+}
+
 async function compose(p: Record<string, unknown>, media: DecodedMedia[], ctx: PremiumCtx, onProgress: (v: number) => void): Promise<PremiumResult> {
   if (!ctx.composer || !ctx.presign || !ctx.readKey || !ctx.putKey) throw new JobError("TOOL_UNAVAILABLE");
   const guideFull = media[0];
@@ -305,7 +367,7 @@ async function compose(p: Record<string, unknown>, media: DecodedMedia[], ctx: P
   } catch (e) {
     if (!(e instanceof StemsUnavailable)) throw e;
   }
-  const bpm = (p.bpm as number | null) ?? detectBpm(guide.channels, sr)?.bpm ?? 90;
+  const bpm = resolveBpm(p.bpm as number | null, detectBpm(guide.channels, sr));
   const key = detectKey(harmony, sr);
   const keyLabel = (p.key as string | null) ?? key?.label ?? null;
   const guideChords = detectChords(harmony, sr);
@@ -313,9 +375,10 @@ async function compose(p: Record<string, unknown>, media: DecodedMedia[], ctx: P
   const melody = preview ? [] : melodyOf(voice, sr);
   onProgress(0.2);
 
-  // a voz vai para o gerador por URL temporária (WAV 44,1 kHz); as versões voltam do mesmo jeito
+  // a guia inteira (voz + violão/teclado) vai para o gerador por URL temporária (WAV 44,1 kHz): a harmonia tocada
+  // orienta o arranjo muito melhor do que a voz isolada; as versões voltam do mesmo jeito
   const tmp = (i: number) => `out/${ctx.jobId}/${900 + i}.wav`;
-  await ctx.putKey(tmp(0), await encodeWithFfmpeg(ctx.ffmpeg, voice, sr, "wav", ctx.timeoutS));
+  await ctx.putKey(tmp(0), await encodeWithFfmpeg(ctx.ffmpeg, guide.channels, sr, "wav", ctx.timeoutS));
   let refKey: string | null = null;
   if (p.has_reference === true && media[1]) {
     refKey = tmp(1);
@@ -358,6 +421,10 @@ async function compose(p: Record<string, unknown>, media: DecodedMedia[], ctx: P
       } catch {
         continue;
       }
+      // a base é instrumental: tira a voz que o gerador devolve (a da guia ou uma voz sintética)
+      audio = await instrumental(audio, sr);
+      // base abafada (sem agudos) não serve: o gerador já devolveu base com tudo abaixo de 2 kHz
+      if (brightness(audio, sr) < 4000) continue;
       // controle de qualidade: andamento, harmonia e não parecer cópia da referência
       const gb = detectBpm(audio, sr)?.bpm ?? 0;
       // o detector lê 155 BPM como ~116 (3/4) tanto na guia quanto na base: compara com o andamento pedido e com a leitura da guia

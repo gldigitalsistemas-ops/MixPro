@@ -17,6 +17,7 @@ import { MemoryToolStore, type ToolRecord } from "../src/adapters/tool-store";
 import type { StemSeparator } from "../src/adapters/musicai";
 import type { Composer, ComposeRequest } from "../src/adapters/composer";
 import { runTool, type ToolDeps } from "../src/tools";
+import { brightness, resolveBpm } from "../src/premium";
 import { DEFAULT_LIMITS } from "../src/pipeline";
 
 const LYRICS = ["Santo santo santo", "É o Senhor"].join("\n");
@@ -103,7 +104,7 @@ const decodeOut = (key: string) => decodeMedia(join(dir, "armazenamento", key), 
 const song = () =>
   lavfi([
     "-f", "lavfi", "-i",
-    "aevalsrc='0.08*(sin(2*PI*261.6*t)+sin(2*PI*329.6*t)+sin(2*PI*392*t))*lt(mod(t,8),2)+0.08*(sin(2*PI*220*t)+sin(2*PI*261.6*t)+sin(2*PI*329.6*t))*gte(mod(t,8),2)*lt(mod(t,8),4)+0.08*(sin(2*PI*174.6*t)+sin(2*PI*220*t)+sin(2*PI*261.6*t))*gte(mod(t,8),4)*lt(mod(t,8),6)+0.08*(sin(2*PI*196*t)+sin(2*PI*246.9*t)+sin(2*PI*293.7*t))*gte(mod(t,8),6)+0.5*sin(2*PI*60*t)*exp(-mod(t,0.5)*20)':s=44100:d=40",
+    "aevalsrc='0.08*(sin(2*PI*261.6*t)+sin(2*PI*329.6*t)+sin(2*PI*392*t))*lt(mod(t,8),2)+0.08*(sin(2*PI*220*t)+sin(2*PI*261.6*t)+sin(2*PI*329.6*t))*gte(mod(t,8),2)*lt(mod(t,8),4)+0.08*(sin(2*PI*174.6*t)+sin(2*PI*220*t)+sin(2*PI*261.6*t))*gte(mod(t,8),4)*lt(mod(t,8),6)+0.08*(sin(2*PI*196*t)+sin(2*PI*246.9*t)+sin(2*PI*293.7*t))*gte(mod(t,8),6)+0.5*sin(2*PI*60*t)*exp(-mod(t,0.5)*20)+0.4*(2*random(0)-1)*exp(-mod(t,0.25)*20)':s=44100:d=40",
     "-ac", "2",
   ]);
 
@@ -164,7 +165,8 @@ test("Produção (prévia e final): 3 versões conferidas, folha de cifra, cliqu
   const { pid, keys } = await projectInputs([song()]);
   const base = { project_id: pid, format: "mp3", durations: [40], has_reference: false, genre: "worship", style: "Worship moderno", lyrics: LYRICS, bpm: null, key: null, versions: 3, seed: 7 };
   const prev = job("compose", { ...base, preview: true }, keys, 1);
-  assert.equal((await runTool(prev, deps)).status, "done");
+  const rp = await runTool(prev, deps);
+  assert.equal(rp.status, "done", JSON.stringify(rp));
   assert.equal(outs(prev).filter((x) => /^previa-versao-\d\.m4a$/.test(x.name)).length, 3);
   assert.ok(generations[generations.length - 1].durationS <= 30.5, "a prévia gera só o trecho de 30 s, não a música inteira");
   assert.ok(generations[0].outputUrls.length === 3 && generations[0].guideUrl.startsWith("local://out/"));
@@ -206,4 +208,17 @@ test("sem a Music.AI configurada: VS Premium fica indisponível (nada cobrado, n
   const r = await runTool(id, { ...deps, premium: {} });
   assert.equal(r.status, "failed");
   assert.equal(r.error_code, "TOOL_UNAVAILABLE");
+});
+
+test("Produção: andamento da guia na oitava informada; base abafada é recusada", () => {
+  // voz cantada a ~116 com "155" no nome do arquivo: vale o medido
+  assert.equal(resolveBpm(155, { bpm: 115.4, confidence: 0.5 }), 115.4);
+  assert.equal(resolveBpm(60, { bpm: 115.4, confidence: 0.5 }), 60);
+  assert.equal(resolveBpm(null, { bpm: 115.4, confidence: 0.5 }), 115.4);
+  assert.equal(resolveBpm(150, { bpm: 90, confidence: 0.1 }), 150);
+  const sr = 44100;
+  const dark = new Float32Array(sr * 4).map((_, i) => 0.3 * Math.sin((2 * Math.PI * 80 * i) / sr));
+  const bright = dark.map((v) => v + 0.05 * (Math.random() * 2 - 1));
+  assert.ok(brightness([dark, dark], sr) < 2000);
+  assert.ok(brightness([bright, bright], sr) > 12000);
 });
