@@ -68,6 +68,41 @@ export default function Terms() {
         devolvemos o valor integral.
       </p>
 
+      <h2>7-A. Produção (Mix & Master IA, Produção da composição, Voz finalizada, VS Premium)</h2>
+      <ul className="list-disc pl-5">
+        <li>
+          São recursos novos, abertos a todos e marcados como “em desenvolvimento”: os resultados podem variar e continuam sendo
+          melhorados. Antes de pagar, você ouve uma prévia grátis de 30 segundos (limite diário de prévias).
+        </li>
+        <li>
+          O preço é o mostrado na tela antes do pagamento. O preço da <strong>1ª experiência</strong> vale uma única vez por pessoa e por
+          recurso: contas, aparelhos ou CPFs repetidos para obter a oferta de novo não são aceitos, e a oferta pode ser negada nesses casos.
+          No Plano Pro há o desconto informado na tela.
+        </li>
+        <li>
+          Pagamento em reais (PIX ou cartão, pelo Mercado Pago) ou, onde indicado, em créditos. O trabalho completo começa assim que o
+          pagamento é aprovado. Se algo der errado no processamento, refazemos ou devolvemos o valor.
+        </li>
+        <li>
+          Na Mix & Master IA e na Voz finalizada, você pode pedir revisões com novos ajustes pelo prazo informado na tela (padrão: 7 dias
+          após o pagamento). O “Engenheiro finaliza” é um serviço humano com prazo e revisões, como a Mixagem Profissional.
+        </li>
+        <li>
+          Os arquivos ficam no seu Cofre por até 30 dias. Baixe e guarde as suas cópias.
+        </li>
+        <li>
+          <strong>Direitos e IA:</strong> a composição, a voz e os arquivos que você envia continuam seus, e você declara ter os direitos
+          sobre eles. Na Produção da composição, o arranjo é gerado com inteligência artificial a partir da sua composição: ao distribuir,
+          informe o uso de IA, como as plataformas e distribuidoras exigem. A música de referência serve só para orientar o som; não envie
+          material de terceiros para reproduzir ou copiar.
+        </li>
+        <li>
+          <strong>Vitrine:</strong> se você autorizar, concede ao Mix Pro uma licença gratuita, não exclusiva e revogável para mostrar um
+          trecho de até 30 segundos da sua produção na vitrine, para divulgação. A autorização é opcional e pode ser retirada a qualquer
+          momento. O presente em créditos é creditado quando o trecho é aprovado.
+        </li>
+      </ul>
+
       <h2>8. Indicação de amigos</h2>
       <p>
         Quem indica e quem foi indicado recebem créditos de bônus quando a pessoa indicada faz a primeira compra aprovada, com limite mensal

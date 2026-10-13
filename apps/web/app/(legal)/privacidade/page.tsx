@@ -64,13 +64,31 @@ export default function Privacy() {
           <strong>No seu navegador:</strong> cookies de sessão (necessários para o login) e armazenamento local para preferências e o
           código de indicação. Não usamos cookies de publicidade.
         </li>
+        <li>
+          <strong>Preço da 1ª experiência (Produção):</strong> para garantir a oferta uma vez por pessoa, pedimos o CPF e usamos um
+          identificador aleatório deste aparelho e dados técnicos do navegador (tela, idioma, fuso). Guardamos apenas códigos irreversíveis
+          (hash) — nunca o número do CPF — só para essa finalidade (prevenção de fraude, legítimo interesse). O CPF também segue ao Mercado
+          Pago no pagamento.
+        </li>
+        <li>
+          <strong>Projetos de Produção</strong> (Mix & Master IA, Produção da composição, Voz finalizada, VS Premium): os arquivos que você
+          envia e os resultados ficam no seu Cofre por até 30 dias, para você baixar e pedir revisões, e depois são apagados. A música de
+          referência só é analisada.
+        </li>
+        <li>
+          <strong>Vitrine (opcional):</strong> só com a sua autorização expressa, um trecho de 30 segundos (antes e depois) aparece na
+          vitrine pública, com o seu nome artístico ou anônimo. Você retira a autorização quando quiser, em Meus projetos, e o trecho é
+          apagado.
+        </li>
       </ul>
 
       <h2>Com quem os dados são compartilhados</h2>
       <p>
         Apenas com os serviços que fazem o app funcionar: Supabase (banco de dados e login), Vercel (hospedagem do site), Mercado Pago
         (pagamentos) e, quando o processamento no servidor é usado, Cloudflare R2 (armazenamento temporário dos áudios: 24 horas, ou até 30 dias no Cofre e na Mixagem Profissional) e
-        Google Cloud (processamento do áudio). O modelo de separação de faixas (VS) é baixado de um repositório público, sem envio dos seus dados.
+        Google Cloud (processamento do áudio). No VS Premium, a música é enviada à Music.AI (separação de faixas), que a processa e apaga ao
+        final; na Produção da composição, a guia é processada em GPU no Modal, sem ficar guardada. O modelo de separação do VS básico é baixado
+        de um repositório público. Seus arquivos nunca são usados para treinar inteligência artificial.
         Alguns desses serviços podem armazenar dados fora do Brasil, com as garantias previstas na LGPD. Não vendemos dados.
       </p>
 
