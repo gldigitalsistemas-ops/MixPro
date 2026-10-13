@@ -70,3 +70,13 @@ Cloud Run (região `us-central1`, faixa 1) escala a zero e tem cota grátis; Clo
 - Imagem: o Dockerfile baixa o HT-Demucs de um commit fixo do Hugging Face (conferido por SHA-256), instala `onnxruntime-node@1.22.0` e confere o filtro `rubberband` do FFmpeg (`STEMS_MODEL_DIR=/app/models`).
 - Cloud Run: `mixpro-export` (4 GiB, 1 CPU, até 3 instâncias) e `mixpro-stems` (8 GiB, 8 CPU, 60 min, até 2 instâncias), a mesma imagem. Filas `mixpro-export` (2 em paralelo) e `mixpro-export-pro` (3 em paralelo, Plano Pro).
 - Preços: editáveis em `system_settings.tool_credit_costs` (sem novo deploy). Limites: `tool_user_active`, `tool_user_per_day`, `tool_server_daily_jobs`, `share_links_per_day`.
+
+## Módulos premium (Produção)
+
+- **Banco:** `20261012000001_premium.sql` — projetos (Cofre de 30 dias), pedidos em reais ou créditos, trava da 1ª experiência (`intro_claims`: índices únicos por conta, aparelho e CPF em hash + rede/navegador em 30 dias), vitrine com consentimento (`showcase_items`), mapa de treino (`training_assets`), esteira das ferramentas com os recursos `stems_premium`, `mix_ia`, `compose` e `voice_final`, presets de master novos e o serviço interno "Engenheiro finaliza". Testes: `apps/export-service/test/premium-db.test.ts`, `premium.test.ts` e `premium-nuvem.test.ts`.
+- **Preços:** Admin → Produção → "Preços e ofertas" (`system_settings.premium_products`). 1ª experiência = uma vez por pessoa e por produto.
+- **Vercel:** `INTRO_HASH_SECRET` (obrigatório antes de abrir a oferta; nunca trocar) e `USD_BRL` (opcional).
+- **R2:** a vitrine usa `vitrine/` e o treino `treino/` (sem limpeza automática); os projetos usam `cofre/proj/` (regra de 30 dias do prefixo `cofre/`).
+- **Serviço:** o `deploy.sh` pergunta pela Music.AI (`MUSICAI_API_KEY` como segredo e `MUSICAI_WORKFLOW`) e pelo gerador (`COMPOSE_TOKEN` como segredo e `COMPOSE_URL`). Sem eles, VS Premium e Produção aparecem como "indisponíveis" e o resto funciona.
+- **Music.AI:** crie um workflow com os módulos de faixas (voz, bateria, baixo, teclado/piano, violão e guitarra); o nome de cada saída é reconhecido pelo nome (vocals/drums/bass/keys/acoustic/electric).
+- **Modal:** `pip install modal && modal setup`, `modal secret create mixpro-compose COMPOSE_TOKEN=<segredo>`, `modal deploy infra/modal/acestep_app.py` (GPU A10, desliga sozinha quando ociosa). Fixe `ACESTEP_REF` num commit testado.

@@ -335,7 +335,7 @@ export function mixSession(input: EngineTrack[], o: EngineOptions): EngineResult
   const roles = input.map((t) => t.user.role);
   const hasVocal = roles.some((r) => r === "lead_vocal" || r === "backing_vocal");
 
-  let tracks: Signal[] = input.map((t) => {
+  const tracks: Signal[] = input.map((t) => {
     let a = t.sr === sr ? t.audio : toRate(t.audio, t.sr, sr);
     if (a.length === 2 && lrCorrelation(a) > 0.995) a = [a[0]] as Signal;
     if (len(a) < n) a = a.map((c) => {
