@@ -166,6 +166,7 @@ test("Produção (prévia e final): 3 versões conferidas, folha de cifra, cliqu
   const prev = job("compose", { ...base, preview: true }, keys, 1);
   assert.equal((await runTool(prev, deps)).status, "done");
   assert.equal(outs(prev).filter((x) => /^previa-versao-\d\.m4a$/.test(x.name)).length, 3);
+  assert.ok(generations[generations.length - 1].durationS <= 30.5, "a prévia gera só o trecho de 30 s, não a música inteira");
   assert.ok(generations[0].outputUrls.length === 3 && generations[0].guideUrl.startsWith("local://out/"));
 
   const fin = job("compose", { ...base, preview: false }, keys);

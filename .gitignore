@@ -22,3 +22,6 @@ apps/web/fixtures-local/
 # dados locais do serviço de exportação (armazenamento, jobs, e2e)
 apps/export-service/.dados/
 apps/export-service/dist/
+
+# capturas dos testes de tela
+apps/web/e2e/capturas/

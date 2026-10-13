@@ -25,6 +25,7 @@ export function SupportFab() {
       href={supportUrl(`Olá! Preciso de ajuda no Mix Pro. (página ${path})`)}
       target="_blank"
       rel="noopener noreferrer"
+      data-support-fab
       aria-label="Ajuda pelo WhatsApp"
       className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-3 z-30 flex h-11 items-center gap-2 rounded-full bg-emerald-500 px-4 text-sm font-semibold text-white shadow-lg shadow-black/40 transition hover:bg-emerald-400 md:bottom-5 md:right-5"
     >

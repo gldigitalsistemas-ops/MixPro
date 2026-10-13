@@ -205,3 +205,22 @@ test("admin: libera na hora sem Mercado Pago, sem CPF e sem limite de prévias",
   assert.equal(h.checkouts.length, 0, "não abre o Mercado Pago");
   assert.ok(h.projects.get(id)!.final_job, "trabalho final começou");
 });
+
+test("a produção da composição vai para o servidor forte (separar a voz com IA não cabe no comum); a falha nunca sugere processar no aparelho", async () => {
+  const h = harness();
+  const id = await uploaded(h, "producao", [{ name: "guia.m4a", bytes: 10 }]);
+  const base = { format: "mp3", durations: [180], has_reference: false, genre: "worship", style: "", bpm: null, key: null, versions: 3, seed: 1 };
+  const r = await startPreview(h.d, ALICE, id, base);
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.deepEqual(h.enq[0].opts, { kind: "tool", heavy: true, priority: false });
+  const vs = await uploaded(h, "vs_premium", [{ name: "m.mp3", bytes: 10 }]);
+  await startPreview(h.d, ALICE, vs, { format: "wav", durations: [100] });
+  assert.equal((h.enq[1].opts as { heavy: boolean }).heavy, false, "a separação externa (Music.AI) não precisa do servidor forte");
+  // job que estourou o tempo: mensagem sem "processar neste aparelho"
+  const jobId = h.projects.get(id)!.preview_job!;
+  Object.assign(h.jobs.get(jobId)!, { status: "failed", error_code: "TIMEOUT" });
+  const st = await projectStatus(h.d, ALICE, id);
+  assert.ok("preview" in st && st.preview);
+  assert.doesNotMatch(String(st.preview!.message), /aparelho/);
+  assert.match(String(st.preview!.message), /Tentar de novo/);
+});

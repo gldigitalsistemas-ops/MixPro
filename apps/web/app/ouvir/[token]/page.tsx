@@ -23,7 +23,7 @@ export default async function SharePage(props: PageProps<"/ouvir/[token]">) {
   const page = deps ? await openShare(deps, token) : null;
 
   return (
-    <div className="safe-top safe-x flex min-h-dvh flex-col items-center justify-center bg-bg px-4 py-12">
+    <div className="safe-top pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] flex min-h-dvh flex-col items-center justify-center bg-bg py-12">
       {page?.referralCode && <SaveReferral code={page.referralCode} />}
       <div className="w-full max-w-md">
         <div className="mb-8 flex justify-center">

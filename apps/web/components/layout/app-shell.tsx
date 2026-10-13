@@ -36,22 +36,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">
       <header className="safe-top safe-x sticky top-0 z-40 border-b border-border bg-bg/85 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 w-full max-w-6xl items-center gap-6 px-4 md:px-8">
-          <Link href="/" aria-label="Mix Pro — início">
+        <div className="mx-auto flex h-16 w-full max-w-6xl items-center gap-3 px-4 md:px-8 2xl:gap-6">
+          <Link href="/" aria-label="Mix Pro — início" className="shrink-0 whitespace-nowrap">
             <Logo />
           </Link>
           <nav className="hidden flex-1 items-center gap-1 md:flex" aria-label="Navegação principal">
-            {NAV.filter((n) => n.href !== "/conta").map(({ href, label, icon: Icon }) => (
+            {NAV.filter((n) => n.href !== "/conta").map(({ href, label, short, icon: Icon }) => (
               <Link
                 key={href}
                 href={href}
                 aria-current={active(path, href) ? "page" : undefined}
                 className={cn(
-                  "flex h-9 items-center gap-2 rounded-full px-3.5 text-sm transition",
+                  "flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-sm transition 2xl:gap-2 2xl:px-3.5",
                   active(path, href) ? "bg-white/10 text-text" : "text-muted hover:bg-white/5 hover:text-text",
                 )}
               >
-                <Icon className="size-4" aria-hidden /> {label}
+                <Icon className="size-4" aria-hidden />
+                <span className="hidden 2xl:inline">{label}</span>
+                <span className="2xl:hidden">{short ?? label}</span>
               </Link>
             ))}
             {isAdmin && (

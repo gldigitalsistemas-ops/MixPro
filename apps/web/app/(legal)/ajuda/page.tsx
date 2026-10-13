@@ -83,7 +83,9 @@ export default function Help() {
       >
         <MessageCircle className="size-6 shrink-0" aria-hidden />
         <span>
-          <strong className="block text-base">Chame no WhatsApp: {SUPPORT_WHATSAPP_PRETTY}</strong>
+          <strong className="block text-base">
+            Chame no WhatsApp: <span className="whitespace-nowrap">{SUPPORT_WHATSAPP_PRETTY}</span>
+          </strong>
           <span className="text-sm">Dúvidas antes de pagar, ajuda com o envio ou algo que não ficou como você esperava: a gente responde e refaz.</span>
         </span>
       </a>

@@ -110,3 +110,8 @@ body {
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
 }
+
+/* o botão de ajuda sai de cena enquanto o aviso de instalar/lembrete está na tela (ocupam o mesmo canto) */
+body:has([data-engagement-banner]) [data-support-fab] {
+  display: none;
+}

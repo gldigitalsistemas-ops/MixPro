@@ -125,6 +125,13 @@ async function owned(d: PremiumDeps, userId: string, id: string): Promise<Projec
   return p;
 }
 
+/** Mensagem para a pessoa: na Produção tudo roda no servidor, então nunca se sugere processar no aparelho. */
+export function premiumMessage(code: string): string {
+  const i = exportErrorInfo(code);
+  if (code === "TIMEOUT") return "O processamento demorou mais do que o esperado. Nada foi cobrado: toque em “Tentar de novo” ou chame a gente no WhatsApp.";
+  return i.device ? "Não conseguimos concluir agora. Nada foi cobrado: toque em “Tentar de novo” ou chame a gente no WhatsApp." : i.message;
+}
+
 const isFail = (v: unknown): v is Fail => typeof v === "object" && v !== null && (v as Fail).ok === false;
 
 export const UPLOAD_TTL_S = 3600;
@@ -198,7 +205,7 @@ async function enqueueJob(d: PremiumDeps, userId: string, p: Project, rawParams:
   const jobId = (data as { job_id: string }).job_id;
   const pro = await d.isPro(userId).catch(() => false);
   try {
-    await d.queue.enqueue(jobId, { kind: "tool", heavy: (tool === "mix_ia" || tool === "voice_final") && d.heavyAvailable(), priority: pro });
+    await d.queue.enqueue(jobId, { kind: "tool", heavy: tool !== "stems_premium" && d.heavyAvailable(), priority: pro });
   } catch {
     await d.rpc("cancel_tool_job", { p_job_id: jobId, p_user: userId }).catch(() => {});
     return fail("CAPACITY");
@@ -392,7 +399,7 @@ async function jobView(d: PremiumDeps, userId: string, id: string | null): Promi
     status: j.status,
     progress: j.progress,
     errorCode: j.error_code,
-    message: j.error_code ? exportErrorInfo(j.error_code).message : null,
+    message: j.error_code ? premiumMessage(j.error_code) : null,
     measures: j.measures,
     outputs: alive && j.outputs ? j.outputs.map((o) => ({ name: o.name, bytes: o.bytes, url: d.objects.presign("GET", o.key, DOWNLOAD_TTL_S, { downloadName: o.name.replace(/[^A-Za-z0-9._-]/g, "_") }) })) : [],
   };

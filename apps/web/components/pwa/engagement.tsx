@@ -122,6 +122,7 @@ export function EngagementPrompt() {
 
   return (
     <div
+      data-engagement-banner
       className="safe-x fixed inset-x-0 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-50 px-3 md:bottom-6 md:left-auto md:right-6 md:w-96 md:px-0"
       role="dialog"
       aria-label="Instalar o Mix Pro"

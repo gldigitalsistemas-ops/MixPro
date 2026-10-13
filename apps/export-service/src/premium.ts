@@ -289,9 +289,12 @@ function chordSheet(title: string, bpm: number, keyLabel: string | null, segs: R
 
 async function compose(p: Record<string, unknown>, media: DecodedMedia[], ctx: PremiumCtx, onProgress: (v: number) => void): Promise<PremiumResult> {
   if (!ctx.composer || !ctx.presign || !ctx.readKey || !ctx.putKey) throw new JobError("TOOL_UNAVAILABLE");
-  const guide = media[0];
-  const sr = guide.sampleRate;
+  const guideFull = media[0];
+  const sr = guideFull.sampleRate;
   const preview = p.preview === true;
+  // prévia: só o trecho mais forte de 30 s (separar a voz com IA e gerar a música inteira não cabe numa prévia)
+  const guideCh: Signal = preview ? sliceAll([guideFull.channels], previewWindow(guideFull.channels, sr), CLIP_SECONDS, sr)[0] : guideFull.channels;
+  const guide = { channels: guideCh, sampleRate: sr, duration: guideCh[0].length / sr };
   // voz da guia (separada quando a guia tem instrumentos) e harmonia (a parte instrumental)
   let voice = guide.channels;
   let harmony = guide.channels;
@@ -306,7 +309,8 @@ async function compose(p: Record<string, unknown>, media: DecodedMedia[], ctx: P
   const key = detectKey(harmony, sr);
   const keyLabel = (p.key as string | null) ?? key?.label ?? null;
   const guideChords = detectChords(harmony, sr);
-  const melody = melodyOf(voice, sr);
+  // a melodia só serve à Voz finalizada, que parte da entrega completa
+  const melody = preview ? [] : melodyOf(voice, sr);
   onProgress(0.2);
 
   // a voz vai para o gerador por URL temporária (WAV 44,1 kHz); as versões voltam do mesmo jeito

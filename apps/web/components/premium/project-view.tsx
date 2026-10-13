@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AudioLines, Download, FileArchive, Headphones, Loader2, Mic2, RotateCcw, Sliders, Sparkles, UserRound, Wand2 } from "lucide-react";
@@ -94,15 +94,43 @@ function stageText(product: string, pct: number): string {
 const hidden = (n: string) => /^(play-|mixer-|vitrine-)/.test(n);
 const sizeOf = (b: number) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.max(0.1, b / 1e6).toFixed(1)} MB`);
 
-function Progress({ job, product, label }: { job: JobView; product: string; label: string }) {
+function Progress({ job, product, label, onRetry }: { job: JobView; product: string; label: string; onRetry?: () => Promise<void> }) {
+  // sem avanço há alguns minutos: avisa que está demorando e oferece ajuda (a pessoa não fica no escuro)
+  const last = useRef({ p: job.progress, status: job.status, t: 0 });
+  const [slow, setSlow] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  useEffect(() => {
+    if (!last.current.t) last.current.t = Date.now();
+    const id = setInterval(() => {
+      if (job.progress !== last.current.p || job.status !== last.current.status) last.current = { p: job.progress, status: job.status, t: Date.now() };
+      setSlow(Date.now() - last.current.t > 6 * 60_000);
+    }, 20_000);
+    return () => clearInterval(id);
+  }, [job.progress, job.status]);
   if (job.status === "failed")
     return (
       <Card className="border-rose-400/40 p-4 text-sm">
         <p className="font-semibold">{label}: não concluída</p>
-        <p className="text-muted">{job.message ?? "Algo deu errado. Tente de novo; nada foi cobrado por esta etapa."}</p>
-        <p className="mt-2">
+        <p className="text-muted">{job.message ?? "Algo deu errado. Nada foi cobrado por esta etapa."}</p>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          {onRetry && (
+            <Button
+              size="sm"
+              loading={retrying}
+              onClick={async () => {
+                setRetrying(true);
+                try {
+                  await onRetry();
+                } finally {
+                  setRetrying(false);
+                }
+              }}
+            >
+              <RotateCcw className="size-4" aria-hidden /> Tentar de novo
+            </Button>
+          )}
           <SupportLink subject={`${label} não concluída (${product})`}>Chamar no WhatsApp: a gente resolve</SupportLink>
-        </p>
+        </div>
       </Card>
     );
   if (job.status === "done") return null;
@@ -113,7 +141,17 @@ function Progress({ job, product, label }: { job: JobView; product: string; labe
       </p>
       <ProgressBar value={job.progress} label={stageText(product, job.progress)} />
       <p className="text-sm text-muted">{job.status === "queued" ? "Na fila: começa em instantes." : stageText(product, job.progress)}</p>
-      <p className="text-xs text-subtle">Pode sair desta tela: avisamos em Meus projetos quando ficar pronto.</p>
+      {slow ? (
+        <p className="rounded-xl bg-amber-400/10 p-3 text-xs text-amber-100">
+          Está demorando mais do que o normal. Pode continuar esperando (nada é cobrado se não terminar), ou{" "}
+          <SupportLink subject={`${label} demorando (${product})`} className="text-xs">
+            chamar no WhatsApp
+          </SupportLink>
+          .
+        </p>
+      ) : (
+        <p className="text-xs text-subtle">Pode sair desta tela: avisamos em Meus projetos quando ficar pronto.</p>
+      )}
     </Card>
   );
 }
@@ -479,7 +517,26 @@ export function ProjectView({ id }: { id: string }) {
       )}
 
       {final && <Progress job={final} product={project.product} label="Trabalho completo" />}
-      {!final && preview && <Progress job={preview} product={project.product} label="Prévia grátis (30 s)" />}
+      {!final && preview && (
+        <Progress
+          job={preview}
+          product={project.product}
+          label="Prévia grátis (30 s)"
+          onRetry={
+            state.owner
+              ? async () => {
+                  try {
+                    await startPreview(project.id, project.params);
+                    toast.success("Tentando de novo. A prévia já está sendo feita.");
+                    await load();
+                  } catch (e) {
+                    toast.error((e as Error).message);
+                  }
+                }
+              : undefined
+          }
+        />
+      )}
 
       {show && (
         <>
