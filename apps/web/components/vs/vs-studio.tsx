@@ -137,6 +137,7 @@ export function VSStudio() {
   const search = useSearchParams();
   const router = useRouter();
   const catalog = usePublicCatalog();
+  const premiumOn = catalog.items.find((i) => i.id === "vs_premium")?.enabled !== false;
   const projectParam = search.get("projeto");
   useEffect(() => {
     if (!projectParam || !/^[0-9a-f-]{36}$/.test(projectParam)) return;
@@ -565,23 +566,32 @@ export function VSStudio() {
             Separação de estúdio com a melhor precisão do mercado: <strong className="text-text">voz, bateria, baixo, guitarra, violão, teclado e outros</strong>{" "}
             (efeitos, loops, cordas…) em faixas separadas, mais o clique. Ouça 30 segundos das 7 faixas grátis antes de pagar.
           </p>
-          <Price cat={catalog} id="vs_premium" />
-          <input
-            ref={premiumInput}
-            type="file"
-            accept={accept}
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void openPremium(f);
-            }}
-          />
-          {premiumBusy !== null ? (
-            <ProgressBar value={premiumBusy} label="Enviando a música" />
+          {premiumOn ? (
+            <>
+              <Price cat={catalog} id="vs_premium" />
+              <input
+                ref={premiumInput}
+                type="file"
+                accept={accept}
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void openPremium(f);
+                }}
+              />
+              {premiumBusy !== null ? (
+                <ProgressBar value={premiumBusy} label="Enviando a música" />
+              ) : (
+                <Button className="self-start" onClick={() => premiumInput.current?.click()}>
+                  Ouvir a prévia grátis das 7 faixas
+                </Button>
+              )}
+            </>
           ) : (
-            <Button className="self-start" onClick={() => premiumInput.current?.click()}>
-              Ouvir a prévia grátis das 7 faixas
-            </Button>
+            <p className="rounded-2xl bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+              <strong>Em breve.</strong> Estamos finalizando o VS Premium. Enquanto isso, aproveite a criação do VS acima: voz, bateria, baixo e
+              instrumentos separados, com clique, mixer e exportação.
+            </p>
           )}
         </div>
         <ul className="grid gap-2 text-sm text-muted sm:grid-cols-2">

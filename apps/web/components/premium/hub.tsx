@@ -27,6 +27,7 @@ export function usePublicCatalog(): PremiumCatalog {
 export function Price({ cat, id }: { cat: PremiumCatalog; id: PremiumId }) {
   const it = cat.items.find((i) => i.id === id);
   if (!it) return null;
+  if (!it.enabled) return <span className="rounded-full bg-amber-400/15 px-2.5 py-0.5 text-xs font-semibold text-amber-200">Em breve</span>;
   return (
     <span className="flex flex-wrap items-baseline gap-2 text-sm">
       {it.intro_brl !== null ? (

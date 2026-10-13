@@ -49,6 +49,7 @@ const brl = (v: number) => Number(v).toLocaleString("pt-BR", { style: "currency"
 function From({ cat, id }: { cat: PremiumCatalog; id: PremiumId }) {
   const it = cat.items.find((i) => i.id === id);
   if (!it) return null;
+  if (!it.enabled) return <span className="rounded-full bg-amber-400/15 px-2.5 py-0.5 text-xs font-semibold text-amber-200">Em breve</span>;
   return it.intro_brl !== null ? (
     <span className="text-sm">
       <span className="text-muted line-through">{brl(it.price_brl)}</span> <strong className="text-emerald-300">{brl(it.intro_brl)}</strong>
