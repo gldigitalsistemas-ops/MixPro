@@ -103,13 +103,22 @@ gcloud builds submit --config /tmp/cloudbuild-export.yaml .
 echo "==> 5/8 Cloud Run (fechado ao público)"
 ENV_VARS="SUPABASE_URL=${SUPABASE_URL},NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL},NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON},R2_ACCOUNT_ID=${R2_ACCOUNT_ID},R2_BUCKET=${R2_BUCKET}"
 SECRETS="SUPABASE_SERVICE_ROLE_KEY=export-supabase-service-role:latest,R2_ACCESS_KEY_ID=export-r2-access-key-id:latest,R2_SECRET_ACCESS_KEY=export-r2-secret-access-key:latest"
+# segredo opcional só entra se tiver um valor ativo; e o serviço precisa poder lê-lo
+usable_secret() {
+  local name="$1"
+  [[ -n "$(gcloud secrets versions list "$name" --filter='state:ENABLED' --limit=1 --format='value(name)' 2>/dev/null)" ]] || {
+    gcloud secrets describe "$name" >/dev/null 2>&1 && echo "   (segredo $name existe mas está vazio: ignorado)"
+    return 1
+  }
+  gcloud secrets add-iam-policy-binding "$name" --member "serviceAccount:${RUNNER}" --role roles/secretmanager.secretAccessor >/dev/null
+}
 # segredos e variáveis premium só entram se existirem (rodar de novo sem configurar mantém os anteriores)
-if gcloud secrets describe export-musicai-key >/dev/null 2>&1; then
+if usable_secret export-musicai-key; then
   SECRETS="${SECRETS},MUSICAI_API_KEY=export-musicai-key:latest"
   MUSICAI_WORKFLOW="${MUSICAI_WORKFLOW:-$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(spec.template.spec.containers[0].env)' 2>/dev/null | tr ';' '\n' | sed -n "s/.*'name': 'MUSICAI_WORKFLOW', 'value': '\([^']*\)'.*/\1/p")}"
   [[ -n "${MUSICAI_WORKFLOW:-}" ]] && ENV_VARS="${ENV_VARS},MUSICAI_WORKFLOW=${MUSICAI_WORKFLOW}"
 fi
-if gcloud secrets describe export-compose-token >/dev/null 2>&1; then
+if usable_secret export-compose-token; then
   SECRETS="${SECRETS},COMPOSE_TOKEN=export-compose-token:latest"
   COMPOSE_URL="${COMPOSE_URL:-$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(spec.template.spec.containers[0].env)' 2>/dev/null | tr ';' '\n' | sed -n "s/.*'name': 'COMPOSE_URL', 'value': '\([^']*\)'.*/\1/p")}"
   [[ -n "${COMPOSE_URL:-}" ]] && ENV_VARS="${ENV_VARS},COMPOSE_URL=${COMPOSE_URL}"
