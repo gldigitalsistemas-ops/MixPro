@@ -5,6 +5,8 @@ import { Badge, type Tone } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/cn";
 import { PremiumPricesEditor } from "@/components/premium/admin-prices";
+import { OrderActions } from "@/components/premium/admin-order-actions";
+import { buildFunnel } from "@/lib/premium/funnel";
 
 export const metadata = { title: "Produção" };
 
@@ -30,13 +32,31 @@ const requestTime = () => Date.now();
 export default async function AdminPremium() {
   await requireAdmin();
   const admin = supabaseAdmin();
-  const [{ data: orders }, { data: settings }, { data: authList }, { data: jobs }, { count: intros }] = await Promise.all([
+  const [{ data: orders }, { data: settings }, { data: authList }, { data: jobs }, { count: intros }, { data: projects }, { data: allOrders }] = await Promise.all([
     admin.from("premium_orders").select("id,user_id,project_id,product,price_brl,list_price_brl,intro,pro_discount,method,credits,status,cost_usd,created_at,paid_at").order("created_at", { ascending: false }).limit(300),
     admin.from("system_settings").select("key,value").in("key", ["premium_products", "showcase_reward_credits", "premium_preview_per_day"]),
     admin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
     admin.from("tool_jobs").select("tool,params,cpu_ms,wall_ms,status,created_at").not("project_id", "is", null).gte("created_at", new Date(requestTime() - 30 * 86_400_000).toISOString()).limit(2000),
     admin.from("intro_claims").select("id", { count: "exact", head: true }).eq("status", "used"),
+    admin.from("premium_projects").select("product,status,order_id").gte("created_at", new Date(requestTime() - 90 * 86_400_000).toISOString()).limit(3000),
+    admin.from("premium_orders").select("id,status,intro").gte("created_at", new Date(requestTime() - 90 * 86_400_000).toISOString()).limit(3000),
   ]);
+  // funil dos últimos 90 dias: projeto criado → prévia pronta → pago → entregue
+  const orderOf = new Map((allOrders ?? []).map((o) => [o.id as string, o as { status: string; intro: boolean }]));
+  const funnel = buildFunnel(
+    (projects ?? []).map((p) => {
+      const o = p.order_id ? orderOf.get(p.order_id as string) : undefined;
+      const paid = o?.status === "paid" || o?.status === "refunded";
+      return {
+        product: p.product as string,
+        previewDone: paid || !["draft", "uploaded", "preview", "failed"].includes(p.status as string),
+        paid,
+        delivered: p.status === "delivered",
+        intro: Boolean(o?.intro),
+        refunded: o?.status === "refunded",
+      };
+    }),
+  );
   const get = (k: string) => settings?.find((s) => s.key === k)?.value;
   const catalog = parsePremium(get("premium_products"));
   const emails = new Map((authList?.users ?? []).map((u) => [u.id, u.email ?? ""]));
@@ -72,10 +92,52 @@ export default async function AdminPremium() {
       </div>
       <p className="text-xs text-subtle">CPU do servidor nos jobs premium (30 dias): {cpuH.toFixed(2)} h de processador. Dólar usado: R$ {USD_BRL.toFixed(2)}.</p>
 
+      <Card className="overflow-x-auto">
+        <div className="px-4 pt-4">
+          <h2 className="font-display text-lg font-semibold">Funil (últimos 90 dias)</h2>
+          <p className="text-xs text-muted">Quantos projetos chegam à prévia, ao pagamento e à entrega. Se pouca gente paga depois da prévia, revise o preço ou a qualidade da prévia.</p>
+        </div>
+        <table className="mt-2 w-full min-w-[640px] text-sm">
+          <thead className="text-left text-xs text-subtle">
+            <tr className="border-b border-border">
+              <th className="px-4 py-2 font-normal">Produto</th>
+              <th className="px-4 py-2 font-normal">Criados</th>
+              <th className="px-4 py-2 font-normal">Com prévia</th>
+              <th className="px-4 py-2 font-normal">Pagos</th>
+              <th className="px-4 py-2 font-normal">Conversão prévia→pago</th>
+              <th className="px-4 py-2 font-normal">Entregues</th>
+              <th className="px-4 py-2 font-normal">1ª experiência</th>
+              <th className="px-4 py-2 font-normal">Estornos</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {funnel.map((f) => (
+              <tr key={f.product}>
+                <td className="px-4 py-2 font-medium">{NAME[f.product] ?? f.product}</td>
+                <td className="px-4 py-2 tabular-nums">{f.created}</td>
+                <td className="px-4 py-2 tabular-nums">{f.previews} <span className="text-xs text-muted">({f.previewRate}%)</span></td>
+                <td className="px-4 py-2 tabular-nums">{f.paid}</td>
+                <td className="px-4 py-2 tabular-nums">{f.payRate}%</td>
+                <td className="px-4 py-2 tabular-nums">{f.delivered}</td>
+                <td className="px-4 py-2 tabular-nums">{f.intro}</td>
+                <td className="px-4 py-2 tabular-nums">{f.refunded}</td>
+              </tr>
+            ))}
+            {!funnel.length && (
+              <tr>
+                <td colSpan={8} className="px-4 py-6 text-center text-sm text-muted">
+                  Ainda não há projetos de Produção.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </Card>
+
       <PremiumPricesEditor catalog={catalog} reward={Number(get("showcase_reward_credits") ?? 10)} previews={Number(get("premium_preview_per_day") ?? 6)} />
 
       <Card className="overflow-x-auto">
-        <table className="w-full min-w-[820px] text-sm">
+        <table className="w-full min-w-[940px] text-sm">
           <thead className="text-left text-xs text-subtle">
             <tr className="border-b border-border">
               <th className="px-4 py-3 font-normal">Data</th>
@@ -85,6 +147,7 @@ export default async function AdminPremium() {
               <th className="px-4 py-3 font-normal">Custo</th>
               <th className="px-4 py-3 font-normal">Status</th>
               <th className="px-4 py-3 font-normal">Projeto</th>
+              <th className="px-4 py-3 font-normal">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -105,12 +168,15 @@ export default async function AdminPremium() {
                     <Badge tone={s.tone}>{s.label}</Badge>
                   </td>
                   <td className="px-4 py-3 text-xs">{o.project_id ? <Link href={`/premium/${o.project_id}`} className="text-violet-300 underline">abrir</Link> : "—"}</td>
+                  <td className="px-4 py-3">
+                    <OrderActions orderId={o.id as string} projectId={(o.project_id as string | null) ?? null} product={o.product as string} status={o.status as string} />
+                  </td>
                 </tr>
               );
             })}
             {!orders?.length && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-sm text-muted">
+                <td colSpan={8} className="px-4 py-8 text-center text-sm text-muted">
                   Nenhum pedido ainda. Os módulos estão em “Em desenvolvimento” e abertos a todos.
                 </td>
               </tr>

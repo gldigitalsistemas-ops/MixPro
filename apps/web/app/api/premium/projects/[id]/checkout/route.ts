@@ -2,6 +2,7 @@ import { withUser } from "@/lib/api";
 import { premiumDeps } from "@/lib/export/server-deps";
 import { clientIp } from "@/lib/premium/identity";
 import { checkout } from "@/lib/premium/server";
+import { sendReceiptForOrder } from "@/lib/premium/receipt-server";
 import { currentEmail, failResponse, smallJson } from "@/lib/premium/route-helpers";
 
 /**
@@ -26,6 +27,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/premium/project
       emailConfirmed: confirmed,
     });
     if (!r.ok) return failResponse(r);
+    if (r.paid) void sendReceiptForOrder(r.orderId);
     return Response.json({ order_id: r.orderId, paid: r.paid, init_point: r.initPoint, quote: r.quote });
   });
 }

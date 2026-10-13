@@ -122,6 +122,10 @@ export async function settlePayment(payment: MpPayment): Promise<Settlement> {
       p_amount_paid: payment.transaction_amount,
     });
     if (error) throw error;
+    // pedido premium: manda o recibo por e-mail (se o Resend estiver configurado; nunca derruba o pagamento)
+    const { data: po } = await admin.from("payment_orders").select("pack_id").eq("mp_external_ref", ref).maybeSingle();
+    const pack = String(po?.pack_id ?? "");
+    if (pack.startsWith("prem:")) void import("@/lib/premium/receipt-server").then((m) => m.sendReceiptForOrder(pack.slice(5)));
     return "approved";
   }
   if (["rejected", "cancelled"].includes(payment.status)) {
@@ -142,6 +146,11 @@ export async function settlePayment(payment: MpPayment): Promise<Settlement> {
     return "failed";
   }
   return "pending";
+}
+
+/** Devolve o valor total de um pagamento aprovado (o Mercado Pago avisa pelo webhook e o banco acompanha). */
+export async function refundPayment(mpPaymentId: string, idempotencyKey: string): Promise<void> {
+  await mp(`/v1/payments/${encodeURIComponent(mpPaymentId)}/refunds`, { method: "POST", body: JSON.stringify({}), idempotencyKey });
 }
 
 export type CredentialStatus = { configured: boolean; ok: boolean; mode: "produção" | "teste" | null; account?: string; error?: string };

@@ -5,6 +5,7 @@ import { ProgressBar } from "@/components/ui/misc";
 import { formatDate } from "@/lib/cn";
 import { SHOWCASE_TARGETS, TRAINING_GENRES, TRAINING_STEPS } from "@/lib/premium/training";
 import { TrainingList, TrainingUpload, type TrainingRow } from "@/components/premium/admin-training";
+import { PartnerKit } from "@/components/premium/admin-partner-kit";
 
 export const metadata = { title: "Mapa de treino" };
 export const dynamic = "force-dynamic";
@@ -111,6 +112,7 @@ export default async function AdminTreino() {
         </Card>
       </div>
 
+      <PartnerKit />
       <TrainingUpload />
       <TrainingList rows={rows} />
     </div>
