@@ -9,6 +9,7 @@ import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { brl, checkout, PremiumError, quote } from "@/lib/premium/client";
 import { cn } from "@/lib/cn";
+import { SupportLink } from "@/components/support/support-link";
 
 type Quotes = { intro: PremiumQuote | null; regular: PremiumQuote | null; introAvailable: boolean };
 
@@ -183,6 +184,9 @@ export function CheckoutDialog(p: { open: boolean; onClose: () => void; projectI
             <p className="flex items-center gap-2 text-xs text-subtle">
               <ShieldCheck className="size-4" aria-hidden /> Pagamento seguro pelo Mercado Pago. Se algo der errado no processamento, refazemos ou devolvemos o valor.
             </p>
+            <SupportLink subject="dúvida no pagamento" className="text-xs">
+              Dúvida no pagamento? Chame no WhatsApp
+            </SupportLink>
           </>
         )}
       </div>

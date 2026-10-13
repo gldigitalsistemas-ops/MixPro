@@ -8,7 +8,9 @@ import { useAccountCtx } from "@/components/account/account-provider";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/misc";
 import { cn } from "@/lib/cn";
+import { SUPPORT_WHATSAPP_PRETTY, supportUrl } from "@/lib/support";
 import { PlanEndedBanner } from "@/components/plans/plan-ended-banner";
+import { SupportFab } from "@/components/support/support-link";
 import { useMyPlan } from "@/components/plans/use-my-plan";
 
 const NAV = [
@@ -101,8 +103,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <footer className="hidden border-t border-border px-4 py-6 text-center text-xs text-subtle md:block">
         Mix Pro · <Link href="/termos" className="hover:text-text">Termos</Link> ·{" "}
-        <Link href="/privacidade" className="hover:text-text">Privacidade</Link>
+        <Link href="/privacidade" className="hover:text-text">Privacidade</Link> · <Link href="/ajuda" className="hover:text-text">Ajuda</Link> ·{" "}
+        <a href={supportUrl("Olá! Preciso de ajuda no Mix Pro.")} target="_blank" rel="noopener noreferrer" className="hover:text-text">
+          WhatsApp {SUPPORT_WHATSAPP_PRETTY}
+        </a>
       </footer>
+      <SupportFab />
 
       <nav
         className="safe-x fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-border bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden"

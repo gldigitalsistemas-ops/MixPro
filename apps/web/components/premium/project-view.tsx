@@ -21,6 +21,7 @@ import { DevBadge } from "./explainer";
 import { GENRE_LABEL, ShowcaseConsent } from "./showcase";
 import { DEFAULT_CTL, StemsPlayer, type TrackCtl } from "./stems-player";
 import { VoiceRecorder } from "./voice-recorder";
+import { SupportLink } from "@/components/support/support-link";
 
 export const PRODUCT_NAME: Record<string, string> = {
   vs_premium: "VS Premium 7 faixas",
@@ -99,6 +100,9 @@ function Progress({ job, product, label }: { job: JobView; product: string; labe
       <Card className="border-rose-400/40 p-4 text-sm">
         <p className="font-semibold">{label}: não concluída</p>
         <p className="text-muted">{job.message ?? "Algo deu errado. Tente de novo; nada foi cobrado por esta etapa."}</p>
+        <p className="mt-2">
+          <SupportLink subject={`${label} não concluída (${product})`}>Chamar no WhatsApp: a gente resolve</SupportLink>
+        </p>
       </Card>
     );
   if (job.status === "done") return null;
@@ -579,8 +583,11 @@ export function ProjectView({ id }: { id: string }) {
           }}
         />
       )}
-      <p className="flex items-center gap-2 text-xs text-subtle">
-        <Sparkles className="size-3.5" aria-hidden /> Recurso em desenvolvimento: se algo não ficar como você esperava, fale com a gente pelo WhatsApp do rodapé — refazemos.
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-subtle">
+        <Sparkles className="size-3.5" aria-hidden /> Recurso em desenvolvimento: se algo não ficar como você esperava, fale com a gente que refazemos.
+        <SupportLink subject={`projeto ${project.id.slice(0, 8)} (${name})`} className="text-xs">
+          Chamar no WhatsApp (21) 97265-2314
+        </SupportLink>
       </p>
     </div>
   );

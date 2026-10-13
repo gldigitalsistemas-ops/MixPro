@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FileAudio, Music4, Plus, Trash2, Upload } from "lucide-react";
 import { MIX_GENRES, TRACK_ROLES, type MixTrack, type TrackRole } from "@mixpro/contracts";
@@ -135,6 +136,13 @@ export function MixWizard() {
           </h2>
           <PriceTag q={q} compact />
         </div>
+        <p className="text-xs text-muted">
+          Não sabe exportar as pistas?{" "}
+          <Link href="/ajuda#fl-studio" className="text-violet-200 underline">
+            Veja o passo a passo (FL Studio, Reaper, Studio One, Cubase e celular)
+          </Link>
+          .
+        </p>
         <input ref={input} type="file" multiple accept={ACCEPT} className="hidden" onChange={(e) => void add(e.target.files).then(() => e.target && (e.target.value = ""))} />
         {tracks.length === 0 ? (
           <button type="button" onClick={() => input.current?.click()} className="flex flex-col items-center gap-2 rounded-3xl border-2 border-dashed border-violet-400/50 p-8 text-center hover:bg-primary/10">

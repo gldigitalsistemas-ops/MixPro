@@ -1,11 +1,12 @@
 import "server-only";
 import { cache } from "react";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { SUPPORT_WHATSAPP } from "@/lib/support";
 
 /** Dados de quem vende (Decreto 7.962/2013): editados no admin → Configurações → "empresa". */
 export type Business = { nome: string; documento: string; endereco: string; email: string; whatsapp: string };
 
-const EMPTY: Business = { nome: "", documento: "", endereco: "", email: "", whatsapp: "" };
+const EMPTY: Business = { nome: "", documento: "", endereco: "", email: "", whatsapp: SUPPORT_WHATSAPP };
 
 export const getBusiness = cache(async (): Promise<Business> => {
   try {
@@ -16,7 +17,8 @@ export const getBusiness = cache(async (): Promise<Business> => {
       documento: String(v.documento ?? "").trim(),
       endereco: String(v.endereco ?? "").trim(),
       email: String(v.email ?? "").trim(),
-      whatsapp: String(v.whatsapp ?? "").trim(),
+      // sem número no Admin, vale o padrão do app: o atendimento nunca fica sem contato
+      whatsapp: String(v.whatsapp ?? "").trim() || SUPPORT_WHATSAPP,
     };
   } catch {
     return EMPTY;

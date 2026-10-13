@@ -4,6 +4,7 @@ import { useState } from "react";
 import { CheckCircle2, ChevronDown, Clock, FlaskConical, Inbox, Send } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
+import { SupportLink } from "@/components/support/support-link";
 
 /** Selo dos recursos novos: abertos a todos, ainda sendo afinados. */
 export function DevBadge({ className }: { className?: string }) {
@@ -74,6 +75,9 @@ export function ModuleExplainer(p: ExplainerProps) {
           </p>
           <p className="text-sm text-muted">{p.time}</p>
           <p className="mt-3 text-xs text-subtle">Você ouve uma prévia grátis de 30 segundos antes de pagar.</p>
+          <p className="mt-2 text-xs">
+            <SupportLink subject={`dúvida sobre ${p.title}`}>Ficou com dúvida? Chame no WhatsApp</SupportLink>
+          </p>
         </Card>
       </div>
       <ol className="grid gap-2 md:grid-cols-4">

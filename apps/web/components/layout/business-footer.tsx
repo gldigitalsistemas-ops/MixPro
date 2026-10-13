@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getBusiness, whatsappLink } from "@/lib/business";
+import { SUPPORT_WHATSAPP_PRETTY } from "@/lib/support";
 
 /** Rodapé com os dados de quem vende e o atendimento (servidor). */
 export async function BusinessFooter() {
@@ -9,7 +10,7 @@ export async function BusinessFooter() {
     <footer className="border-t border-border px-4 py-6 text-center text-xs text-subtle">
       <p>
         Mix Pro · <Link href="/termos" className="hover:text-text">Termos</Link> ·{" "}
-        <Link href="/privacidade" className="hover:text-text">Privacidade</Link>
+        <Link href="/privacidade" className="hover:text-text">Privacidade</Link> · <Link href="/ajuda" className="hover:text-text">Ajuda</Link>
         {b.email && (
           <>
             {" · "}
@@ -22,7 +23,7 @@ export async function BusinessFooter() {
           <>
             {" · "}
             <a href={wa} target="_blank" rel="noopener noreferrer" className="hover:text-text">
-              WhatsApp
+              WhatsApp {SUPPORT_WHATSAPP_PRETTY}
             </a>
           </>
         )}

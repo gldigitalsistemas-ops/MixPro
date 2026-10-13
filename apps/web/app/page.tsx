@@ -8,6 +8,7 @@ import { Logo } from "@/components/ui/misc";
 import { DemoPlayer } from "@/components/landing/demo-player";
 import { ShowcaseStrip } from "@/components/premium/showcase";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { SUPPORT_WHATSAPP_PRETTY, supportUrl } from "@/lib/support";
 
 // página estática, refeita a cada hora (preços e dados da empresa vêm do admin)
 export const revalidate = 3600;
@@ -140,6 +141,7 @@ const FAQ: [string, string][] = [
   ["Quanto custa?", "Testar o Estúdio é grátis; cada download custa R$ 1 (ou menos nos planos). Os recursos de Produção têm um preço especial na primeira vez e desconto no Plano Pro."],
   ["Fica pronto para Spotify e YouTube?", "Sim: a entrega sai no volume do estilo (ou da plataforma) com teto de −1 dBTP, em WAV, MP3, M4A — e WAV 24 bits e FLAC no Plano Pro."],
   ["E se eu não gostar do resultado?", "Ajuste no mixer e mande de novo (revisões por 7 dias na Mix & Master IA), ou peça o toque final de um engenheiro."],
+  ["Como falo com vocês?", `Pelo WhatsApp ${SUPPORT_WHATSAPP_PRETTY}: tire dúvidas antes de pagar, peça ajuda com o envio ou diga o que não ficou como esperava. Respondemos pessoalmente.`],
 ];
 
 function PhoneMock() {
@@ -394,6 +396,9 @@ export default async function Landing() {
             </ButtonLink>
             <ButtonLink href="/producao" variant="secondary" size="lg">
               Ver a Produção
+            </ButtonLink>
+            <ButtonLink href={supportUrl("Olá! Vim pelo site do Mix Pro e tenho uma dúvida.")} variant="ghost" size="lg">
+              Tirar dúvidas no WhatsApp
             </ButtonLink>
           </div>
         </section>
