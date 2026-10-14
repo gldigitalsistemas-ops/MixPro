@@ -45,7 +45,7 @@ export function Price({ cat, id }: { cat: PremiumCatalog; id: PremiumId }) {
 
 const CARDS: { href: string; id?: PremiumId; icon: typeof Wand2; title: string; text: string; send: string; get: string }[] = [
   { href: "/mixar", id: "mix_ia", icon: Sliders, title: "Mix & Master IA", text: "Suas pistas mixadas e masterizadas como num estúdio, com mixer para ajustar.", send: "As pistas do projeto (WAV)", get: "Música pronta para o Spotify + pistas tratadas" },
-  { href: "/produzir", id: "producao", icon: Mic2, title: "Produza sua composição", text: "Da guia (voz e violão) à música produzida, com a sua voz afinada e mixada.", send: "A guia + uma referência", get: "3 versões da base, cifra, clique e a música final" },
+  { href: "/produzir", id: "producao", icon: Mic2, title: "Produza sua composição", text: "Da guia (voz e violão) à música produzida, com a sua voz afinada e mixada.", send: "A guia + uma referência", get: "3 instrumentais com voz guia, mapa da letra, clique e a música final" },
   { href: "/vs?premium=1", id: "vs_premium", icon: AudioLines, title: "VS Premium 7 faixas", text: "Separação de estúdio: voz, bateria, baixo, guitarra, violão, teclado e outros.", send: "Uma música", get: "7 faixas + clique, para tocar ao vivo" },
   { href: "/mixagem-profissional", icon: UserRound, title: "Mixagem por engenheiro", text: "Um engenheiro de áudio mixa a sua música à mão, com revisões.", send: "As pistas (pelo app)", get: "Mixagem humana com prazo e revisões" },
 ];

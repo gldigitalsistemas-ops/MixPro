@@ -18,10 +18,11 @@ import { Faq, ModuleExplainer } from "./explainer";
 import { GENRE_LABEL, ShowcaseStrip } from "./showcase";
 
 export const COMPOSE_FAQ = [
-  { q: "A IA copia a música de referência?", a: "Não. A referência só orienta o estilo e a sonoridade. A IA cria um arranjo novo a partir da SUA composição (melodia, acordes e andamento) — e o app confere que o resultado não ficou parecido demais com a referência." },
+  { q: "A IA copia a música de referência?", a: "Não. A referência nem vai para a IA: o app mede o som dela (bateria, baixo, brilho, groove, volume) e transforma em instruções de estilo. A IA cria um arranjo novo a partir da SUA composição (melodia, andamento e tom)." },
   { q: "O que eu envio?", a: "A sua composição gravada: só a voz, voz e violão, ou uma guia com banda. Pode ser gravada no celular. Até 6 minutos." },
-  { q: "Posso pedir outras versões?", a: "Você recebe 3 versões diferentes e escolhe a que mais gostar. Antes de pagar, ouve 30 segundos de cada." },
-  { q: "Como gravo a voz definitiva?", a: "Escolha a versão e grave aqui mesmo (com fone de ouvido) ou envie a gravação do estúdio. A IA afina pela melodia que você cantou na guia (sem soar robótica), trata, mixa e masteriza." },
+  { q: "Posso pedir outras versões?", a: "Você recebe 3 versões diferentes e escolhe a que mais gostar. Antes de pagar, ouve 30 segundos de cada (só o instrumental ou com a voz guia)." },
+  { q: "Por que vem uma voz de IA?", a: "A IA canta a sua melodia para mostrar onde entrar e como cantar em cima do arranjo novo: é a voz guia. Ela pode pronunciar mal, por isso você recebe o instrumental separado e o mapa com a SUA letra no tempo certo. A voz da música é a sua." },
+  { q: "Como gravo a voz definitiva?", a: "Escolha a versão e grave aqui mesmo com fone de ouvido: a letra aparece na tela no tempo da música, com contagem antes de começar e a voz guia (que você liga, desliga ou abaixa). Ou baixe o instrumental, o mapa e o clique e grave no estúdio. Depois a IA afina (sem soar robótica), trata, mixa e masteriza." },
   { q: "A música é minha?", a: "Sim. A composição e a voz são suas. O arranjo foi gerado com IA: ao distribuir, informe que houve uso de IA na produção (as distribuidoras pedem isso)." },
 ];
 
@@ -77,12 +78,12 @@ export function ComposeWizard() {
         tagline="Envie a sua música do jeito que ela está (voz, voz e violão ou uma guia) e uma referência de som. A IA cria a produção — você escolhe a versão, grava a voz e recebe a música pronta."
         forWho="Para compositores e cantores que querem tirar a música do papel de forma rápida, sem precisar de um estúdio para o arranjo."
         send={["A guia da sua música (voz, voz e violão ou banda), até 6 min", "Opcional: uma música de referência do som que você quer", "O estilo e, se quiser, uma descrição (ex.: “worship com piano e pads”)"]}
-        receive={["3 versões da base no seu andamento e tom", "Folha de cifra (tom, BPM e acordes) e clique", "Depois: a sua voz afinada, mixada e masterizada na base (Voz finalizada ou Pacote)"]}
-        time="A prévia das 3 versões sai em poucos minutos. A entrega completa, em até 15 minutos."
+        receive={["3 versões: o instrumental pronto para gravar + a voz guia da IA", "Mapa da música: a sua letra no tempo, partes, tom, BPM e acordes (PDF e .lrc) e o clique", "Depois: a sua voz afinada, mixada e masterizada (Voz finalizada ou Pacote)"]}
+        time="A prévia das 3 versões leva de 5 a 15 minutos (a IA cria as músicas inteiras). A entrega completa, em até 20 minutos."
         steps={[
           { title: "Envie a guia", text: "Grave no celular mesmo. Se tiver, envie uma referência." },
           { title: "Ouça 3 versões", text: "30 s de cada, grátis, já no seu andamento e tom." },
-          { title: "Escolha e grave", text: "Baixe a base, grave a voz (aqui ou no estúdio)." },
+          { title: "Escolha e grave", text: "Grave aqui com a letra na tela e a voz guia, ou no estúdio." },
           { title: "Receba pronta", text: "Voz afinada sem soar robótica, mixada e masterizada." },
         ]}
         faq={COMPOSE_FAQ}
@@ -149,13 +150,13 @@ export function ComposeWizard() {
           </label>
         </div>
         <label className="flex flex-col gap-1.5 text-sm">
-          Letra da música (opcional)
+          Letra da música (recomendado)
           <textarea
             value={lyrics}
             maxLength={2000}
             rows={5}
             onChange={(e) => setLyrics(e.target.value)}
-            placeholder={"Cole a letra: ela ajuda a IA a seguir as frases e sai impressa na folha da base."}
+            placeholder={"Cole a letra, uma linha por frase. Se deixar em branco, o app ouve a guia e escreve a letra (você confere e corrige depois)."}
             className="rounded-xl border border-border-strong bg-black/20 p-3 outline-none focus:border-violet-400"
           />
         </label>

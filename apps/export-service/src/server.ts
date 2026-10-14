@@ -29,6 +29,7 @@ import { runTool } from "./tools";
 import { SupabaseToolStore } from "./adapters/tool-store";
 import { musicAiFromEnv } from "./adapters/musicai";
 import { composerFromEnv } from "./adapters/composer";
+import { lyricsFromEnv } from "./adapters/lyrics";
 import { makeNotifier } from "./notify";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -97,7 +98,7 @@ function depsFromEnv(): ServiceDeps {
     assetStorageUrl: url,
     assetMemory: new Map(),
     limits: DEFAULT_LIMITS,
-    premium: { musicai: musicAiFromEnv(), composer: composerFromEnv() },
+    premium: { musicai: musicAiFromEnv(), composer: composerFromEnv(), lyrics: lyricsFromEnv() },
     notify:
       process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY && key
         ? makeNotifier({ supabaseUrl: process.env.SUPABASE_URL, anonKey: key, serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY, appUrl: process.env.APP_URL })

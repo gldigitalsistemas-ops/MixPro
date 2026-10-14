@@ -7,7 +7,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { decodeMedia } from "@/lib/export/ffmpeg-decode";
@@ -15,7 +15,8 @@ import { integratedLoudness } from "@/lib/dsp/loudness";
 import { LocalStorage } from "../src/adapters/storage";
 import { MemoryToolStore, type ToolRecord } from "../src/adapters/tool-store";
 import type { StemSeparator } from "../src/adapters/musicai";
-import type { Composer, ComposeRequest } from "../src/adapters/composer";
+import type { Composer, CoverRequest } from "../src/adapters/composer";
+import type { LyricsService } from "../src/adapters/lyrics";
 import { runTool, type ToolDeps } from "../src/tools";
 import { brightness, resolveBpm } from "../src/premium";
 import { DEFAULT_LIMITS } from "../src/pipeline";
@@ -39,7 +40,8 @@ let storage: UrlStorage;
 let store: MemoryToolStore;
 let deps: ToolDeps;
 const separations: number[] = [];
-const generations: ComposeRequest[] = [];
+const generations: CoverRequest[] = [];
+const transcriptions: string[] = [];
 
 function lavfi(args: string[], ext = "wav"): Uint8Array {
   const f = join(dir, `${randomUUID()}.${ext}`);
@@ -58,16 +60,30 @@ const fakeMusicAi: StemSeparator = {
   },
 };
 
-/** Gerador falso: grava a própria guia (mesmo andamento e harmonia) como "base" de cada versão. */
+/** Gerador falso: devolve a própria guia (mesmo andamento e harmonia) como a "música" de cada versão. */
 const fakeComposer: Composer = {
-  usdPerRun: 0.02,
-  async generate(req) {
+  usdPerRun: 0.15,
+  async cover(req) {
     generations.push(req);
-    const guideKey = req.guideUrl.replace("local://", "");
     const chunks: Buffer[] = [];
-    for await (const c of storage.read(guideKey)) chunks.push(c as Buffer);
-    const guide = Buffer.concat(chunks);
-    for (const u of req.outputUrls) await storage.put(u.replace("local://", ""), new Uint8Array(guide));
+    for await (const c of storage.read(req.audioUrl.replace("local://", ""))) chunks.push(c as Buffer);
+    return new Uint8Array(Buffer.concat(chunks));
+  },
+};
+
+/** Whisper falso: português, as duas linhas da letra com o tempo de cada palavra. */
+const fakeLyrics: LyricsService = {
+  async transcribe(url) {
+    transcriptions.push(url);
+    const words = (t: string, start: number) => t.split(" ").map((w, i) => ({ w, start: start + i * 0.4, end: start + i * 0.4 + 0.3 }));
+    return {
+      language: "pt",
+      probability: 0.97,
+      segments: [
+        { start: 1, end: 3, text: "Santo santo santo", words: words("Santo santo santo", 1) },
+        { start: 5, end: 7, text: "É o Senhor", words: words("É o Senhor", 5) },
+      ],
+    };
   },
 };
 
@@ -75,7 +91,7 @@ before(() => {
   dir = mkdtempSync(join(tmpdir(), "mixpro-premium-"));
   storage = new UrlStorage(join(dir, "armazenamento"));
   store = new MemoryToolStore();
-  deps = { storage, tools: store, ffmpeg: FFMPEG, ffprobe: FFPROBE, limits: { ...DEFAULT_LIMITS, maxAttempts: 1 }, premium: { musicai: fakeMusicAi, composer: fakeComposer } };
+  deps = { storage, tools: store, ffmpeg: FFMPEG, ffprobe: FFPROBE, limits: { ...DEFAULT_LIMITS, maxAttempts: 1 }, premium: { musicai: fakeMusicAi, composer: fakeComposer, lyrics: fakeLyrics } };
 });
 after(() => dir && rmSync(dir, { recursive: true, force: true }));
 
@@ -161,32 +177,45 @@ test("Mix & Master IA: entrega completa (master no alvo, pré-master, instrument
   assert.ok(m.decisoes[0].tune_cents > 0, "voz afinada");
 });
 
-test("Produção (prévia e final): 3 versões conferidas, folha de cifra, clique e melodia da guia", { skip }, async () => {
+test("Produção: a prévia gera e guarda as versões; a entrega usa as mesmas (sem gerar de novo): instrumental, mapa, letra e clique em BPM inteiro", { skip }, async () => {
   const { pid, keys } = await projectInputs([song()]);
   const base = { project_id: pid, format: "mp3", durations: [40], has_reference: false, genre: "worship", style: "Worship moderno", lyrics: LYRICS, bpm: null, key: null, versions: 3, seed: 7 };
   const prev = job("compose", { ...base, preview: true }, keys, 1);
   const rp = await runTool(prev, deps);
   assert.equal(rp.status, "done", JSON.stringify(rp));
   assert.equal(outs(prev).filter((x) => /^previa-versao-\d\.m4a$/.test(x.name)).length, 3);
-  assert.ok(generations[generations.length - 1].durationS <= 30.5, "a prévia gera só o trecho de 30 s, não a música inteira");
-  assert.ok(generations[0].outputUrls.length === 3 && generations[0].guideUrl.startsWith("local://out/"));
+  assert.equal(generations.length, 3, "3 versões geradas");
+  const prompt = generations[0].prompt;
+  assert.ok(prompt.length <= 300 && /Faithful cover/.test(prompt) && /Brazilian Portuguese/.test(prompt) && /BPM/.test(prompt), prompt);
+  assert.ok(generations[0].audioUrl.startsWith("local://out/") && generations[0].audioUrl.endsWith("/990.mp3"), "a guia vai ao gerador por URL temporária (MP3)");
+  assert.ok(existsSync(join(dir, "armazenamento", "cofre", "proj", pid, "gen", "meta.json")), "versões guardadas no Cofre do projeto");
+  const pm = store.jobs.get(prev)!.measures as { bpm: number; idioma: string; letra: string[] };
+  assert.ok(Number.isInteger(pm.bpm), `BPM inteiro: ${pm.bpm}`);
+  assert.equal(pm.idioma, "pt");
+  assert.deepEqual(pm.letra, ["Santo santo santo", "É o Senhor"]);
 
   const fin = job("compose", { ...base, preview: false }, keys);
   const r = await runTool(fin, deps);
   assert.equal(r.status, "done", JSON.stringify(r));
+  assert.equal(generations.length, 3, "a entrega não gera de novo: usa as versões que a pessoa ouviu");
   const names = outs(fin).map((x) => x.name);
-  for (const n of ["versao-1.mp3", "versao-2.mp3", "versao-3.mp3", "versao-1-folha.pdf", "producao-versoes.zip"]) assert.ok(names.includes(n), n);
-  assert.ok(names.some((n) => /^clique-\d+bpm\.wav$/.test(n)));
-  const pdf = readFileSync(join(dir, "armazenamento", outs(fin).find((x) => x.name === "versao-1-folha.pdf")!.key)).toString("latin1");
-  assert.ok(pdf.startsWith("%PDF") && /BPM/.test(pdf) && /Letra/.test(pdf) && /Santo santo santo/.test(pdf), "folha com a letra");
-  assert.equal(generations[generations.length - 1].lyrics, LYRICS, "a letra chegou ao gerador");
-  const m = store.jobs.get(fin)!.measures as { bpm: number; versoes: unknown[]; melodia: unknown[]; acordes_guia: string[] };
+  for (const n of ["versao-1-instrumental.mp3", "versao-2-instrumental.mp3", "versao-3-instrumental.mp3", "versao-1-mapa.pdf", "play-inst-1.m4a", "producao-versoes.zip"]) assert.ok(names.includes(n), n);
+  const clickName = names.find((n) => /^versao-1-clique-\d+bpm\.wav$/.test(n));
+  assert.ok(clickName, "clique com BPM inteiro no nome");
+  const pdf = readFileSync(join(dir, "armazenamento", outs(fin).find((x) => x.name === "versao-1-mapa.pdf")!.key)).toString("latin1");
+  assert.ok(pdf.startsWith("%PDF") && /BPM/.test(pdf) && /Santo santo santo/.test(pdf), "mapa com a letra");
+  const m = store.jobs.get(fin)!.measures as { bpm: number; versoes: { bpm: number; mapa: { t: number | null; linha: string }[] }[] };
   assert.equal(m.versoes.length, 3);
-  assert.ok(Math.abs(m.bpm - 120) < 3 || Math.abs(m.bpm - 60) < 2, `BPM ${m.bpm}`);
-  assert.ok(Array.isArray(m.melodia));
-  // arquivos temporários do gerador apagados
-  const tmpLeft = spawnSync("node", ["-e", `console.log(require('fs').readdirSync(${JSON.stringify(join(dir, "armazenamento", "out", fin))}).filter(f=>/^9\\d\\d\\.wav$/.test(f)).length)`]).stdout.toString().trim();
-  assert.equal(tmpLeft, "0");
+  for (const v of m.versoes) assert.ok(Number.isInteger(v.bpm), `BPM inteiro: ${v.bpm}`);
+  assert.ok(Math.abs(m.bpm - 120) <= 3 || Math.abs(m.bpm - 60) <= 2, `BPM ${m.bpm}`);
+  if (names.includes("versao-1-voz-guia.mp3")) {
+    // com o modelo de separação instalado: a voz guia é transcrita e a letra ganha os tempos
+    assert.ok(names.includes("versao-1-letra.lrc"));
+    assert.equal(m.versoes[0].mapa[0].t, 1);
+  }
+  // a guia temporária (MP3) foi apagada
+  const left = spawnSync("node", ["-e", `console.log(require('fs').readdirSync(${JSON.stringify(join(dir, "armazenamento", "out", prev))}).filter(f=>/^990\.mp3$/.test(f)).length)`]).stdout.toString().trim();
+  assert.equal(left, "0");
 });
 
 test("Voz finalizada: voz alinhada na base, afinada, mixada e masterizada", { skip }, async () => {
@@ -212,9 +241,9 @@ test("sem a Music.AI configurada: VS Premium fica indisponível (nada cobrado, n
 
 test("Produção: andamento da guia na oitava informada; base abafada é recusada", () => {
   // voz cantada a ~116 com "155" no nome do arquivo: vale o medido
-  assert.equal(resolveBpm(155, { bpm: 115.4, confidence: 0.5 }), 115.4);
+  assert.equal(resolveBpm(155, { bpm: 115.4, confidence: 0.5 }), 115);
   assert.equal(resolveBpm(60, { bpm: 115.4, confidence: 0.5 }), 60);
-  assert.equal(resolveBpm(null, { bpm: 115.4, confidence: 0.5 }), 115.4);
+  assert.equal(resolveBpm(null, { bpm: 115.4, confidence: 0.5 }), 115);
   assert.equal(resolveBpm(150, { bpm: 90, confidence: 0.1 }), 150);
   const sr = 44100;
   const dark = new Float32Array(sr * 4).map((_, i) => 0.3 * Math.sin((2 * Math.PI * 80 * i) / sr));

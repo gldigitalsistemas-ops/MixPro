@@ -42,7 +42,7 @@ export type ServiceDeps = {
   /** Jobs das ferramentas (rota /tool); ausente = a rota responde 404. */
   tools?: import("./adapters/tool-store").ToolStore;
   /** Recursos premium (separação externa e gerador de bases). */
-  premium?: { musicai?: import("./adapters/musicai").StemSeparator | null; composer?: import("./adapters/composer").Composer | null };
+  premium?: { musicai?: import("./adapters/musicai").StemSeparator | null; composer?: import("./adapters/composer").Composer | null; lyrics?: import("./adapters/lyrics").LyricsService | null };
   notify?: (jobId: string) => Promise<void>;
 };
 

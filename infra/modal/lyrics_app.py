@@ -49,8 +49,19 @@ class Lyrics:
             beam_size=5,
             condition_on_previous_text=False,
             no_speech_threshold=0.9,
+            # tempo de cada palavra: é o que posiciona as linhas da letra no mapa da música
+            word_timestamps=True,
         )
-        out = [{"start": round(s.start, 2), "end": round(s.end, 2), "text": s.text.strip()} for s in segs if s.text.strip()]
+        out = [
+            {
+                "start": round(s.start, 2),
+                "end": round(s.end, 2),
+                "text": s.text.strip(),
+                "words": [{"w": w.word.strip(), "start": round(w.start, 2), "end": round(w.end, 2)} for w in (s.words or []) if w.word.strip()],
+            }
+            for s in segs
+            if s.text.strip()
+        ]
         return {"language": info.language, "probability": round(info.language_probability, 3), "segments": out}
 
     @modal.method()

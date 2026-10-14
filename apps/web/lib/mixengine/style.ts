@@ -198,6 +198,44 @@ export function styleDescriptors(p: StyleProfile): string[] {
   return d;
 }
 
+/** Descrição curta de cada estilo do app (inglês: é como o gerador entende melhor). */
+export const GENRE_STYLE: Record<string, string> = {
+  worship: "modern worship, atmospheric pads, ambient delay guitars, warm bass, live drums, emotional build-ups",
+  gospel: "brazilian gospel, piano and organ, live drums, groovy bass, uplifting",
+  sertanejo: "brazilian sertanejo, steel-string acoustic guitar, accordion, bass, pop drums",
+  pagode: "brazilian pagode samba, cavaquinho, pandeiro, surdo, banjo, warm bass",
+  funk: "brazilian funk carioca, heavy 808 bass, tamborzao beat, punchy",
+  pop: "modern pop production, punchy drums, synths and guitars, polished",
+  pop_us: "modern american pop, punchy drums, bright synths, radio polish",
+  rock: "rock band, distorted electric guitars, live drums, bass guitar, energetic",
+  trap: "trap beat, 808 bass, crisp hi-hats, dark pads",
+  acoustic: "acoustic arrangement, acoustic guitar, piano, light percussion, intimate",
+  edm: "edm, big synths, four on the floor, risers and drops",
+  lofi: "lofi hip hop, warm keys, dusty drums, vinyl texture",
+  mpb: "mpb, brazilian popular music, nylon guitar, piano, soft percussion",
+};
+
+const KEY_NAMES: Record<string, number> = { C: 0, "C#": 1, DB: 1, D: 2, "D#": 3, EB: 3, E: 4, F: 5, "F#": 6, GB: 6, G: 7, "G#": 8, AB: 8, A: 9, "A#": 10, BB: 10, B: 11 };
+
+/** "Bb maior", "F# menor" (o campo do formulário) → tônica e modo. */
+export function parseKeyLabel(label: string | null | undefined): { tonic: number; mode: "major" | "minor" } | null {
+  const m = /^([A-G])(#|b)?\s+(maior|menor)$/i.exec((label ?? "").trim());
+  if (!m) return null;
+  const tonic = KEY_NAMES[(m[1] + (m[2] ?? "")).toUpperCase()];
+  return tonic === undefined ? null : { tonic, mode: m[3].toLowerCase() === "menor" ? "minor" : "major" };
+}
+
+const PT_NOTES = ["Dó", "Dó#", "Ré", "Mib", "Mi", "Fá", "Fá#", "Sol", "Láb", "Lá", "Sib", "Si"];
+/** Tom em português para telas e folhas ("Sol menor"). */
+export const keyPt = (k: { tonic: number; mode: "major" | "minor" }) => `${PT_NOTES[k.tonic]} ${k.mode === "major" ? "maior" : "menor"}`;
+
+/** Mesmo tom ou o relativo (Sol menor × Sib maior): a pessoa canta na mesma região. */
+export function sameKeyFamily(a: { tonic: number; mode: "major" | "minor" }, b: { tonic: number; mode: "major" | "minor" }): boolean {
+  if (a.tonic === b.tonic && a.mode === b.mode) return true;
+  const rel = (k: { tonic: number; mode: "major" | "minor" }) => (k.mode === "minor" ? (k.tonic + 3) % 12 : k.tonic);
+  return a.mode !== b.mode && rel(a) === rel(b);
+}
+
 const LANGUAGES: Record<string, string> = {
   pt: "Brazilian Portuguese",
   es: "Spanish",

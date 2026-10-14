@@ -258,7 +258,8 @@ export async function startFinal(d: PremiumDeps, userId: string, projectId: stri
 export async function revise(d: PremiumDeps, userId: string, projectId: string, params: unknown): Promise<Ok<{ jobId: string }> | Fail> {
   const p = await owned(d, userId, projectId);
   if (isFail(p)) return p;
-  if (p.product !== "mix_ia" && p.product !== "voz_final") return fail("INVALID_JOB");
+  // na Produção, a revisão refaz só a entrega (mapa com a letra corrigida) a partir das versões guardadas: sem gerar de novo
+  if (p.product !== "mix_ia" && p.product !== "voz_final" && p.product !== "producao") return fail("INVALID_JOB");
   const order = await unlocked(d, p);
   if (!order) return fail("PAYMENT_REQUIRED", "Finalize o pagamento para liberar as revisões.");
   const cat = await d.catalog();

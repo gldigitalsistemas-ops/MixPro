@@ -21,7 +21,14 @@ const format = z.enum(TOOL_FORMATS);
 
 export const toolParamsSchemas = {
   pitch_tempo: z
-    .object({ semitones: z.number().int().min(-12).max(12), tempo: z.number().min(0.5).max(1.5), format, durations: z.array(duration).length(1) })
+    .object({
+      semitones: z.number().int().min(-12).max(12),
+      tempo: z.number().min(0.5).max(1.5),
+      /** Andamento final escolhido (inteiro) quando o original foi medido: a tela ajusta o tempo para cair nele. */
+      target_bpm: z.number().int().min(20).max(400).optional(),
+      format,
+      durations: z.array(duration).length(1),
+    })
     .strict()
     .refine((p) => p.semitones !== 0 || Math.abs(p.tempo - 1) > 1e-3, "INVALID_JOB"),
   voice_playback: z

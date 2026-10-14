@@ -2,7 +2,7 @@
  * Recursos premium no serviço (chamados pelo runTool):
  *   stems_premium  VS Premium 7 faixas (Music.AI) + "outros" = música − soma das 6 faixas
  *   mix_ia         Mix & Master IA (motor de mixagem; referência separada com o HT-Demucs local)
- *   compose        Produção da composição (gerador em GPU) com controle de qualidade e folha de cifra
+ *   compose        Produção da composição (MiniMax Music Cover): instrumental, voz guia, mapa da letra e clique
  *   voice_final    Voz finalizada: voz gravada + base escolhida → afinação, mix e master
  *
  * Prévia (preview=true): só um trecho de 30 s é processado (custo mínimo) e só arquivos curtos saem.
@@ -21,15 +21,18 @@ import type { Signal } from "@/lib/dsp/types";
 import { decodeMedia, type DecodedMedia } from "@/lib/export/ffmpeg-decode";
 import { encodeWithFfmpeg } from "@/lib/export/ffmpeg-encode";
 import { fft } from "@/lib/dsp/convolve";
-import { chordAgreement, chordPt, detectChords, progression } from "@/lib/mixengine/chords";
+import { detectChords } from "@/lib/mixengine/chords";
 import { CLIP_SECONDS, cut, loudestWindow, matchLoudness, roughMix } from "@/lib/mixengine/clips";
 import { mixSession, type EngineTrack, type ReferenceStems } from "@/lib/mixengine/engine";
-import { scaleOf, segmentNotes, trackPitch } from "@/lib/mixengine/pitch";
+import { scaleOf } from "@/lib/mixengine/pitch";
+import { alignLyrics, cleanTranscript, linesFromTranscript, lyricLines, partsOf, toLrc, type MapLine } from "@/lib/mixengine/lyrics";
+import { analyzeStyle, coverPrompt, GENRE_STYLE, keyPt, parseKeyLabel, sameKeyFamily, voiceOf, type StemSet, type StyleProfile } from "@/lib/mixengine/style";
 import { PdfDoc } from "@/lib/report/pdf";
 import { detectBpm, detectKey } from "@/lib/tools/analysis";
 import { alignOffset, toRate } from "@/lib/tools/mixing";
 import { clickTrack, trackBeats } from "@/lib/vs/tempo";
 import type { Composer } from "./adapters/composer";
+import type { LyricsService } from "./adapters/lyrics";
 import { stemOf, type StemSeparator } from "./adapters/musicai";
 import { JobError } from "./errors";
 import { separateStems, StemsUnavailable } from "./stems";
@@ -42,6 +45,7 @@ export type PremiumCtx = {
   timeoutS: number;
   musicai?: StemSeparator | null;
   composer?: Composer | null;
+  lyrics?: LyricsService | null;
   /** URLs temporárias do nosso armazenamento (o gerador lê a guia e grava as versões). */
   presign?: (method: "GET" | "PUT", key: string, ttlS: number) => string;
   /** Lê um objeto (versões gravadas pelo gerador). */
@@ -232,73 +236,41 @@ async function mixIa(p: Record<string, unknown>, media: DecodedMedia[], ctx: Pre
 }
 
 // ------------------------------------------------------------------ Produção da composição
+//
+// Gerador: MiniMax Music Cover (pela WaveSpeed). Ele recebe a guia e o prompt montado pela análise (idioma e voz
+// da guia, tom, andamento, estilo escolhido e o retrato sonoro da referência) e devolve a música completa com uma
+// voz de IA. A voz da IA pronuncia mal, então o app a separa: o instrumental é a entrega e a voz vira a "voz guia"
+// (onde e como cantar), com o mapa da letra CERTA (a da pessoa) posicionado nos tempos em que a IA canta.
+//
+// A prévia já gera as versões completas e as guarda no Cofre do projeto; a entrega paga parte delas (sem gerar
+// de novo). Só o que dá para medir com segurança decide quais versões ficam: andamento, tom e agudos (a melodia
+// separada de uma mixagem cheia tem ruído demais para ser julgada automaticamente: quem escolhe é o ouvido).
 
-/** Melodia da voz da guia em notas (MIDI, início, fim) para a afinação guiada na voz final. */
-function melodyOf(voice: Signal, sr: number): [number, number, number][] {
-  return segmentNotes(trackPitch(voice, sr))
-    .slice(0, 4000)
-    .map((n) => [Math.round(n.midi), Math.round(n.start * 100) / 100, Math.round(n.end * 100) / 100] as [number, number, number]);
-}
+const GEN = (pid: string, name: string) => `cofre/proj/${pid}/gen/${name}`;
 
-/** Folha da base: tom, BPM e a progressão de acordes por trecho (PDF de uma página ou mais). */
-function chordSheet(title: string, bpm: number, keyLabel: string | null, segs: ReturnType<typeof detectChords>, lyrics = ""): Uint8Array {
-  const pdf = new PdfDoc();
-  pdf.rect(0, 0, pdf.width, 80, [109, 40, 217]);
-  pdf.text(48, 40, "Mix Pro — Folha da base", { size: 18, bold: true, color: [255, 255, 255] });
-  pdf.text(48, 62, title, { size: 11, color: [235, 225, 255] });
-  let y = 112;
-  pdf.text(48, y, `Tom: ${keyLabel ?? "—"}    Andamento: ${Math.round(bpm)} BPM`, { size: 12, bold: true });
-  y += 28;
-  pdf.text(48, y, "Acordes (minuto:segundo)", { size: 11, bold: true, color: [109, 40, 217] });
-  y += 20;
-  const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
-  let x = 48;
-  for (const s of segs) {
-    if (s.chord === "N" || s.end - s.start < 0.75) continue;
-    const label = `${mmss(s.start)}  ${s.chord}`;
-    pdf.text(x, y, label, { size: 10 });
-    x += 105;
-    if (x > pdf.width - 110) {
-      x = 48;
-      y += 16;
-      if (y > pdf.height - 60) {
-        pdf.addPage();
-        y = 60;
-      }
-    }
-  }
-  y += 30;
-  pdf.text(48, Math.min(y, pdf.height - 50), `Progressão: ${progression(segs).slice(0, 16).map(chordPt).join(" → ")}`, { size: 9, color: [110, 110, 125] });
-  if (lyrics.trim()) {
-    y = Math.min(y, pdf.height - 50) + 28;
-    pdf.text(48, y, "Letra", { size: 11, bold: true, color: [109, 40, 217] });
-    y += 18;
-    for (const raw of lyrics.split("\n")) {
-      for (const line of raw.trim() ? pdf.wrap(raw, 10, pdf.width - 96) : [""]) {
-        if (y > pdf.height - 60) {
-          pdf.addPage();
-          y = 60;
-        }
-        if (line) pdf.text(48, y, line, { size: 10 });
-        y += 14;
-      }
-    }
-  }
-  pdf.text(48, pdf.height - 30, "Acordes detectados automaticamente na base gerada; confira de ouvido antes de tocar.", { size: 8, color: [110, 110, 125] });
-  return pdf.bytes();
-}
+type Key = { tonic: number; mode: "major" | "minor" };
+type GenMeta = {
+  v: 1;
+  bpm: number;
+  key: Key | null;
+  language: string;
+  lyrics: string[];
+  prompt: string;
+  runs: number;
+  versions: { file: string; bpm: number; key: Key | null }[];
+};
 
 /**
  * Andamento usado na geração: o medido na guia, na oitava mais próxima do que a pessoa informou.
  * O gerador segue a gravação de qualquer jeito; mandar um BPM que contradiz a guia (ex.: 155 numa voz cantada a 116)
- * só piora o resultado. Se a medição falhar, vale o informado.
+ * só piora o resultado. Se a medição falhar, vale o informado. Sempre inteiro.
  */
 export function resolveBpm(informed: number | null, measured: { bpm: number; confidence: number } | null): number {
-  if (!measured || measured.confidence < 0.3) return informed ?? measured?.bpm ?? 90;
-  if (!informed) return measured.bpm;
+  if (!measured || measured.confidence < 0.3) return Math.round(informed ?? measured?.bpm ?? 90);
+  if (!informed) return Math.round(measured.bpm);
   const options = [0.5, 1, 2].map((m) => measured.bpm * m);
   const best = options.reduce((a, b) => (Math.abs(b / informed - 1) < Math.abs(a / informed - 1) ? b : a));
-  return Math.abs(best / informed - 1) < 0.06 ? informed : best;
+  return Math.round(Math.abs(best / informed - 1) < 0.06 ? informed : best);
 }
 
 /** Frequência abaixo da qual fica 99,5% da energia (média de trechos de ~93 ms): mede se a base tem agudos. */
@@ -330,12 +302,17 @@ export function brightness(x: Signal, sr: number): number {
   return sr / 2;
 }
 
-/** Tira a voz com o HT-Demucs (bateria + baixo + resto); sem o modelo, devolve como veio. */
-async function instrumental(x: Signal, sr: number): Promise<Signal> {
+/** O andamento da versão bate com o da guia (o detector às vezes lê metade, dobro ou 3/4). */
+export function tempoMatches(measured: number, target: number): boolean {
+  return measured > 0 && [0.5, 0.75, 1, 4 / 3, 2].some((m) => Math.abs(measured / target / m - 1) < 0.04);
+}
+
+/** Separa a voz (HT-Demucs): instrumental = bateria + baixo + resto. Sem o modelo, devolve tudo como instrumental. */
+async function splitVoice(x: Signal, sr: number, onProgress?: (v: number) => void): Promise<{ inst: Signal; voice: Signal | null }> {
   try {
-    const s = await separateStems(x, sr);
+    const s = await separateStems(x, sr, onProgress);
     const n = x[0].length;
-    return [0, 1].map((ch) => {
+    const inst = [0, 1].map((ch) => {
       const o = new Float32Array(n);
       for (const k of ["drums", "bass", "other"] as const) {
         const c = s[k][ch] ?? s[k][0];
@@ -343,140 +320,283 @@ async function instrumental(x: Signal, sr: number): Promise<Signal> {
       }
       return o;
     }) as Signal;
+    return { inst, voice: toStereo(s.vocals) };
   } catch (e) {
-    if (e instanceof StemsUnavailable) return x;
+    if (e instanceof StemsUnavailable) return { inst: x, voice: null };
     throw e;
   }
 }
 
-async function compose(p: Record<string, unknown>, media: DecodedMedia[], ctx: PremiumCtx, onProgress: (v: number) => void): Promise<PremiumResult> {
-  if (!ctx.composer || !ctx.presign || !ctx.readKey || !ctx.putKey) throw new JobError("TOOL_UNAVAILABLE");
-  const guideFull = media[0];
-  const sr = guideFull.sampleRate;
-  const preview = p.preview === true;
-  // prévia: só o trecho mais forte de 30 s (separar a voz com IA e gerar a música inteira não cabe numa prévia)
-  const guideCh: Signal = preview ? sliceAll([guideFull.channels], previewWindow(guideFull.channels, sr), CLIP_SECONDS, sr)[0] : guideFull.channels;
-  const guide = { channels: guideCh, sampleRate: sr, duration: guideCh[0].length / sr };
-  // voz da guia (separada quando a guia tem instrumentos) e harmonia (a parte instrumental)
+const monoOf = (x: Signal) => {
+  const m = new Float32Array(x[0].length);
+  for (const c of x) for (let i = 0; i < m.length; i++) m[i] += c[i] / x.length;
+  return m;
+};
+
+/** Instrumental + voz guia baixa (−12 dB), como o cantor ouve no fone. */
+const withGuide = (inst: Signal, voice: Signal | null, db = -12): Signal => {
+  if (!voice) return inst;
+  const g = 10 ** (db / 20);
+  return inst.map((c, ch) => {
+    const v = voice[ch] ?? voice[0];
+    const o = new Float32Array(c.length);
+    for (let i = 0; i < c.length; i++) o[i] = c[i] + g * (v[i] ?? 0);
+    return o;
+  }) as Signal;
+};
+
+const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+
+/** Mapa da música (PDF): tom, BPM, cada linha da letra com o tempo e a parte, e os acordes. */
+function mapSheet(title: string, bpm: number, keyLabel: string | null, map: MapLine[], segs: ReturnType<typeof detectChords>): Uint8Array {
+  const pdf = new PdfDoc();
+  pdf.rect(0, 0, pdf.width, 80, [109, 40, 217]);
+  pdf.text(48, 40, "Mix Pro — Mapa da música", { size: 18, bold: true, color: [255, 255, 255] });
+  pdf.text(48, 62, title, { size: 11, color: [235, 225, 255] });
+  let y = 112;
+  pdf.text(48, y, `Tom: ${keyLabel ?? "—"}    Andamento: ${Math.round(bpm)} BPM`, { size: 12, bold: true });
+  y += 26;
+  const put = (text: string, opts: { size: number; bold?: boolean; color?: [number, number, number] }, x = 48) => {
+    if (y > pdf.height - 60) {
+      pdf.addPage();
+      y = 60;
+    }
+    pdf.text(x, y, text, opts);
+  };
+  if (map.length) {
+    put("Letra no tempo (minuto:segundo)", { size: 11, bold: true, color: [109, 40, 217] });
+    y += 20;
+    let part = "";
+    for (const l of map) {
+      if (l.part !== part) {
+        part = l.part;
+        y += 4;
+        put(part.toUpperCase(), { size: 8, bold: true, color: [140, 120, 190] });
+        y += 13;
+      }
+      put(l.start === null ? "—" : mmss(l.start), { size: 10, bold: true, color: [109, 40, 217] });
+      for (const w of pdf.wrap(l.line, 10, pdf.width - 150)) {
+        put(w, { size: 10 }, 100);
+        y += 14;
+      }
+    }
+    y += 16;
+  }
+  put("Acordes (minuto:segundo)", { size: 11, bold: true, color: [109, 40, 217] });
+  y += 20;
+  let x = 48;
+  for (const s of segs) {
+    if (s.chord === "N" || s.end - s.start < 0.75) continue;
+    put(`${mmss(s.start)}  ${s.chord}`, { size: 10 }, x);
+    x += 105;
+    if (x > pdf.width - 110) {
+      x = 48;
+      y += 16;
+    }
+  }
+  pdf.text(48, pdf.height - 30, "Tempos e acordes detectados automaticamente; confira de ouvido. A voz guia mostra onde e como cantar.", { size: 8, color: [110, 110, 125] });
+  return pdf.bytes();
+}
+
+/** Gera as versões (prévia, ou entrega sem prévia guardada) e guarda no Cofre do projeto. */
+async function generateVersions(p: Record<string, unknown>, media: DecodedMedia[], ctx: PremiumCtx, pid: string, onProgress: (v: number) => void): Promise<{ meta: GenMeta; audios: Signal[] }> {
+  const composer = ctx.composer!;
+  const guide = media[0];
+  const sr = guide.sampleRate;
+  // guia: voz (registro) e harmonia (tom)
   let voice = guide.channels;
   let harmony = guide.channels;
   try {
-    const s = await separateStems(guide.channels, sr, (v) => onProgress(0.15 * v));
+    const s = await separateStems(guide.channels, sr, (v) => onProgress(0.2 * v));
     voice = s.vocals;
     harmony = s.other;
   } catch (e) {
     if (!(e instanceof StemsUnavailable)) throw e;
   }
   const bpm = resolveBpm(p.bpm as number | null, detectBpm(guide.channels, sr));
-  const key = detectKey(harmony, sr);
-  const keyLabel = (p.key as string | null) ?? key?.label ?? null;
-  const guideChords = detectChords(harmony, sr);
-  // a melodia só serve à Voz finalizada, que parte da entrega completa
-  const melody = preview ? [] : melodyOf(voice, sr);
-  onProgress(0.2);
+  const detected = detectKey(harmony, sr);
+  const key: Key | null = parseKeyLabel(p.key as string | null) ?? (detected ? { tonic: detected.tonic, mode: detected.mode } : null);
+  const register = voiceOf(voice, sr)?.register ?? null;
+  onProgress(0.22);
 
-  // a guia inteira (voz + violão/teclado) vai para o gerador por URL temporária (WAV 44,1 kHz): a harmonia tocada
-  // orienta o arranjo muito melhor do que a voz isolada; as versões voltam do mesmo jeito
-  const tmp = (i: number) => `out/${ctx.jobId}/${900 + i}.wav`;
-  await ctx.putKey(tmp(0), await encodeWithFfmpeg(ctx.ffmpeg, guide.channels, sr, "wav", ctx.timeoutS));
-  let refKey: string | null = null;
-  if (p.has_reference === true && media[1]) {
-    refKey = tmp(1);
-    const r = media[1];
-    const clip = sliceAll([r.channels], loudestWindow(r.channels, r.sampleRate, 60), 60, r.sampleRate)[0];
-    await ctx.putKey(refKey, await encodeWithFfmpeg(ctx.ffmpeg, clip, r.sampleRate, "wav", ctx.timeoutS));
-  }
-  const versions = Math.max(1, Math.min(5, Number(p.versions ?? 3)));
-  const seed0 = Number(p.seed ?? 1);
-  const durationS = guide.duration;
-  let runs = 0;
-  const tempoRefs = [bpm, detectBpm(guide.channels, sr)?.bpm].filter((v): v is number => typeof v === "number" && v > 0);
-  const accepted: { audio: Signal; score: number; bpm: number; chords: number; seed: number }[] = [];
-  // gera, confere e refaz o que não passar (até 2 rodadas extras); fica com as melhores
-  for (let round = 0; round < 3 && accepted.length < versions; round++) {
-    const need = versions - accepted.length + (round === 0 ? 0 : 1);
-    const seeds = Array.from({ length: need }, (_, i) => seed0 + round * 100 + i);
-    const keys = seeds.map((_, i) => tmp(10 + round * 10 + i));
+  // a guia inteira (voz + instrumento) vai ao gerador e ao Whisper por URL temporária (MP3)
+  const gKey = `out/${ctx.jobId}/990.mp3`;
+  await ctx.putKey!(gKey, await encodeWithFfmpeg(ctx.ffmpeg, guide.channels, sr, "mp3", ctx.timeoutS));
+  const gUrl = ctx.presign!("GET", gKey, 7200);
+  let language = "pt";
+  let lyrics = lyricLines(String(p.lyrics ?? ""));
+  if (ctx.lyrics) {
     try {
-      await ctx.composer.generate({
-        guideUrl: ctx.presign("GET", tmp(0), 3600),
-        referenceUrl: refKey ? ctx.presign("GET", refKey, 3600) : null,
-        outputUrls: keys.map((k) => ctx.presign!("PUT", k, 3600)),
-        seeds,
-        genre: asGenre(p.genre),
-        style: String(p.style ?? ""),
-        lyrics: String(p.lyrics ?? ""),
-        bpm,
-        key: keyLabel,
-        durationS,
-      });
+      const t = await ctx.lyrics.transcribe(gUrl, null);
+      if (t.probability >= 0.5 && /^[a-z]{2}$/.test(t.language)) language = t.language;
+      if (!lyrics.length) lyrics = linesFromTranscript(t.segments);
     } catch {
-      throw new JobError("EXTERNAL_FAILED");
+      // sem a transcrição: português e só a letra que a pessoa escreveu
     }
-    runs += seeds.length;
-    for (const [i, k] of keys.entries()) {
+  }
+  onProgress(0.3);
+
+  // referência: o retrato sonoro vira texto (ela nunca vai ao gerador)
+  let reference: StyleProfile | null = null;
+  if (p.has_reference === true && media[1]) {
+    const r = media[1];
+    const clip = r.channels[0].length > 90 * r.sampleRate ? sliceAll([r.channels], loudestWindow(r.channels, r.sampleRate, 90), 90, r.sampleRate)[0] : r.channels;
+    let stems: StemSet | null = null;
+    try {
+      stems = await separateStems(clip, r.sampleRate);
+    } catch (e) {
+      if (!(e instanceof StemsUnavailable)) throw e;
+    }
+    reference = analyzeStyle(clip, r.sampleRate, stems);
+  }
+  onProgress(0.36);
+
+  const prompt = coverPrompt({ genre: GENRE_STYLE[asGenre(p.genre)] ?? GENRE_STYLE.pop, userStyle: String(p.style ?? ""), language, register, bpm, key, reference });
+  const want = Math.max(1, Math.min(5, Number(p.versions ?? 3)));
+  const accepted: { file: string; bpm: number; key: Key | null; audio: Signal }[] = [];
+  const spare: typeof accepted = [];
+  let runs = 0;
+  let saved = 0;
+  // gera em paralelo; o que vier abafado, fora do andamento ou em outro tom é refeito (até 2 rodadas extras)
+  for (let round = 0; round < 3 && accepted.length < want; round++) {
+    const need = want - accepted.length;
+    const results = await Promise.allSettled(Array.from({ length: need }, () => composer.cover({ audioUrl: gUrl, prompt })));
+    runs += need;
+    for (const r of results) {
+      if (r.status !== "fulfilled") continue;
       let audio: Signal;
       try {
-        audio = fit(toStereo(await decodeBytes(ctx, await ctx.readKey(k), sr)), guide.channels[0].length);
+        audio = toStereo(await decodeBytes(ctx, r.value, sr));
       } catch {
         continue;
       }
-      // a base é instrumental: tira a voz que o gerador devolve (a da guia ou uma voz sintética)
-      audio = await instrumental(audio, sr);
-      // base abafada (sem agudos) não serve: o gerador já devolveu base com tudo abaixo de 2 kHz
       if (brightness(audio, sr) < 4000) continue;
-      // controle de qualidade: andamento, harmonia e não parecer cópia da referência
       const gb = detectBpm(audio, sr)?.bpm ?? 0;
-      // o detector lê 155 BPM como ~116 (3/4) tanto na guia quanto na base: compara com o andamento pedido e com a leitura da guia
-      const tempoOk = tempoRefs.some((r) => [0.5, 0.75, 1, 4 / 3, 2].some((m) => Math.abs(gb / r / m - 1) < 0.04));
-      const agree = chordAgreement(guideChords, detectChords(audio, sr));
-      let copy = false;
-      if (refKey && media[1]) copy = chordAgreement(detectChords(media[1].channels, media[1].sampleRate), detectChords(audio, sr)) > 0.85;
-      const score = (tempoOk ? 0.5 : 0) + agree * 0.5;
-      // só passa quem está no andamento certo: uma base fora do tempo da guia não serve para gravar a voz
-      if (!copy && tempoOk && (score >= 0.6 || round === 2)) accepted.push({ audio, score, bpm: gb, chords: Math.round(agree * 100) / 100, seed: seeds[i] });
+      if (!tempoMatches(gb, bpm)) continue;
+      const gk = detectKey(audio, sr);
+      const vKey: Key | null = gk ? { tonic: gk.tonic, mode: gk.mode } : null;
+      const file = `${saved++}.mp3`;
+      await ctx.putKey!(GEN(pid, file), r.value);
+      const item = { file, bpm: Math.round(gb), key: vKey, audio };
+      if (key && vKey && !sameKeyFamily(key, vKey)) spare.push(item);
+      else accepted.push(item);
     }
-    onProgress(0.2 + 0.5 * ((round + 1) / 3));
+    onProgress(0.36 + 0.34 * ((round + 1) / 3));
   }
+  // em outro tom é melhor do que nada (o cantor ainda escolhe de ouvido), mas só para completar
+  while (accepted.length < want && spare.length) accepted.push(spare.shift()!);
+  await ctx.putKey!(gKey, new Uint8Array(0)).catch(() => {});
   if (!accepted.length) throw new JobError("EXTERNAL_FAILED");
-  accepted.sort((a, b) => b.score - a.score);
-  const chosen = accepted.slice(0, versions);
-  const fmt = (p.format as OutFile["format"]) ?? "wav";
-  const files: OutFile[] = [];
-  const title = "Sua composição";
-  chosen.forEach((v, i) => {
-    const out = finalizeForSocial(v.audio.map((c) => c.slice()) as Signal, sr, -14, -1);
-    if (preview) {
-      const s = loudestWindow(out, sr, CLIP_SECONDS);
-      files.push({ name: `previa-versao-${i + 1}.m4a`, channels: cut(out, sr, s, CLIP_SECONDS), sampleRate: sr, format: "m4a" });
-    } else {
-      files.push({ name: `versao-${i + 1}.${EXT[fmt]}`, channels: out, sampleRate: sr, format: fmt, zip: true });
-      files.push({ name: `versao-${i + 1}-folha.pdf`, bytes: chordSheet(`${title} — versão ${i + 1}`, bpm, keyLabel, detectChords(out, sr), String(p.lyrics ?? "")), ext: "pdf", zip: true });
-    }
-  });
-  if (!preview) {
-    // clique no andamento da guia (para gravar a voz em cima)
-    const mono = new Float32Array(guide.channels[0].length);
-    for (const c of chosen[0].audio) for (let i = 0; i < mono.length; i++) mono[i] += c[i] / 2;
-    const beats = trackBeats(mono, sr);
-    const click = clickTrack(beats, mono.length, sr);
-    const cl = new Float32Array(click.length);
-    for (let i = 0; i < cl.length; i++) cl[i] = click[i] / 32768;
-    files.push({ name: `clique-${Math.round(beats.bpm)}bpm.wav`, channels: [cl] as Signal, sampleRate: sr, format: "wav", zip: true });
+  const meta: GenMeta = { v: 1, bpm, key, language, lyrics, prompt, runs, versions: accepted.map(({ file, bpm: b, key: k }) => ({ file, bpm: b, key: k })) };
+  await ctx.putKey!(GEN(pid, "meta.json"), new TextEncoder().encode(JSON.stringify(meta)));
+  return { meta, audios: accepted.map((a) => a.audio) };
+}
+
+async function readMeta(ctx: PremiumCtx, pid: string): Promise<GenMeta | null> {
+  try {
+    const m = JSON.parse(new TextDecoder().decode(await ctx.readKey!(GEN(pid, "meta.json")))) as GenMeta;
+    return m?.v === 1 && Array.isArray(m.versions) && m.versions.length ? m : null;
+  } catch {
+    return null;
   }
-  files.push(...clips(guide.channels, chosen[0].audio, sr));
-  for (let i = 0; i < 40; i++) await ctx.putKey(tmp(i), new Uint8Array(0)).catch(() => {});
+}
+
+async function compose(p: Record<string, unknown>, media: DecodedMedia[], ctx: PremiumCtx, onProgress: (v: number) => void): Promise<PremiumResult> {
+  if (!ctx.composer || !ctx.presign || !ctx.readKey || !ctx.putKey) throw new JobError("TOOL_UNAVAILABLE");
+  const pid = String(p.project_id ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(pid)) throw new JobError("INVALID_JOB");
+  const guide = media[0];
+  const sr = guide.sampleRate;
+  const preview = p.preview === true;
+  // a entrega parte das versões que a prévia guardou (a pessoa pagou pelo que ouviu); sem elas, gera agora
+  let meta = preview ? null : await readMeta(ctx, pid);
+  let audios: Signal[] | null = null;
+  let runs = 0;
+  if (!meta) {
+    const g = await generateVersions(p, media, ctx, pid, (v) => onProgress(preview ? v * 0.85 : v * 0.5));
+    meta = g.meta;
+    audios = g.audios;
+    runs = meta.runs;
+  }
+  const keyLabel = (k: Key | null) => (k ? keyPt(k) : null);
+  const files: OutFile[] = [];
+
+  if (preview) {
+    // 30 s de cada versão: o instrumental e o instrumental com a voz guia
+    const versoes: Record<string, unknown>[] = [];
+    let firstInst: Signal | null = null;
+    for (const [i, audio] of audios!.entries()) {
+      const win = cut(audio, sr, loudestWindow(audio, sr, CLIP_SECONDS), CLIP_SECONDS);
+      const { inst, voice } = await splitVoice(win, sr);
+      const out = finalizeForSocial(inst.map((c) => c.slice()) as Signal, sr, -14, -1);
+      files.push({ name: `previa-versao-${i + 1}.m4a`, channels: out, sampleRate: sr, format: "m4a" });
+      if (voice) files.push({ name: `previa-versao-${i + 1}-guia.m4a`, channels: finalizeForSocial(withGuide(inst, voice), sr, -14, -1), sampleRate: sr, format: "m4a" });
+      firstInst ??= out;
+      versoes.push({ bpm: meta.versions[i].bpm || meta.bpm, tom: keyLabel(meta.versions[i].key) });
+      onProgress(0.85 + 0.15 * ((i + 1) / audios!.length));
+    }
+    files.push(...clips(guide.channels, firstInst!, sr));
+    return {
+      files,
+      measures: { bpm: meta.bpm, tom: keyLabel(meta.key), idioma: meta.language, letra: meta.lyrics.slice(0, 80), versoes, geracoes: runs },
+      apiUsd: runs * ctx.composer.usdPerRun,
+    };
+  }
+
+  // entrega: cada versão vira instrumental, voz guia, mapa, letra com tempo e clique
+  const written = lyricLines(String(p.lyrics ?? ""));
+  const lines = written.length ? written : meta.lyrics;
+  const parts = partsOf(lines);
+  const fmt = (p.format as OutFile["format"]) ?? "wav";
+  const versoes: Record<string, unknown>[] = [];
+  let firstInst: Signal | null = null;
+  const total = meta.versions.length;
+  const base = audios ? 0.5 : 0;
+  for (const [i, v] of meta.versions.entries()) {
+    const step = (x: number) => onProgress(base + (1 - base) * ((i + x) / total));
+    const audio = audios?.[i] ?? toStereo(await decodeBytes(ctx, await ctx.readKey(GEN(pid, v.file)), sr));
+    const { inst, voice } = await splitVoice(audio, sr, (x) => step(0.6 * x));
+    const beats = trackBeats(monoOf(inst), sr);
+    const bpm = Math.round(beats.bpm || v.bpm || meta.bpm);
+    const k = detectKey(inst, sr);
+    const tom = k ? keyPt({ tonic: k.tonic, mode: k.mode }) : keyLabel(v.key);
+    // mapa: a letra certa nos tempos em que a voz guia canta
+    let map: MapLine[] = lines.map((line, j) => ({ line, part: parts[j], start: null, end: null }));
+    if (voice && lines.length && ctx.lyrics) {
+      const vKey = `out/${ctx.jobId}/${991 + i}.mp3`;
+      try {
+        await ctx.putKey(vKey, await encodeWithFfmpeg(ctx.ffmpeg, voice, sr, "mp3", ctx.timeoutS));
+        const t = await ctx.lyrics.transcribe(ctx.presign("GET", vKey, 3600), meta.language);
+        map = alignLyrics(lines, cleanTranscript(t.segments).flatMap((s) => s.words ?? []));
+      } catch {
+        // sem os tempos: a letra sai na ordem, sem minutagem
+      } finally {
+        await ctx.putKey(vKey, new Uint8Array(0)).catch(() => {});
+      }
+    }
+    step(0.85);
+    const n = `versao-${i + 1}`;
+    const instOut = finalizeForSocial(inst.map((c) => c.slice()) as Signal, sr, -14, -1);
+    firstInst ??= instOut;
+    files.push({ name: `${n}-instrumental.${EXT[fmt]}`, channels: instOut, sampleRate: sr, format: fmt, zip: true });
+    if (voice) files.push({ name: `${n}-voz-guia.mp3`, channels: voice, sampleRate: sr, format: "mp3", zip: true });
+    files.push({ name: `${n}-mapa.pdf`, bytes: mapSheet(`Sua composição — versão ${i + 1}`, bpm, tom, map, detectChords(inst, sr)), ext: "pdf", zip: true });
+    if (map.some((l) => l.start !== null)) files.push({ name: `${n}-letra.lrc`, bytes: new TextEncoder().encode(toLrc(map, { title: `Versão ${i + 1}`, bpm, key: tom })), ext: "json", zip: true }); // a chave usa .json (lista fixa de extensões no banco); o download sai como .lrc
+    const click = clickTrack(beats, inst[0].length, sr);
+    const cl = new Float32Array(click.length);
+    for (let j = 0; j < cl.length; j++) cl[j] = click[j] / 32768;
+    files.push({ name: `${n}-clique-${bpm}bpm.wav`, channels: [cl] as Signal, sampleRate: sr, format: "wav", zip: true });
+    // para a gravação no app (tocam juntos no navegador)
+    files.push({ name: `play-inst-${i + 1}.m4a`, channels: instOut, sampleRate: sr, format: "m4a" });
+    if (voice) files.push({ name: `play-guia-${i + 1}.m4a`, channels: finalizeForSocial(voice.map((c) => c.slice()) as Signal, sr, -16, -1), sampleRate: sr, format: "m4a" });
+    versoes.push({ bpm, tom, mapa: map.map((l) => ({ t: l.start, linha: l.line, parte: l.part })) });
+    step(1);
+  }
+  files.push(...clips(guide.channels, firstInst!, sr));
   return {
     files,
-    measures: {
-      bpm: Math.round(bpm * 10) / 10,
-      tom: keyLabel,
-      acordes_guia: progression(guideChords).slice(0, 32),
-      melodia: melody,
-      versoes: chosen.map((v) => ({ semente: v.seed, nota: Math.round(v.score * 100), bpm: Math.round(v.bpm), harmonia: v.chords })),
-      geracoes: runs,
-    },
-    zip: preview ? undefined : "producao-versoes.zip",
+    measures: { bpm: meta.bpm, tom: keyLabel(meta.key), idioma: meta.language, letra: lines.slice(0, 80), versoes, geracoes: runs },
+    zip: "producao-versoes.zip",
     apiUsd: runs * ctx.composer.usdPerRun,
   };
 }

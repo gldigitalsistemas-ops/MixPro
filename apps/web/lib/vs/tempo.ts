@@ -119,7 +119,8 @@ export function trackBeats(mono: Float32Array, sr: number): Beats {
   // BPM pela mediana dos intervalos (segue o que de fato foi tocado)
   const ints = kept.slice(1).map((f, i) => f - kept[i]).sort((x, y) => x - y);
   const med = ints.length ? ints[Math.floor(ints.length / 2)] : period;
-  return { bpm: Math.round(((60 * FPS) / med) * 10) / 10, beats: kept.map((f) => f / FPS), downbeat };
+  // BPM inteiro (o clique segue as batidas medidas; o número mostrado é sempre inteiro)
+  return { bpm: Math.round((60 * FPS) / med), beats: kept.map((f) => f / FPS), downbeat };
 }
 
 /** Canal de clique (mono em 16 bits): bipe curto em cada batida, mais agudo no tempo 1. */

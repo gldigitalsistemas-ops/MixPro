@@ -79,10 +79,13 @@ if [[ "${ans_music:-n}" =~ ^[sS]$ ]]; then
   put_secret export-musicai-key "Music.AI API key"
   read -r -p "   MUSICAI_WORKFLOW (slug do workflow criado no painel da Music.AI): " MUSICAI_WORKFLOW
 fi
-read -r -p "   Configurar o gerador de bases (Modal)? [s/N] " ans_compose
+# Produção da composição: MiniMax Music Cover (pela WaveSpeed) + letra e idioma (Whisper no Modal)
+LYRICS_URL_DEFAULT="https://gldigitalsistemas-ops--mixpro-lyrics-lyrics-transcribe.us-east.modal.run"
+read -r -p "   Configurar a Produção da composição (WaveSpeed + letra no Modal)? [s/N] " ans_compose
 if [[ "${ans_compose:-n}" =~ ^[sS]$ ]]; then
+  put_secret export-wavespeed-key "WaveSpeed API key (a mesma do WAVESPEED_API_KEY do .env.local)"
   put_secret export-compose-token "COMPOSE_TOKEN (o mesmo do segredo mixpro-compose no Modal)"
-  read -r -p "   COMPOSE_URL (URL que o 'modal deploy' imprimiu): " COMPOSE_URL
+  read -r -p "   LYRICS_URL [${LYRICS_URL_DEFAULT}]: " LYRICS_URL; LYRICS_URL="${LYRICS_URL:-$LYRICS_URL_DEFAULT}"
 fi
 
 echo "==> 4/8 Imagem (Cloud Build; o Dockerfile é o de apps/export-service)"
@@ -121,10 +124,12 @@ if usable_secret export-musicai-key; then
   MUSICAI_WORKFLOW="${MUSICAI_WORKFLOW:-$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(spec.template.spec.containers[0].env)' 2>/dev/null | tr ';' '\n' | sed -n "s/.*'name': 'MUSICAI_WORKFLOW', 'value': '\([^']*\)'.*/\1/p")}"
   [[ -n "${MUSICAI_WORKFLOW:-}" ]] && ENV_VARS="${ENV_VARS},MUSICAI_WORKFLOW=${MUSICAI_WORKFLOW}"
 fi
+if usable_secret export-wavespeed-key; then
+  SECRETS="${SECRETS},WAVESPEED_API_KEY=export-wavespeed-key:latest"
+fi
 if usable_secret export-compose-token; then
   SECRETS="${SECRETS},COMPOSE_TOKEN=export-compose-token:latest"
-  COMPOSE_URL="${COMPOSE_URL:-$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(spec.template.spec.containers[0].env)' 2>/dev/null | tr ';' '\n' | sed -n "s/.*'name': 'COMPOSE_URL', 'value': '\([^']*\)'.*/\1/p")}"
-  [[ -n "${COMPOSE_URL:-}" ]] && ENV_VARS="${ENV_VARS},COMPOSE_URL=${COMPOSE_URL}"
+  ENV_VARS="${ENV_VARS},LYRICS_URL=${LYRICS_URL:-$LYRICS_URL_DEFAULT}"
 fi
 gcloud run deploy "$SERVICE" \
   --image "${IMAGE}:latest" --region "$REGION" \

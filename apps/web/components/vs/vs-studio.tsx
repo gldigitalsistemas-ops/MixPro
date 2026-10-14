@@ -80,7 +80,7 @@ const baseName = (name: string) => name.replace(/\.[^.]+$/, "").slice(0, 60) || 
 
 /** Andamento pela metade, em dobro e mudança do tempo 1 (quando a detecção erra o compasso). */
 function halfTime(b: Beats): Beats {
-  return { bpm: Math.round(b.bpm * 5) / 10, beats: b.beats.filter((_, i) => i % 2 === b.downbeat % 2), downbeat: Math.floor(b.downbeat / 2) };
+  return { bpm: Math.round(b.bpm / 2), beats: b.beats.filter((_, i) => i % 2 === b.downbeat % 2), downbeat: Math.floor(b.downbeat / 2) };
 }
 function doubleTime(b: Beats): Beats {
   const beats: number[] = [];
@@ -88,7 +88,7 @@ function doubleTime(b: Beats): Beats {
     beats.push(t);
     if (i + 1 < b.beats.length) beats.push((t + b.beats[i + 1]) / 2);
   });
-  return { bpm: Math.round(b.bpm * 20) / 10, beats, downbeat: b.downbeat * 2 };
+  return { bpm: Math.round(b.bpm * 2), beats, downbeat: b.downbeat * 2 };
 }
 
 export function VSStudio() {

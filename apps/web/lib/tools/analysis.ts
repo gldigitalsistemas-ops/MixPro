@@ -123,7 +123,8 @@ export function detectBpm(audio: Signal, sr: number): TempoResult | null {
   const c = scores[i + 1] ?? best;
   const shift = a + c - 2 * best !== 0 ? (0.5 * (a - c)) / (a - 2 * best + c) : 0;
   const bpm = (60 * fps) / (bestLag + Math.max(-0.5, Math.min(0.5, shift)));
-  return { bpm: Math.round(bpm * 10) / 10, confidence: Math.max(0, Math.min(1, (best - mean) / (best + 1e-12))) };
+  // andamento sempre inteiro em todo o app (metrônomo, cifra, telas): 104, nunca 103,6
+  return { bpm: Math.round(bpm), confidence: Math.max(0, Math.min(1, (best - mean) / (best + 1e-12))) };
 }
 
 const NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];

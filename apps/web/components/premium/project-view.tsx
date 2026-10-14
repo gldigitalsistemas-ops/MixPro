@@ -20,7 +20,7 @@ import { CheckoutDialog, PriceTag, useQuote } from "./checkout";
 import { DevBadge } from "./explainer";
 import { GENRE_LABEL, ShowcaseConsent } from "./showcase";
 import { DEFAULT_CTL, StemsPlayer, type TrackCtl } from "./stems-player";
-import { VoiceRecorder } from "./voice-recorder";
+import { VoiceRecorder, type MapLine } from "./voice-recorder";
 import { SupportLink } from "@/components/support/support-link";
 
 export const PRODUCT_NAME: Record<string, string> = {
@@ -76,10 +76,11 @@ function stageText(product: string, pct: number): string {
       [101, "Gravando os arquivos…"],
     ],
     producao: [
-      [20, "Analisando tom, andamento, acordes e a melodia da guia…"],
-      [70, "Criando as versões da base no estilo pedido…"],
-      [85, "Conferindo andamento e harmonia de cada versão…"],
-      [101, "Gravando as versões, a folha de cifra e o clique…"],
+      [22, "Analisando a guia: andamento, tom, voz e letra…"],
+      [36, "Lendo o som da sua referência…"],
+      [70, "Criando as músicas no estilo pedido (leva uns minutos)…"],
+      [90, "Separando o instrumental e a voz guia…"],
+      [101, "Montando o mapa da letra, o clique e os arquivos…"],
     ],
     voz_final: [
       [15, "Alinhando a sua voz com a base…"],
@@ -242,17 +243,24 @@ function WhatWasDone({ product, m }: { product: string; m: Record<string, unknow
     );
   }
   if (product === "producao") {
-    const v = (m.versoes ?? []) as { nota: number; bpm: number; harmonia: number }[];
+    const letra = (m.letra ?? []) as string[];
+    const LANG: Record<string, string> = { pt: "português", es: "espanhol", en: "inglês", it: "italiano", fr: "francês", de: "alemão" };
     return (
       <Card className="flex flex-col gap-2 p-4 text-sm">
         <p className="flex items-center gap-2 font-semibold">
           <Wand2 className="size-4 text-violet-300" aria-hidden /> O que a IA entendeu da sua guia
         </p>
         <p className="text-muted">
-          Andamento {String(m.bpm ?? "—")} BPM · Tom {String(m.tom ?? "—")}
+          Andamento {m.bpm ? Math.round(Number(m.bpm)) : "—"} BPM · Tom {String(m.tom ?? "—")}
+          {m.idioma ? ` · cantada em ${LANG[String(m.idioma)] ?? String(m.idioma)}` : ""}
         </p>
-        {Array.isArray(m.acordes_guia) && <p className="text-muted">Acordes: {(m.acordes_guia as string[]).slice(0, 16).join(" → ")}</p>}
-        {v.length > 0 && <p className="text-xs text-subtle">Cada versão passou pela conferência de andamento e harmonia (nota {v.map((x) => x.nota).join(", ")} de 100).</p>}
+        {letra.length > 0 && (
+          <details className="rounded-xl border border-border p-2">
+            <summary className="cursor-pointer text-xs text-violet-200">Letra que o app ouviu na guia ({letra.length} linhas)</summary>
+            <p className="mt-2 whitespace-pre-line text-xs text-muted">{letra.join("\n")}</p>
+            <p className="mt-2 text-xs text-subtle">Errou alguma palavra? Depois de liberar, você corrige aqui e o mapa da letra sai com a letra certa.</p>
+          </details>
+        )}
       </Card>
     );
   }
@@ -366,14 +374,19 @@ function MixEditor({ state, job, onDone }: { state: ProjectState; job: JobView; 
   );
 }
 
-/** Produção: escolher a base e seguir para a voz finalizada (gravar ou enviar). */
-function ComposeNext({ state, job }: { state: ProjectState; job: JobView }) {
+/** Produção entregue: escolher a versão, ver o mapa, corrigir a letra e gravar a voz (ou enviar) para a voz finalizada. */
+function ComposeNext({ state, job, onChange }: { state: ProjectState; job: JobView; onChange: () => void }) {
   const toast = useToast();
   const router = useRouter();
-  const versions = job.outputs.filter((o) => /^versao-\d\.(wav|mp3|m4a|flac)$/.test(o.name)).sort((a, b) => a.name.localeCompare(b.name));
+  const versions = job.outputs.filter((o) => /^versao-\d-instrumental\.(wav|mp3|m4a|flac)$/.test(o.name)).sort((a, b) => a.name.localeCompare(b.name));
+  const versoes = (job.measures?.versoes ?? []) as { bpm?: number; tom?: string | null; mapa?: MapLine[] }[];
   const [pick, setPick] = useState<number | null>(null);
   const [busy, setBusy] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const [lyrics, setLyrics] = useState(((job.measures?.letra ?? []) as string[]).join("\n"));
+  const [saving, setSaving] = useState(false);
   if (!versions.length) return null;
+  const play = (kind: "inst" | "guia", i: number) => job.outputs.find((o) => o.name === `play-${kind}-${i + 1}.m4a`)?.url ?? null;
 
   async function withVoice(vocal: File) {
     const base = versions[pick!];
@@ -391,7 +404,8 @@ function ComposeNext({ state, job }: { state: ProjectState; job: JobView }) {
         ref_amount: 0.6,
         genre,
         tune: 50,
-        melody: (job.measures?.melodia as [number, number, number][] | undefined) ?? null,
+        // afinação pela escala do tom (a melodia da voz guia da IA pode não ser exatamente a sua)
+        melody: null,
         vocal_level_db: 0,
         reverb: 30,
         master_chain: null,
@@ -405,16 +419,36 @@ function ComposeNext({ state, job }: { state: ProjectState; job: JobView }) {
     }
   }
 
+  async function saveLyrics() {
+    const clean = lyrics.replace(/[^\p{L}\p{N} ,.;:()&/+'!?"\-\n]/gu, " ").slice(0, 2000);
+    if (clean.trim().length < 10) return toast.error("Escreva a letra (pelo menos uma linha).");
+    setSaving(true);
+    try {
+      await revise(state.project.id, { ...state.project.params, lyrics: clean });
+      toast.success("Refazendo o mapa com a sua letra (sem gerar a música de novo). Leva alguns minutos.");
+      setEditing(false);
+      onChange();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const v = pick !== null ? versoes[pick] : null;
   return (
     <Card className="flex flex-col gap-3 p-4">
       <p className="flex items-center gap-2 text-sm font-semibold">
-        <Mic2 className="size-4 text-violet-300" aria-hidden /> Próximo passo: grave a sua voz na base escolhida
+        <Mic2 className="size-4 text-violet-300" aria-hidden /> Próximo passo: escolha a versão e grave a sua voz
       </p>
       <div className="grid gap-2 md:grid-cols-3">
-        {versions.map((v, i) => (
-          <button key={v.name} type="button" onClick={() => setPick(i)} className={cn("flex flex-col gap-2 rounded-2xl border p-3 text-left", pick === i ? "border-violet-400 bg-primary/10" : "border-border")}>
-            <span className="text-sm font-semibold">Versão {i + 1}</span>
-            <audio controls preload="none" src={v.url} className="w-full" onClick={(e) => e.stopPropagation()} />
+        {versions.map((o, i) => (
+          <button key={o.name} type="button" onClick={() => setPick(i)} className={cn("flex flex-col gap-2 rounded-2xl border p-3 text-left", pick === i ? "border-violet-400 bg-primary/10" : "border-border")}>
+            <span className="text-sm font-semibold">
+              Versão {i + 1}
+              {versoes[i]?.bpm ? <span className="ml-2 text-xs font-normal text-muted">{Math.round(versoes[i].bpm!)} BPM{versoes[i].tom ? ` · ${versoes[i].tom}` : ""}</span> : null}
+            </span>
+            <audio controls preload="none" src={play("inst", i) ?? o.url} className="w-full" onClick={(e) => e.stopPropagation()} />
           </button>
         ))}
       </div>
@@ -422,8 +456,33 @@ function ComposeNext({ state, job }: { state: ProjectState; job: JobView }) {
         (busy ? (
           <ProgressBar value={busy * 100} label="Enviando a voz e a base" />
         ) : (
-          <VoiceRecorder baseUrl={versions[pick].url} onReady={(f) => void withVoice(f)} />
+          <VoiceRecorder baseUrl={play("inst", pick) ?? versions[pick].url} guideUrl={play("guia", pick)} map={v?.mapa ?? null} bpm={v?.bpm ?? null} onReady={(f) => void withVoice(f)} />
         ))}
+      <div className="rounded-2xl border border-border p-3 text-sm">
+        {editing ? (
+          <div className="flex flex-col gap-2">
+            <label className="flex flex-col gap-1.5">
+              Letra certa (uma linha por frase cantada)
+              <textarea value={lyrics} rows={10} maxLength={2000} onChange={(e) => setLyrics(e.target.value)} className="rounded-xl border border-border-strong bg-black/20 p-3 outline-none focus:border-violet-400" />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" loading={saving} onClick={() => void saveLyrics()}>
+                Refazer o mapa com esta letra
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => setEditing(false)}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <p className="flex flex-wrap items-center gap-2 text-muted">
+            A letra do mapa tem alguma palavra errada?
+            <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
+              Corrigir a letra
+            </Button>
+          </p>
+        )}
+      </div>
     </Card>
   );
 }
@@ -553,21 +612,7 @@ export function ProjectView({ id }: { id: string }) {
               )}
             </Card>
           )}
-          {project.product === "producao" && !finalDone && (
-            <Card className="flex flex-col gap-2 p-4">
-              <p className="text-sm font-semibold">Ouça as versões (30 s de cada)</p>
-              <div className="grid gap-2 md:grid-cols-3">
-                {show.outputs
-                  .filter((o) => /^previa-versao-\d\.m4a$/.test(o.name))
-                  .map((o, i) => (
-                    <div key={o.name} className="flex flex-col gap-1 rounded-2xl border border-border p-3">
-                      <span className="text-sm">Versão {i + 1}</span>
-                      <audio controls preload="none" src={o.url} className="w-full" />
-                    </div>
-                  ))}
-              </div>
-            </Card>
-          )}
+          {project.product === "producao" && !finalDone && <ComposePreview job={show} />}
           {(project.product === "mix_ia" || project.product === "voz_final") && !finalDone && show.outputs.find((o) => o.name.startsWith("previa")) && (
             <Card className="flex flex-col gap-2 p-4">
               <p className="flex items-center gap-2 text-sm font-semibold">
@@ -603,7 +648,7 @@ export function ProjectView({ id }: { id: string }) {
       {finalDone && final && (
         <>
           <Downloads job={final} />
-          {project.product === "producao" && state.owner && <ComposeNext state={state} job={final} />}
+          {project.product === "producao" && state.owner && <ComposeNext state={state} job={final} onChange={() => void load()} />}
           {project.product === "mix_ia" && state.owner && (
             <Card className="flex flex-col gap-2 p-4 text-sm">
               <p className="flex items-center gap-2 font-semibold">
@@ -650,6 +695,42 @@ export function ProjectView({ id }: { id: string }) {
   );
 }
 
+/** Prévia da Produção: o instrumental de cada versão e, se quiser, com a voz guia da IA por cima. */
+function ComposePreview({ job }: { job: JobView }) {
+  const [guide, setGuide] = useState(false);
+  const inst = job.outputs.filter((o) => /^previa-versao-\d\.m4a$/.test(o.name)).sort((a, b) => a.name.localeCompare(b.name));
+  if (!inst.length) return null;
+  const versoes = (job.measures?.versoes ?? []) as { bpm?: number; tom?: string | null }[];
+  return (
+    <Card className="flex flex-col gap-3 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-semibold">Ouça as versões (30 s de cada)</p>
+        <label className="flex items-center gap-2 text-xs text-muted">
+          <input type="checkbox" checked={guide} onChange={(e) => setGuide(e.target.checked)} className="accent-violet-500" /> Com a voz guia da IA
+        </label>
+      </div>
+      <p className="text-xs text-subtle">
+        Você recebe o instrumental para gravar a sua voz. A voz da IA serve só de guia (onde entrar e a melodia): ela pode pronunciar mal, e a letra certa vem no mapa.
+      </p>
+      <div className="grid gap-2 md:grid-cols-3">
+        {inst.map((o, i) => {
+          const g = job.outputs.find((x) => x.name === o.name.replace(".m4a", "-guia.m4a"));
+          const v = versoes[i];
+          return (
+            <div key={o.name} className="flex flex-col gap-1 rounded-2xl border border-border p-3">
+              <span className="text-sm">
+                Versão {i + 1}
+                {v?.bpm ? <span className="ml-2 text-xs text-muted">{Math.round(v.bpm)} BPM{v.tom ? ` · ${v.tom}` : ""}</span> : null}
+              </span>
+              <audio key={guide && g ? g.url : o.url} controls preload="none" src={guide && g ? g.url : o.url} className="w-full" />
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 function whatYouGet(product: string): string {
   switch (product) {
     case "vs_premium":
@@ -657,7 +738,7 @@ function whatYouGet(product: string): string {
     case "mix_ia":
       return "A música inteira mixada e masterizada, a versão pré-master, instrumental, a capella, todas as pistas tratadas e 7 dias de revisões com os seus ajustes.";
     case "producao":
-      return "As versões completas da base (WAV ou MP3), a folha de cifra com tom e BPM e o clique para gravar. O Pacote inclui também a voz finalizada.";
+      return "As 3 versões completas: o instrumental (WAV ou MP3), a voz guia da IA, o mapa da música (a sua letra no tempo, partes, tom, BPM e acordes), a letra com tempo para o seu programa de gravação e o clique. Grave aqui mesmo com a letra na tela. O Pacote inclui também a voz finalizada.";
     case "voz_final":
       return "Sua voz afinada, tratada, mixada e masterizada na base — pronta para Spotify e todas as plataformas — mais instrumental, voz tratada e 7 dias de revisões.";
   }

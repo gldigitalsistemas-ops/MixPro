@@ -1,28 +1,15 @@
 /**
- * Gerador de bases (Produção da composição): serviço em GPU (Modal, ACE-Step 1.5 — licença MIT) que
- * recebe a voz da guia e gera o acompanhamento no estilo pedido. Ver infra/modal/acestep_app.py.
+ * Gerador da Produção da composição: MiniMax Music Cover, pela WaveSpeed (a MiniMax não abre mais a API direta
+ * para clientes novos). Recebe a guia (URL temporária do nosso R2, MP3) e um prompt de estilo de até 300
+ * caracteres; devolve a música completa com uma voz de IA cantando a melodia da guia. O app tira essa voz
+ * (vira a voz guia) e entrega o instrumental.
  *
- * O áudio vai e volta por URLs temporárias do nosso R2 (o gerador nunca guarda nada). Variáveis:
- * COMPOSE_URL (endpoint do Modal), COMPOSE_TOKEN (segredo compartilhado), COMPOSE_USD_PER_RUN
- * (custo estimado por geração para o painel de margem; padrão 0,02).
+ * Variáveis: WAVESPEED_API_KEY (segredo), COMPOSE_USD_PER_RUN (custo por versão para o painel; padrão 0,15).
  */
-export type ComposeRequest = {
-  /** Voz da guia (URL temporária de leitura) e, opcionalmente, a referência de som. */
-  guideUrl: string;
-  referenceUrl: string | null;
-  /** Uma URL temporária de gravação por versão (WAV 44,1 kHz estéreo). */
-  outputUrls: string[];
-  seeds: number[];
-  genre: string;
-  style: string;
-  lyrics?: string;
-  bpm: number;
-  key: string | null;
-  durationS: number;
-};
+export type CoverRequest = { audioUrl: string; prompt: string };
 
 export interface Composer {
-  generate(req: ComposeRequest, signal?: AbortSignal): Promise<void>;
+  cover(req: CoverRequest, signal?: AbortSignal): Promise<Uint8Array>;
   usdPerRun: number;
 }
 
@@ -32,49 +19,62 @@ export class ComposerFailed extends Error {
   }
 }
 
-export class HttpComposer implements Composer {
+type FetchFn = typeof fetch;
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(t);
+      reject(new ComposerFailed("ABORTED"));
+    });
+  });
+
+export class WaveSpeedCover implements Composer {
   usdPerRun: number;
   constructor(
-    private url: string,
-    private token: string,
-    private opts: { fetchFn?: typeof fetch; usdPerRun?: number; timeoutMs?: number } = {},
+    private apiKey: string,
+    private opts: { fetchFn?: FetchFn; usdPerRun?: number; timeoutMs?: number; pollMs?: number; base?: string } = {},
   ) {
-    this.usdPerRun = opts.usdPerRun ?? 0.02;
+    this.usdPerRun = opts.usdPerRun ?? 0.15;
   }
 
-  async generate(req: ComposeRequest, signal?: AbortSignal): Promise<void> {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), this.opts.timeoutMs ?? 15 * 60_000);
-    signal?.addEventListener("abort", () => ctrl.abort());
-    try {
-      const res = await (this.opts.fetchFn ?? fetch)(this.url, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          guide_url: req.guideUrl,
-          reference_url: req.referenceUrl,
-          output_urls: req.outputUrls,
-          seeds: req.seeds,
-          genre: req.genre,
-          style: req.style,
-          lyrics: req.lyrics ?? "",
-          bpm: req.bpm,
-          key: req.key,
-          duration_s: req.durationS,
-        }),
-        signal: ctrl.signal,
+  private async json(url: string, init: RequestInit = {}): Promise<Record<string, unknown>> {
+    const res = await (this.opts.fetchFn ?? fetch)(url, { ...init, headers: { Authorization: `Bearer ${this.apiKey}`, ...(init.body ? { "Content-Type": "application/json" } : {}) } });
+    const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!res.ok || !body) throw new ComposerFailed(`HTTP_${res.status}`);
+    return ((body.data as Record<string, unknown>) ?? body) as Record<string, unknown>;
+  }
+
+  async cover(req: CoverRequest, signal?: AbortSignal): Promise<Uint8Array> {
+    const base = this.opts.base ?? "https://api.wavespeed.ai/api/v3";
+    const deadline = Date.now() + (this.opts.timeoutMs ?? 15 * 60_000);
+    const task = await this.json(`${base}/minimax/music-cover`, { method: "POST", body: JSON.stringify({ prompt: req.prompt.slice(0, 300), audio: req.audioUrl }), signal });
+    const id = String(task.id ?? "");
+    if (!id) throw new ComposerFailed("NO_TASK");
+    while (Date.now() < deadline) {
+      await sleep(this.opts.pollMs ?? 4000, signal);
+      const r = await this.json(`${base}/predictions/${id}/result`, { signal }).catch((e) => {
+        // falha momentânea na consulta não derruba a geração: tenta de novo na próxima volta
+        if (e instanceof ComposerFailed && /^HTTP_5/.test(e.code)) return { status: "processing" } as Record<string, unknown>;
+        throw e;
       });
-      if (!res.ok) throw new ComposerFailed(`HTTP_${res.status}`);
-      const body = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
-      if (!body?.ok) throw new ComposerFailed(body?.error?.slice(0, 40) ?? "FAILED");
-    } finally {
-      clearTimeout(t);
+      const status = String(r.status ?? "");
+      if (status === "completed") {
+        const url = (r.outputs as string[] | undefined)?.[0];
+        if (!url) throw new ComposerFailed("NO_OUTPUT");
+        const audio = await (this.opts.fetchFn ?? fetch)(url, { signal });
+        if (!audio.ok) throw new ComposerFailed(`DOWNLOAD_${audio.status}`);
+        return new Uint8Array(await audio.arrayBuffer());
+      }
+      if (["failed", "cancelled", "timeout", "deleted"].includes(status)) throw new ComposerFailed(status.toUpperCase());
     }
+    throw new ComposerFailed("TIMEOUT");
   }
 }
 
 export function composerFromEnv(env: Record<string, string | undefined> = process.env): Composer | null {
-  if (!env.COMPOSE_URL || !env.COMPOSE_TOKEN) return null;
+  const key = env.WAVESPEED_API_KEY?.trim();
+  if (!key) return null;
   const usd = Number(env.COMPOSE_USD_PER_RUN);
-  return new HttpComposer(env.COMPOSE_URL, env.COMPOSE_TOKEN, { usdPerRun: Number.isFinite(usd) && usd > 0 ? usd : 0.02 });
+  return new WaveSpeedCover(key, { usdPerRun: Number.isFinite(usd) && usd > 0 ? usd : 0.15 });
 }

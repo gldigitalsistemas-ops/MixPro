@@ -87,7 +87,9 @@ export default function Privacy() {
         Apenas com os serviços que fazem o app funcionar: Supabase (banco de dados e login), Vercel (hospedagem do site), Mercado Pago
         (pagamentos) e, quando o processamento no servidor é usado, Cloudflare R2 (armazenamento temporário dos áudios: 24 horas, ou até 30 dias no Cofre e na Mixagem Profissional) e
         Google Cloud (processamento do áudio). No VS Premium, a música é enviada à Music.AI (separação de faixas), que a processa e apaga ao
-        final; na Produção da composição, a guia é processada em GPU no Modal, sem ficar guardada. O modelo de separação do VS básico é baixado
+        final; na Produção da composição, a guia é enviada à WaveSpeed (que roda o modelo de música MiniMax e cria as versões) e ao Modal
+        (que reconhece a letra e o idioma cantado), por links temporários, sem ficar guardada por eles; a referência não sai do nosso
+        servidor (só medimos o som dela). O modelo de separação do VS básico é baixado
         de um repositório público. Seus arquivos nunca são usados para treinar inteligência artificial.
         Alguns desses serviços podem armazenar dados fora do Brasil, com as garantias previstas na LGPD. Não vendemos dados.
       </p>

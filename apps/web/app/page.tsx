@@ -87,7 +87,7 @@ const PATHS = (cat: PremiumCatalog) => [
     title: "Produzir a minha composição",
     text: "Da guia (voz e violão) à música produzida: a IA cria a base no estilo que você quer, você grava a voz e recebe tudo pronto.",
     send: "A guia + uma referência de som",
-    get: "3 versões da base, cifra, clique e a música final",
+    get: "3 instrumentais com voz guia, mapa da letra, clique e a música final",
     price: <From cat={cat} id="producao" />,
     dev: true,
   },

@@ -28,6 +28,7 @@ import { fromDecode, JobError, RETRYABLE, type ErrorCode } from "./errors";
 import { logJob } from "./log";
 import { separateStems, StemsUnavailable } from "./stems";
 import type { Composer } from "./adapters/composer";
+import type { LyricsService } from "./adapters/lyrics";
 import type { StemSeparator } from "./adapters/musicai";
 import { runPremiumAudio, type OutFile } from "./premium";
 
@@ -38,7 +39,7 @@ export type ToolDeps = {
   ffprobe: string;
   limits: { maxInputBytes: number; staleMs: number; maxAttempts: number; processTimeoutS: number };
   /** Recursos premium: separação externa (Music.AI) e gerador de bases (GPU). */
-  premium?: { musicai?: StemSeparator | null; composer?: Composer | null };
+  premium?: { musicai?: StemSeparator | null; composer?: Composer | null; lyrics?: LyricsService | null };
   /** Avisa o site que o job terminou (notificação "ficou pronto"). */
   notify?: (jobId: string) => Promise<void>;
 };
@@ -101,7 +102,7 @@ async function runToolAudio(tool: ToolId, p: Record<string, unknown>, media: Dec
           tom_antes: key?.label ?? null,
           tom_depois: key ? transposeKey(key, st).label : null,
           bpm_antes: bpm?.bpm ?? null,
-          bpm_depois: bpm ? Math.round(bpm.bpm * tempo * 10) / 10 : null,
+          bpm_depois: (p.target_bpm as number | undefined) ?? (bpm ? Math.round(bpm.bpm * tempo) : null),
         },
       };
     }
@@ -211,6 +212,7 @@ export async function runTool(jobId: string, deps: ToolDeps): Promise<ToolRunRes
           timeoutS: deps.limits.processTimeoutS,
           musicai: deps.premium?.musicai ?? null,
           composer: deps.premium?.composer ?? null,
+          lyrics: deps.premium?.lyrics ?? null,
           presign: deps.storage.presign ? (m, k, t) => deps.storage.presign!(m, k, t) : undefined,
           readKey: async (k) => {
             const chunks: Buffer[] = [];

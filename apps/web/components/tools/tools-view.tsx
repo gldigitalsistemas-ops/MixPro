@@ -136,6 +136,8 @@ function ToolForm(props: {
   const [format, setFormat] = useState(def.id === "convert" ? "flac" : "mp3");
   const [semitones, setSemitones] = useState(0);
   const [tempo, setTempo] = useState(100);
+  // com o andamento medido, a escolha é em BPM inteiro (104, nunca 103,6) e o tempo vira a razão exata
+  const [targetBpm, setTargetBpm] = useState<number | null>(null);
   const [voiceLevel, setVoiceLevel] = useState(0);
   const [reverb, setReverb] = useState(25);
   const [autoAlign, setAutoAlign] = useState(true);
@@ -157,6 +159,7 @@ function ToolForm(props: {
     // tom e BPM no próprio aparelho (grátis), para mostrar antes de mudar
     if (def.id === "pitch_tempo") {
       setAnalysis(null);
+      setTargetBpm(null);
       try {
         const [{ loadMedia }, { detectKey, detectBpm }] = await Promise.all([import("@/lib/media/load"), import("@/lib/tools/analysis")]);
         const m = await loadMedia(picked[0].file, () => {});
@@ -175,7 +178,9 @@ function ToolForm(props: {
     const d = durations.map((v) => Math.min(600, Math.ceil(v ?? 600)));
     switch (def.id) {
       case "pitch_tempo":
-        return { semitones, tempo: tempo / 100, format, durations: d };
+        return analysis?.bpm && targetBpm
+          ? { semitones, tempo: Math.round((targetBpm / analysis.bpm) * 10000) / 10000, target_bpm: targetBpm, format, durations: d }
+          : { semitones, tempo: tempo / 100, format, durations: d };
       case "voice_playback":
         return { offset_s: autoAlign ? null : offsetMs / 1000, voice_level_db: voiceLevel, reverb, delivery, format, durations: d };
       case "reference_master":
@@ -189,7 +194,7 @@ function ToolForm(props: {
     }
   })();
   const credits = ready ? toolCredits(def.id, params as { durations: number[] }, costs) : null;
-  const nothingToChange = def.id === "pitch_tempo" && semitones === 0 && tempo === 100;
+  const nothingToChange = def.id === "pitch_tempo" && semitones === 0 && (analysis?.bpm ? !targetBpm || targetBpm === analysis.bpm : tempo === 100);
 
   async function run() {
     if (!ready || phase) return;
@@ -305,13 +310,24 @@ function ToolForm(props: {
                   <>
                     {" "}
                     · <strong>{analysis.bpm} BPM</strong>
-                    {tempo !== 100 && <> → {Math.round(analysis.bpm * tempo) / 100} BPM</>}
+                    {targetBpm && targetBpm !== analysis.bpm && <> → {targetBpm} BPM</>}
                   </>
                 ) : null}
               </p>
             )}
             <Slider label="Tom" value={semitones} min={-12} max={12} onChange={setSemitones} show={(v) => (v === 0 ? "original" : `${v > 0 ? "+" : ""}${v} semitom${Math.abs(v) > 1 ? "s" : ""}`)} />
-            <Slider label="Andamento" value={tempo} min={50} max={150} onChange={setTempo} show={(v) => `${v}%`} />
+            {analysis?.bpm ? (
+              <Slider
+                label="Andamento"
+                value={targetBpm ?? analysis.bpm}
+                min={Math.ceil(analysis.bpm * 0.5)}
+                max={Math.floor(analysis.bpm * 1.5)}
+                onChange={setTargetBpm}
+                show={(v) => (v === analysis.bpm ? `original (${v} BPM)` : `${v} BPM`)}
+              />
+            ) : (
+              <Slider label="Andamento" value={tempo} min={50} max={150} onChange={setTempo} show={(v) => `${v}%`} />
+            )}
           </>
         )}
         {def.id === "voice_playback" && (

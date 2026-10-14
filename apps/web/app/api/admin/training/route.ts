@@ -36,7 +36,7 @@ export async function POST(req: Request) {
         source: body.source === "parceiro" ? "parceiro" : "proprio",
         rights_confirmed: true,
         rights_note: text(body.rights_note, 500),
-        bpm: Number.isFinite(bpm) && bpm >= 30 && bpm <= 300 ? bpm : null,
+        bpm: Number.isFinite(bpm) && bpm >= 30 && bpm <= 300 ? Math.round(bpm) : null,
         musical_key: text(body.key, 20) || null,
         files: stored,
         created_by: adminId,

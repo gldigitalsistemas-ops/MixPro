@@ -96,7 +96,7 @@ export function TrainingUpload() {
           <option value="proprio">Produção minha</option>
           <option value="parceiro">Produção de parceiro</option>
         </select>
-        <input value={bpm} onChange={(e) => setBpm(e.target.value.replace(/[^\d.]/g, ""))} placeholder="BPM (opcional)" className={field} />
+        <input value={bpm} onChange={(e) => setBpm(e.target.value.replace(/\D/g, "").slice(0, 3))} placeholder="BPM (opcional)" className={field} />
         <input value={key} onChange={(e) => setKey(e.target.value)} placeholder="Tom (ex.: Ré maior)" maxLength={20} className={field} />
       </div>
       <label className="flex items-start gap-2 text-sm">
