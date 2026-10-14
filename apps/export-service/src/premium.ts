@@ -422,12 +422,13 @@ async function generateVersions(p: Record<string, unknown>, media: DecodedMedia[
   // a guia inteira (voz + instrumento) vai ao gerador e ao Whisper por URL temporária (MP3)
   const gKey = `out/${ctx.jobId}/990.mp3`;
   await ctx.putKey!(gKey, await encodeWithFfmpeg(ctx.ffmpeg, guide.channels, sr, "mp3", ctx.timeoutS));
-  const gUrl = ctx.presign!("GET", gKey, 7200);
+  // links do R2 valem no máximo 1 h: um novo a cada uso (as rodadas de geração podem passar disso)
+  const gUrl = () => ctx.presign!("GET", gKey, 3600);
   let language = "pt";
   let lyrics = lyricLines(String(p.lyrics ?? ""));
   if (ctx.lyrics) {
     try {
-      const t = await ctx.lyrics.transcribe(gUrl, null);
+      const t = await ctx.lyrics.transcribe(gUrl(), null);
       if (t.probability >= 0.5 && /^[a-z]{2}$/.test(t.language)) language = t.language;
       if (!lyrics.length) lyrics = linesFromTranscript(t.segments);
     } catch {
@@ -460,7 +461,7 @@ async function generateVersions(p: Record<string, unknown>, media: DecodedMedia[
   // gera em paralelo; o que vier abafado, fora do andamento ou em outro tom é refeito (até 2 rodadas extras)
   for (let round = 0; round < 3 && accepted.length < want; round++) {
     const need = want - accepted.length;
-    const results = await Promise.allSettled(Array.from({ length: need }, () => composer.cover({ audioUrl: gUrl, prompt })));
+    const results = await Promise.allSettled(Array.from({ length: need }, () => composer.cover({ audioUrl: gUrl(), prompt })));
     runs += need;
     for (const r of results) {
       if (r.status !== "fulfilled") continue;

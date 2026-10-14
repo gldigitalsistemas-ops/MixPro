@@ -30,7 +30,9 @@ const skip = available ? false : "FFmpeg não encontrado";
 
 /** Armazenamento local com "URLs" falsas (local://chave) para o gerador falso. */
 class UrlStorage extends LocalStorage {
-  presign(_m: "GET" | "PUT", key: string) {
+  presign(_m: "GET" | "PUT", key: string, expiresS = 600) {
+    // mesma regra do R2 (lib/export/r2.ts): o link vale de 1 s a 1 h
+    if (expiresS < 1 || expiresS > 3600) throw new Error("validade da URL deve ficar entre 1 e 3600 s");
     return `local://${key}`;
   }
 }

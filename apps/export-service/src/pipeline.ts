@@ -44,6 +44,7 @@ export type ServiceDeps = {
   /** Recursos premium (separação externa e gerador de bases). */
   premium?: { musicai?: import("./adapters/musicai").StemSeparator | null; composer?: import("./adapters/composer").Composer | null; lyrics?: import("./adapters/lyrics").LyricsService | null };
   notify?: (jobId: string) => Promise<void>;
+  reportError?: import("./errlog").ErrorReporter;
 };
 
 export type ServiceLimits = {

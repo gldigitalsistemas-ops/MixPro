@@ -29,6 +29,7 @@ import { logJob } from "./log";
 import { separateStems, StemsUnavailable } from "./stems";
 import type { Composer } from "./adapters/composer";
 import type { LyricsService } from "./adapters/lyrics";
+import type { ErrorReporter } from "./errlog";
 import type { StemSeparator } from "./adapters/musicai";
 import { runPremiumAudio, type OutFile } from "./premium";
 
@@ -42,6 +43,8 @@ export type ToolDeps = {
   premium?: { musicai?: StemSeparator | null; composer?: Composer | null; lyrics?: LyricsService | null };
   /** Avisa o site que o job terminou (notificação "ficou pronto"). */
   notify?: (jobId: string) => Promise<void>;
+  /** Falhas do servidor na tela de Logs de erros do Admin (ver errlog.ts). */
+  reportError?: ErrorReporter;
 };
 
 /** Mais formatos que a exportação: as ferramentas recebem o arquivo como o usuário tem (WMA, AIFF, ALAC…). */
@@ -179,6 +182,7 @@ export async function runTool(jobId: string, deps: ToolDeps): Promise<ToolRunRes
   const written: string[] = [];
   let dir = "";
   let rec: ToolRecord | null = null;
+  let lastPct: number | null = null;
   try {
     const st = await deps.tools.start(jobId, deps.limits.staleMs);
     if (st.outcome !== "started") {
@@ -192,7 +196,10 @@ export async function runTool(jobId: string, deps: ToolDeps): Promise<ToolRunRes
     const parsed = premium ?? parseToolParams(rec.tool, rec.params);
     if (!parsed || parsed.params.durations.length !== rec.inputs.length) throw new JobError("INVALID_JOB");
     const { params } = parsed;
-    const report = (v: number) => void deps.tools.progress(jobId, Math.round(v * 100)).catch(() => {});
+    const report = (v: number) => {
+      lastPct = Math.round(v * 100);
+      void deps.tools.progress(jobId, lastPct).catch(() => {});
+    };
 
     dir = await mkdtemp(join(tmpdir(), "mixpro-tool-"));
     const media: DecodedMedia[] = [];
@@ -273,7 +280,20 @@ export async function runTool(jobId: string, deps: ToolDeps): Promise<ToolRunRes
     const code: ErrorCode = e instanceof JobError ? e.code : "INTERNAL";
     // o commit recusou (cancelado, sem saldo) ou falhou no meio: nada parcial fica guardado
     for (const k of written) await deps.storage.delete(k).catch(() => {});
-    if (rec && RETRYABLE.has(code) && rec.attempts < deps.limits.maxAttempts) {
+    const retrying = Boolean(rec && RETRYABLE.has(code) && rec.attempts < deps.limits.maxAttempts);
+    if (rec)
+      await deps.reportError?.({
+        jobId,
+        tool: rec.tool,
+        userId: rec.user_id ?? null,
+        projectId: typeof (rec.params as Record<string, unknown>)?.project_id === "string" ? String((rec.params as Record<string, unknown>).project_id) : null,
+        code,
+        error: e,
+        progress: lastPct,
+        attempt: rec.attempts,
+        retrying,
+      });
+    if (rec && retrying) {
       await deps.tools.requeue(jobId).catch(() => {});
       log("retry", code);
       return { http: 503, status: "retry", error_code: code };
