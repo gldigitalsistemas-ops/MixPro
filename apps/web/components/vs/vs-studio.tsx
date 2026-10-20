@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import Link from "next/link";
 import { Download, FileArchive, Headphones, Music2, Pause, Play, RotateCcw, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -767,6 +768,14 @@ export function VSStudio() {
           </Button>
         </div>
       </Card>
+
+      <Link href="/cover" className="glass flex items-center justify-between gap-3 rounded-3xl border border-violet-400/40 p-4 hover:bg-white/5">
+        <span>
+          <span className="block font-semibold">🎥 Gravar meu cover com este VS</span>
+          <span className="text-xs text-muted">Toque por cima da música e receba o vídeo pronto para o Instagram, com som de estúdio.</span>
+        </span>
+        <span className="text-sm font-semibold text-violet-200">Abrir</span>
+      </Link>
 
       <Card className="flex flex-col gap-3 p-4">
         <h2 className="font-display text-lg font-semibold">Baixar</h2>

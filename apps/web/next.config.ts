@@ -21,7 +21,8 @@ const nextConfig: NextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "X-Frame-Options", value: "DENY" },
-          { key: "Permissions-Policy", value: "camera=(), geolocation=(), microphone=(self)" },
+          // câmera e microfone só para o próprio site (Modo Cover grava o vídeo; o gravador de voz usa o microfone)
+          { key: "Permissions-Policy", value: "camera=(self), geolocation=(), microphone=(self)" },
         ],
       },
       // o service worker nunca pode ficar preso no cache (senão uma versão velha continua no celular)

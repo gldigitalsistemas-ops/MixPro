@@ -28,6 +28,7 @@ const PAGES = [
   { path: "/mixar", must: ["Mix & Master IA", "Você envia", "Suas pistas", "Perguntas frequentes"], support: true },
   { path: "/produzir", must: ["Produza sua composição", "Sua guia", "Letra da música"], support: true },
   { path: "/vs", must: ["VS"], support: true },
+  { path: "/cover", must: ["Grave você tocando", "Primeiro, crie o VS"], support: true },
   { path: "/ferramentas", must: ["Voz + Playback", "Tom e andamento"], support: true },
   { path: "/ajuda", must: ["Ajuda", "FL Studio", "Reaper", "Studio One", "Cubase", "97265-2314"], support: true },
   { path: "/termos", must: ["Termos de uso", "Produção"], support: false },

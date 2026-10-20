@@ -82,6 +82,13 @@ export function ToolsView() {
             <h1 className="font-display text-2xl font-semibold md:text-3xl">Ferramentas de estúdio</h1>
             <p className="text-sm text-muted">Processadas no servidor: rápidas no celular e com qualidade de estúdio. Você paga em créditos só quando o resultado fica pronto.</p>
           </div>
+          <a href="/cover" className="glass flex items-center justify-between gap-3 rounded-3xl border border-violet-400/40 p-5 hover:bg-white/5">
+            <span>
+              <span className="block font-display text-lg font-semibold">🎥 Modo Cover</span>
+              <span className="text-sm text-muted">Grave você tocando por cima da música: o app tira o seu instrumento, toca o playback no fone e entrega o vídeo pronto para o Instagram.</span>
+            </span>
+            <span className="text-sm font-semibold text-violet-200">Abrir</span>
+          </a>
           <ul className="grid gap-4 sm:grid-cols-2">
             {TOOLS.map((t) => (
               <li key={t.id}>
