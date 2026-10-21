@@ -2,8 +2,9 @@
  * BPM e batidas da música, e o canal de clique.
  *
  * 1. Força dos ataques a cada 10 ms (subida de energia em 3 faixas: grave, médio, agudo).
- * 2. Andamento: autocorrelação dessa força, com preferência suave por ~120 BPM (evita achar o dobro
- *    ou a metade).
+ * 2. Andamento: autocorrelação por faixa (grave, médio, agudo), com período fracionário, confirmada no
+ *    meio compasso e no compasso (o falso pulso dos ritmos sincopados não se repete no compasso) e
+ *    preferência suave por ~120 BPM (evita achar o dobro ou a metade).
  * 3. Batidas: programação dinâmica (Ellis, 2007), que segue pequenas variações de quem toca ao vivo.
  * 4. Tempo 1 do compasso (4/4): a fase em que o grave (bumbo/baixo) mais bate.
  */
@@ -48,31 +49,49 @@ export function trackBeats(mono: Float32Array, sr: number): Beats {
   const n = Math.min(low.length, mid.length, high.length);
   const onset = normalize(Float32Array.from({ length: n }, (_, i) => low[i] + mid[i] + high[i]));
 
-  // andamento: autocorrelação de 50 a 220 BPM, pesada em torno de 120 BPM
-  const minLag = Math.round((60 / 220) * FPS);
-  const maxLag = Math.round((60 / 50) * FPS);
+  // andamento: autocorrelação de 50 a 220 BPM, POR FAIXA (grave, médio, agudo) e com período fracionário.
+  // Ritmos sincopados (grupos de 3 semicolcheias, comuns no worship) imitam um pulso 4/3 mais rápido:
+  // o chimbal em semicolcheias se repete a qualquer múltiplo da semicolcheia. O que o falso pulso não
+  // imita é o compasso: bumbo e caixa se repetem a cada 4 tempos. Por isso o compasso pesa o dobro do
+  // meio compasso, medido só no grave e no médio.
+  const minLag = (60 / 220) * FPS;
+  const maxLag = (60 / 50) * FPS;
   const span = Math.min(n, FPS * 240); // até 4 min bastam para o andamento
-  const acf = (lag: number) => {
-    if (lag >= span) return 0;
-    let ac = 0;
-    for (let i = lag; i < span; i++) ac += onset[i] * onset[i - lag];
-    return ac / (span - lag);
+  const lowN = normalize(low.subarray(0, n));
+  const midN = normalize(mid.subarray(0, n));
+  const highN = normalize(high.subarray(0, n));
+  const maxInt = Math.ceil(4 * maxLag) + 2;
+  const table = (o: Float32Array) => {
+    const ac = new Float32Array(maxInt + 1);
+    for (let lag = 1; lag <= maxInt && lag < span; lag++) {
+      let s = 0;
+      for (let i = lag; i < span; i++) s += o[i] * o[i - lag];
+      ac[lag] = s / (span - lag);
+    }
+    return ac;
   };
-  const ac = new Float32Array(4 * maxLag + 1);
-  for (let lag = minLag; lag < ac.length; lag++) ac[lag] = acf(lag);
-  let bestLag = 50;
+  const tl = table(lowN);
+  const tm = table(midN);
+  const th = table(highN);
+  // autocorrelação num atraso fracionário (interpolação linear)
+  const at = (ac: Float32Array, lag: number) => {
+    const i = Math.floor(lag);
+    const f = lag - i;
+    return (ac[i] ?? 0) * (1 - f) + (ac[i + 1] ?? 0) * f;
+  };
+  let period = 50;
   let best = -Infinity;
-  for (let lag = minLag; lag <= maxLag; lag++) {
-    // a batida se confirma no dobro e no quádruplo do intervalo (meio compasso, compasso);
-    // síncopes não se repetem assim
-    const harm = ac[lag] + 0.5 * ac[2 * lag] + 0.25 * ac[4 * lag];
+  for (let lag = Math.ceil(minLag * 4) / 4; lag <= maxLag; lag += 0.25) {
+    const beat = (at(tl, lag) + at(tm, lag) + at(th, lag)) / 3;
+    const half = (at(tl, 2 * lag) + at(tm, 2 * lag) + at(th, 2 * lag)) / 3;
+    const bar = (at(tl, 4 * lag) + at(tm, 4 * lag)) / 2;
     const bpm = (60 * FPS) / lag;
+    // preferência suave por ~120 BPM (desempata dobro e metade)
     const w = Math.exp(-0.5 * (Math.log2(bpm / 120) / 1.4) ** 2);
-    const score = harm * w;
-    if (score > best) [best, bestLag] = [score, lag];
+    // o compasso pesa o dobro do meio compasso: é a repetição que o falso pulso 4/3 não consegue imitar
+    const score = (beat + 0.5 * half + bar) * w;
+    if (score > best) [best, period] = [score, lag];
   }
-  // refina o período com a vizinhança (fração de quadro)
-  const period = bestLag;
 
   // batidas: C(t) = O(t) + max[C(τ) − α·log²((t−τ)/P)]
   const alpha = 100; // "tightness" padrão do método: segue o andamento, não as síncopes
@@ -91,7 +110,7 @@ export function trackBeats(mono: Float32Array, sr: number): Beats {
   }
   // última batida: o melhor ponto do último período
   let t = n - 1;
-  for (let i = Math.max(0, n - period); i < n; i++) if (score[i] > score[t]) t = i;
+  for (let i = Math.max(0, n - Math.round(period)); i < n; i++) if (score[i] > score[t]) t = i;
   const frames: number[] = [];
   while (t >= 0) {
     frames.push(t);
@@ -104,10 +123,28 @@ export function trackBeats(mono: Float32Array, sr: number): Beats {
   while (a < frames.length && !strong(frames[a])) a++;
   let z = frames.length - 1;
   while (z > a && !strong(frames[z])) z--;
-  const kept = frames.slice(a, z + 1);
+  let kept = frames.slice(a, z + 1);
+
+  // na batida ou no contratempo? Quem toca marca o tempo pelo bumbo e pela caixa (o "2 e 4"); o chimbal
+  // soa igual nas duas fases e engana a busca acima. Se bumbo e caixa caem mais no meio das batidas,
+  // as batidas vão para o meio (meio tempo para frente).
+  if (kept.length > 8) {
+    const kickSnare = (f: number) => {
+      let v = 0;
+      // a caixa (médio) pesa o dobro: o "2 e 4" é a referência de quem toca; o bumbo também cai em contratempos
+      for (let d = -1; d <= 1; d++) v = Math.max(v, (lowN[f + d] ?? 0) + 2 * (midN[f + d] ?? 0));
+      return v;
+    };
+    let on = 0;
+    let off = 0;
+    for (let i = 0; i + 1 < kept.length; i++) {
+      on += kickSnare(kept[i]);
+      off += kickSnare(Math.round((kept[i] + kept[i + 1]) / 2));
+    }
+    if (off > on * 1.15) kept = kept.slice(0, -1).map((f, i) => Math.round((f + kept[i + 1]) / 2));
+  }
 
   // tempo 1: a fase (de 4) com mais grave nas batidas
-  const lowN = normalize(low);
   let downbeat = 0;
   let bestLow = -Infinity;
   for (let ph = 0; ph < 4; ph++) {
@@ -117,8 +154,11 @@ export function trackBeats(mono: Float32Array, sr: number): Beats {
   }
 
   // BPM pela mediana dos intervalos (segue o que de fato foi tocado)
+  // (média dos intervalos típicos: a mediana em quadros inteiros de 10 ms erra até 1 BPM)
   const ints = kept.slice(1).map((f, i) => f - kept[i]).sort((x, y) => x - y);
-  const med = ints.length ? ints[Math.floor(ints.length / 2)] : period;
+  const mid0 = ints.length ? ints[Math.floor(ints.length / 2)] : period;
+  const typical = ints.filter((v) => Math.abs(v / mid0 - 1) < 0.1);
+  const med = typical.length ? typical.reduce((a, v) => a + v, 0) / typical.length : period;
   // BPM inteiro (o clique segue as batidas medidas; o número mostrado é sempre inteiro)
   return { bpm: Math.round((60 * FPS) / med), beats: kept.map((f) => f / FPS), downbeat };
 }
